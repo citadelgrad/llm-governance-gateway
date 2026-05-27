@@ -1,0 +1,58 @@
+governance/app/pii.py
+  s_f4db87017c391e::t_77b637fdc19d11 1-65
+governance/app/audit.py
+  s_f4db87017c391e::t_c5b29b52ed1719 1-73
+governance/migrations/README
+  s_f4db87017c391e::t_060277a1be2cf6 1
+governance/app/main.py
+  s_f4db87017c391e::t_700db80f284958 44-46
+  s_f4db87017c391e::t_f03ba7e947ce89 1-3,5-6,8,10-11,13-14,19-23,83,87-88,93-337
+  s_f4db87017c391e::t_7acceea8ed2def 31-32
+governance/tests/test_governance.py
+  s_f4db87017c391e::t_aa12904ee5ea2f 1-48
+governance/app/pseudonym.py
+  s_f4db87017c391e::t_a4cc5c659635ae 1-39
+governance/pyproject.toml
+  s_f4db87017c391e::t_c10419a9c12dfc 24
+  s_f4db87017c391e::t_ba05a7b6b3143f 36-38
+governance/app/harm.py
+  s_f4db87017c391e::t_746815817eb062 1-37
+governance/migrations/versions/001_initial_schema.py
+  s_f4db87017c391e::t_98c51ab2f43bd2 1-152
+governance/app/db.py
+  s_f4db87017c391e::t_a2a88982dca0f1 1-48
+governance/app/retention.py
+  s_f4db87017c391e::t_fe5871f1e1aa06 1-114
+governance/app/context.py
+  s_f4db87017c391e::t_959137a2fdaf59 1-27
+governance/migrations/env.py
+  s_f4db87017c391e::t_1e238d3c126d1e 1-2,6-8,18-20,23,25,30-31,33-35,40-46,49-50
+  s_f4db87017c391e::t_060277a1be2cf6 3-5,9-17,21-22,24,26-29,32,36-39,47-48,51-56
+.beads/issues.jsonl
+  s_f4db87017c391e::t_e990802f1fb270 9,34,46
+  s_f4db87017c391e::t_963145a34a75fe 10,30,54
+  s_f4db87017c391e::t_45042165d1d8dd 24,38
+  s_f4db87017c391e::t_5bb4e178342819 14,33,35,42
+governance/alembic.ini
+  s_f4db87017c391e::t_060277a1be2cf6 1-149
+governance/app/opa.py
+  s_f4db87017c391e::t_0c7caa03142037 1-54
+governance/migrations/script.py.mako
+  s_f4db87017c391e::t_060277a1be2cf6 1-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9daab8a4e79e2962429ba5c1cfb1af61133865aa",
+  "prompts": {},
+  "sessions": {
+    "s_f4db87017c391e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "04164856-10b2-459d-ac53-660f8dec7f52",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
