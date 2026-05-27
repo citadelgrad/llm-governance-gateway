@@ -8,7 +8,7 @@ from typing import AsyncGenerator
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,8 +28,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     opa_url: str = "http://localhost:8181"
     spacy_model: str = "en_core_web_lg"
-    internal_token: str = "dev-internal-token"
-    pseudonym_hmac_key: str = "dev-hmac-key-32-chars-minimum!!"
+    internal_token: str = Field(
+        ...,
+        validation_alias=AliasChoices("GOVERNANCE_INTERNAL_TOKEN", "INTERNAL_TOKEN"),
+    )
+    pseudonym_hmac_key: str = Field(...)
 
     class Config:
         env_file = ".env"

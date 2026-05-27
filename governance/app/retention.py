@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 import sys
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_PARTITION_NAME_RE = re.compile(r"^audit_log_\d{4}_(?:0[1-9]|1[0-2])$")
 
 
 def _next_month(d: date) -> date:
@@ -16,6 +19,13 @@ def _next_month(d: date) -> date:
 
 def _partition_name(d: date) -> str:
     return f"audit_log_{d.year:04d}_{d.month:02d}"
+
+
+def _safe_partition_name(name: str) -> str:
+    """Validate partition name before DDL interpolation (Postgres DDL can't use bind params)."""
+    if not _PARTITION_NAME_RE.fullmatch(name):
+        raise ValueError(f"Refusing DDL: unexpected partition name {name!r}")
+    return name
 
 
 async def create_next_partition(session: AsyncSession) -> None:
@@ -32,8 +42,9 @@ async def create_next_partition(session: AsyncSession) -> None:
         return
 
     try:
+        safe_name = _safe_partition_name(table_name)
         await session.execute(text(f"""
-            CREATE TABLE {table_name} PARTITION OF audit_log
+            CREATE TABLE {safe_name} PARTITION OF audit_log
                 FOR VALUES FROM ('{next_month}') TO ('{end_month}')
         """))
         await session.commit()
@@ -54,7 +65,7 @@ async def advance_partitions(session: AsyncSession) -> None:
     rows = result.fetchall()
 
     for row in rows:
-        table_name = row.table_name
+        table_name = _safe_partition_name(row.table_name)
         now = datetime.now(timezone.utc)
 
         if row.detached_at is None:
