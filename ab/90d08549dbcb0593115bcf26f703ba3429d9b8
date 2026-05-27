@@ -1,0 +1,76 @@
+.beads/issues.jsonl
+  s_769e9792cee873::t_c48ca3351925a5 1,3-6,9-17,19,21-25,27,29-32
+  s_4c8bbfcb337d27::t_453b8f709a9ff1 7,28
+  s_4c8bbfcb337d27::t_8cb62da46007a5 20,41,45
+  s_4c8bbfcb337d27::t_524519bd363a20 8,18,26,43
+scripts/pre-commit-security.sh
+  s_4c8bbfcb337d27::t_ea1591b15b15b3 1-34,40-85
+  s_4c8bbfcb337d27::t_c403ed6229e77f 35-39
+.pre-commit-config.yaml
+  s_4c8bbfcb337d27::t_301ded6b3fad6c 1-9
+docker-compose.yml
+  s_4c8bbfcb337d27::t_d380c8407b3c6a 1-81
+.gitignore
+  s_4c8bbfcb337d27::t_a791af815391db 23-25
+  s_4c8bbfcb337d27::t_ffa31356cbd3cf 6-22
+config/models.yaml
+  s_4c8bbfcb337d27::t_74914bd0b6b616 1-40
+governance/app/settings.py
+  s_4c8bbfcb337d27::t_b12d32b8d712dd 1-3
+governance/pyproject.toml
+  s_4c8bbfcb337d27::t_5e7247c1db83ed 1-49
+.envrc.example
+  s_4c8bbfcb337d27::t_9034844655e594 1-18
+tests/README.md
+  s_4c8bbfcb337d27::t_072c982bcb5dea 1
+proxy/pyproject.toml
+  s_4c8bbfcb337d27::t_5fb4e4a937e187 1-44
+proxy/Dockerfile
+  s_4c8bbfcb337d27::t_5304e46a2973e7 1-12
+governance/Dockerfile
+  s_4c8bbfcb337d27::t_066be7e7d1fd86 1-19
+config/tenants.yaml
+  s_4c8bbfcb337d27::t_244a3369d42450 1-29
+config/users.yaml
+  s_4c8bbfcb337d27::t_d86da966348532 1-26
+governance/app/main.py
+  s_4c8bbfcb337d27::t_15dbd28497a496 4,6-8
+  s_4c8bbfcb337d27::t_65b56de4789e5b 43-69
+  s_4c8bbfcb337d27::t_f32652484db99f 1-3,5,9-42,70-98
+proxy/app/settings.py
+  s_4c8bbfcb337d27::t_5802d71a0d1763 1-3
+scripts/provision.py
+  s_4c8bbfcb337d27::t_b4ca9226f920d0 1-206
+scripts/requirements.txt
+  s_4c8bbfcb337d27::t_61a986198d7e4d 1-3
+proxy/app/main.py
+  s_4c8bbfcb337d27::t_347cc65a3dc827 6,8-10
+  s_4c8bbfcb337d27::t_5e3cf84815243f 1-5,7,11-39,67-72
+  s_4c8bbfcb337d27::t_0d796236b12614 40-66
+Makefile
+  s_4c8bbfcb337d27::t_86badbfd61ee9d 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ab90d08549dbcb0593115bcf26f703ba3429d9b8",
+  "prompts": {},
+  "sessions": {
+    "s_4c8bbfcb337d27": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "866d53e6-348d-45ff-af10-96a02ec0c604",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_769e9792cee873": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8758cc75-526d-4f92-b7ac-bc24b1201e1a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
