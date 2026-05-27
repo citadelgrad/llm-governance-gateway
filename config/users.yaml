@@ -1,0 +1,26 @@
+users:
+  - id: admin-acme
+    tenant_id: acme-corp
+    roles:
+      - admin
+      - tier1
+    initial_key: "REPLACE_IN_PROVISIONER"
+
+  - id: user-acme-tier1
+    tenant_id: acme-corp
+    roles:
+      - tier1
+    initial_key: "REPLACE_IN_PROVISIONER"
+
+  - id: user-acme-tier2
+    tenant_id: acme-corp
+    roles:
+      - tier2
+    initial_key: "REPLACE_IN_PROVISIONER"
+
+  - id: admin-internal
+    tenant_id: internal
+    roles:
+      - admin
+      - tier1
+    initial_key: "REPLACE_IN_PROVISIONER"

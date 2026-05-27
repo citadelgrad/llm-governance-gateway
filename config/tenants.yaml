@@ -1,0 +1,29 @@
+tenants:
+  - id: acme-corp
+    name: "Acme Corporation"
+    allowed_models:
+      - gpt-4o
+      - gpt-4o-mini
+      - claude-3-5-sonnet
+      - claude-3-haiku
+      - gemini-1.5-flash
+    rate_limit: 1000
+    pii_action: redact
+    pii_redaction_notification: true
+    default_provider: openai
+    contact_email: admin@acme.example.com
+
+  - id: internal
+    name: "Internal / Engineering"
+    allowed_models:
+      - gpt-4o
+      - gpt-4o-mini
+      - claude-3-5-sonnet
+      - claude-3-haiku
+      - gemini-1.5-flash
+      - o1-mini
+    rate_limit: 5000
+    pii_action: pass
+    pii_redaction_notification: false
+    default_provider: anthropic
+    contact_email: engineering@internal.example.com

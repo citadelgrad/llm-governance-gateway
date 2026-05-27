@@ -3,3 +3,23 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# direnv
+.envrc
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Docker
+.docker/
+
+# Editor
+.DS_Store
+*.swp
+*.swo
+
+# OPA generated data (contains user/tenant info)
+policies/data/*.json

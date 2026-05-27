@@ -1,0 +1,40 @@
+models:
+  # OpenAI
+  - id: gpt-4o
+    provider: openai
+    base_url: https://api.openai.com/v1
+
+  - id: gpt-4o-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+
+  - id: o1-mini
+    provider: openai
+    base_url: https://api.openai.com/v1
+
+  # Anthropic
+  - id: claude-3-5-sonnet
+    provider: anthropic
+    base_url: https://api.anthropic.com
+
+  - id: claude-3-haiku
+    provider: anthropic
+    base_url: https://api.anthropic.com
+
+  # Google
+  - id: gemini-1.5-flash
+    provider: google
+    base_url: https://generativelanguage.googleapis.com/v1beta
+
+  # Aliases — alias_of resolves to the canonical model id
+  - id: claude-sonnet
+    provider: anthropic
+    alias_of: claude-3-5-sonnet
+
+  - id: gpt4
+    provider: openai
+    alias_of: gpt-4o
+
+  - id: flash
+    provider: google
+    alias_of: gemini-1.5-flash

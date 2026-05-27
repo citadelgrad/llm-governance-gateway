@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  opa:
+    image: openpolicyagent/opa:latest-static
+    command: ["run", "--server", "--watch", "/policies"]
+    volumes:
+      - ./policies:/policies:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8181/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: ./governance
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://gateway:gateway@postgres:5432/gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  governance:
+    build: ./governance
+    environment:
+      DATABASE_URL: postgresql://gateway:gateway@postgres:5432/gateway
+      REDIS_URL: redis://redis:6379
+      OPA_URL: http://opa:8181
+      SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      opa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  proxy:
+    build: ./proxy
+    environment:
+      REDIS_URL: redis://redis:6379
+      GOVERNANCE_URL: http://governance:8000
+      GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
+    depends_on:
+      redis:
+        condition: service_healthy
+      governance:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

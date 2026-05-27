@@ -1,0 +1,18 @@
+# Provider API Keys
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="AIza..."
+
+# Security
+export JWT_SECRET="change-me-min-32-chars-secret-key"
+export GOVERNANCE_INTERNAL_TOKEN="change-me-internal-token"
+export GATEWAY_BOOTSTRAP_TOKEN="change-me-bootstrap-token"
+export PSEUDONYM_HMAC_KEY="change-me-hmac-key-32-chars-min"
+
+# Services
+export DATABASE_URL="postgresql://gateway:gateway@localhost:5432/gateway"
+export REDIS_URL="redis://localhost:6379"
+export OPA_URL="http://localhost:8181"
+
+# Models
+export SPACY_MODEL="en_core_web_lg"
