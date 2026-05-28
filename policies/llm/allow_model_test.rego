@@ -1,0 +1,81 @@
+package llm.allow_model_test
+
+import rego.v1
+
+import data.llm.allow_model
+
+# --- Tier-1 model in tenant's allowed_models: allow regardless of roles ---
+
+test_tier1_in_allowed_models if {
+    allow_model.allow with input as {
+        "request": {"model": "gpt-4o-mini"},
+        "tenant": {"allowed_models": ["gpt-4o-mini", "gpt-4o"]},
+        "user": {"roles": []},
+    }
+}
+
+test_tier1_gemini_flash_in_allowed_models if {
+    allow_model.allow with input as {
+        "request": {"model": "gemini-1.5-flash"},
+        "tenant": {"allowed_models": ["gemini-1.5-flash"]},
+        "user": {"roles": []},
+    }
+}
+
+# --- Tier-1 model NOT in allowed_models: deny ---
+
+test_tier1_not_in_allowed_models if {
+    not allow_model.allow with input as {
+        "request": {"model": "gpt-4o-mini"},
+        "tenant": {"allowed_models": ["gemini-1.5-flash"]},
+        "user": {"roles": []},
+    }
+}
+
+# --- Tier-2 model in allowed_models with tier2-access: allow ---
+
+test_tier2_with_role_in_allowed_models if {
+    allow_model.allow with input as {
+        "request": {"model": "gpt-4o"},
+        "tenant": {"allowed_models": ["gpt-4o"]},
+        "user": {"roles": ["tier2-access"]},
+    }
+}
+
+test_tier2_claude_sonnet_with_role if {
+    allow_model.allow with input as {
+        "request": {"model": "claude-3-5-sonnet"},
+        "tenant": {"allowed_models": ["claude-3-5-sonnet", "claude-3-haiku"]},
+        "user": {"roles": ["tier2-access"]},
+    }
+}
+
+# --- Tier-2 model in allowed_models WITHOUT tier2-access: deny ---
+
+test_tier2_in_allowed_models_no_role if {
+    not allow_model.allow with input as {
+        "request": {"model": "gpt-4o"},
+        "tenant": {"allowed_models": ["gpt-4o"]},
+        "user": {"roles": []},
+    }
+}
+
+# --- Tier-2 model NOT in allowed_models even WITH tier2-access: deny ---
+
+test_tier2_with_role_not_in_allowed_models if {
+    not allow_model.allow with input as {
+        "request": {"model": "gpt-4o"},
+        "tenant": {"allowed_models": ["gpt-4o-mini"]},
+        "user": {"roles": ["tier2-access"]},
+    }
+}
+
+# --- Unknown model (not in model_tiers): deny even if in allowed_models ---
+
+test_unknown_model_deny if {
+    not allow_model.allow with input as {
+        "request": {"model": "some-future-model"},
+        "tenant": {"allowed_models": ["some-future-model"]},
+        "user": {"roles": ["tier2-access"]},
+    }
+}

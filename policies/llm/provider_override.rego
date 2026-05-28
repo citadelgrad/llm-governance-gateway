@@ -1,8 +1,10 @@
 package llm.provider_override
 
-default allow = false
+import rego.v1
 
-allow {
+default allow := false
+
+allow if {
     perm := sprintf("gateway:provider_override:%s", [input.request.attempted_provider])
     perm in input.user.permissions
 }

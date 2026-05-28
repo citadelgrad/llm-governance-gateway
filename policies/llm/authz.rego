@@ -1,7 +1,9 @@
 package llm.authz
 
-default allow = false
-default redact_pii = false
+import rego.v1
+
+default allow := false
+default redact_pii := false
 
 # Tier assignment drives RBAC — tier2 models require the tier2-access role.
 # Aliases (claude-sonnet, gpt4, flash) are NOT listed here; the proxy resolves
@@ -23,13 +25,13 @@ phi_approved_providers := {"azure-openai", "bedrock"}
 
 # --- pre_call: model access ---
 
-allow {
+allow if {
     input.phase == "pre_call"
     tier := model_tiers[input.request.model]
     tier == "tier1"
 }
 
-allow {
+allow if {
     input.phase == "pre_call"
     tier := model_tiers[input.request.model]
     tier == "tier2"
@@ -40,7 +42,7 @@ allow {
 # deny is a set; a non-empty deny should be treated as a hard block by the
 # caller even when allow == true (belt-and-suspenders for future allow paths).
 
-deny[msg] {
+deny contains msg if {
     input.phase == "pre_call"
     "PHI" in input.request.data_classification
     not input.request.provider in phi_approved_providers
@@ -50,7 +52,7 @@ deny[msg] {
 # --- PII redaction signal ---
 # Evaluated independently of phase; the pipeline may act on this for any phase.
 
-redact_pii {
+redact_pii if {
     count(input.request.pii_findings) > 0
     input.pipeline.pii.action == "redact"
 }
