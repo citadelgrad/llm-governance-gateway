@@ -16,14 +16,14 @@ _FINISH_REASON_MAP = {
 
 
 def make_client(api_key: str) -> httpx.AsyncClient:
-    """Create the shared Gemini client. Auth uses ?key= query param."""
-    client = httpx.AsyncClient(
+    """Create the shared Gemini client. Auth uses the x-goog-api-key header
+    rather than ?key= so the key never appears in URL access logs."""
+    return httpx.AsyncClient(
         base_url=GEMINI_BASE,
+        headers={"x-goog-api-key": api_key, "content-type": "application/json"},
         limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
         timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
     )
-    client.params = httpx.QueryParams({"key": api_key})
-    return client
 
 
 def _translate_request(body: dict) -> tuple[str, dict]:
@@ -134,11 +134,13 @@ async def chat_completions(
     if stream:
         url = f"/models/{model}:streamGenerateContent"
 
-        try:
-
-            async def _stream_body(upstream_ctx):  # type: ignore[no-untyped-def]
-                completion_id = f"chatcmpl-gemini-{secrets.token_hex(8)}"
-                async with upstream_ctx as upstream:
+        async def _stream_body():
+            completion_id = f"chatcmpl-gemini-{secrets.token_hex(8)}"
+            final_finish_reason = "stop"
+            try:
+                async with client.stream(
+                    "POST", url, json=gemini_body, params={"alt": "sse"}
+                ) as upstream:
                     async for line in upstream.aiter_lines():
                         line = line.strip()
                         if not line.startswith("data:"):
@@ -157,6 +159,8 @@ async def chat_completions(
                         candidate = candidates[0]
                         parts = candidate.get("content", {}).get("parts", [])
                         text = "".join(p.get("text", "") for p in parts)
+                        if (gemini_finish := candidate.get("finishReason")):
+                            final_finish_reason = _FINISH_REASON_MAP.get(gemini_finish, "stop")
 
                         oai_chunk = {
                             "id": completion_id,
@@ -171,61 +175,49 @@ async def chat_completions(
                             ],
                         }
                         yield f"data: {json.dumps(oai_chunk)}\n\n"
+            except httpx.TimeoutException:
+                yield 'data: {"error": {"type": "upstream_timeout"}}\n\n'
+                return
+            except httpx.RequestError:
+                yield 'data: {"error": {"type": "upstream_connection_error"}}\n\n'
+                return
 
-                # Final chunk
-                final_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "model": model,
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                }
-                yield f"data: {json.dumps(final_chunk)}\n\n"
-                yield "data: [DONE]\n\n"
+            final_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": final_finish_reason}],
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+            yield "data: [DONE]\n\n"
 
-            req = client.stream("POST", url, json=gemini_body, params={"alt": "sse"})
-            return StreamingResponse(
-                _stream_body(req),
-                status_code=200,
-                media_type="text/event-stream",
-                headers=extra_headers,
-            )
-        except httpx.TimeoutException:
-            return Response(content=b"upstream timeout", status_code=504)
-        except httpx.RequestError:
-            return Response(content=b"upstream connection error", status_code=502)
-
-    else:
-        url = f"/models/{model}:generateContent"
-        try:
-            upstream = await client.post(url, json=gemini_body)
-        except httpx.TimeoutException:
-            return Response(content=b"upstream timeout", status_code=504)
-        except httpx.RequestError:
-            return Response(content=b"upstream connection error", status_code=502)
-
-        if upstream.status_code != 200:
-            return Response(
-                content=upstream.content,
-                status_code=upstream.status_code,
-                media_type=upstream.headers.get("content-type"),
-                headers=extra_headers,
-            )
-
-        try:
-            gemini_json = upstream.json()
-            envelope = _to_openai_envelope(gemini_json, model)
-        except Exception:
-            # Fallback: pass through raw response if parsing fails
-            return Response(
-                content=upstream.content,
-                status_code=upstream.status_code,
-                media_type=upstream.headers.get("content-type"),
-                headers=extra_headers,
-            )
-
-        return Response(
-            content=json.dumps(envelope).encode(),
+        return StreamingResponse(
+            _stream_body(),
             status_code=200,
-            media_type="application/json",
+            media_type="text/event-stream",
             headers=extra_headers,
         )
+
+    url = f"/models/{model}:generateContent"
+    try:
+        upstream = await client.post(url, json=gemini_body)
+    except httpx.TimeoutException:
+        return Response(content=b"upstream timeout", status_code=504)
+    except httpx.RequestError:
+        return Response(content=b"upstream connection error", status_code=502)
+
+    if upstream.status_code != 200:
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+            headers=extra_headers,
+        )
+
+    envelope = _to_openai_envelope(upstream.json(), model)
+    return Response(
+        content=json.dumps(envelope),
+        status_code=200,
+        media_type="application/json",
+        headers=extra_headers,
+    )

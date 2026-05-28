@@ -46,6 +46,9 @@ ignore = ["B008"]  # FastAPI Depends() in function defaults is idiomatic
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# ".." = project root (needed so mock.py's `from tests.fixtures import ...` resolves)
+# "." = proxy/ (for proxy.app.* imports)
+pythonpath = ["..", "."]
 
 [tool.pyright]
 pythonVersion = "3.12"

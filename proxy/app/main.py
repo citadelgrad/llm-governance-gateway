@@ -66,6 +66,7 @@ async def lifespan(app: FastAPI):
     await maybe_bootstrap(db_pool)
 
     models_config = load_models_yaml(settings.models_yaml)
+    models_by_id = {m["id"]: m for m in models_config if "id" in m}
 
     app.state.db_pool = db_pool
     app.state.redis = redis
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI):
     app.state.ollama_client = ollama_client
     app.state.generic_client = generic_client
     app.state.models_config = models_config
+    app.state.models_by_id = models_by_id
     app.state.ready = True
 
     yield
@@ -277,10 +279,7 @@ async def chat_completions(
                 request.app.state.ollama_client, body, stream, extra_headers
             )
         case _:
-            model_entry = next(
-                (m for m in request.app.state.models_config if m.get("id") == model_id),
-                None,
-            )
+            model_entry = request.app.state.models_by_id.get(model_id)
             if model_entry and model_entry.get("base_url"):
                 return await generic_provider.chat_completions(
                     request.app.state.generic_client,
@@ -288,7 +287,7 @@ async def chat_completions(
                     stream,
                     extra_headers,
                     base_url=model_entry["base_url"],
-                    api_key="",
+                    api_key=model_entry.get("api_key", ""),
                 )
             raise HTTPException(
                 status_code=400,

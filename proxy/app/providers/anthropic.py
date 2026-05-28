@@ -181,14 +181,16 @@ async def chat_completions(
     anthropic_body = _translate_request(body)
 
     if stream:
-        try:
-            async def _stream_body(upstream_ctx, model: str):
-                completion_id = ""
-                async with upstream_ctx as upstream:
+        model = body.get("model", "")
+
+        async def _stream_body():
+            completion_id = ""
+            try:
+                async with client.stream("POST", "/v1/messages", json=anthropic_body) as upstream:
                     async for line in upstream.aiter_lines():
                         if not line.startswith("data:"):
                             continue
-                        data_str = line[len("data:"):].strip()
+                        data_str = line[len("data:") :].strip()
                         if not data_str:
                             continue
                         try:
@@ -240,49 +242,37 @@ async def chat_completions(
                             yield f"data: {json.dumps(final_chunk)}\n\n"
                             yield "data: [DONE]\n\n"
                             continue
+            except httpx.TimeoutException:
+                yield 'data: {"error": {"type": "upstream_timeout"}}\n\n'
+            except httpx.RequestError:
+                yield 'data: {"error": {"type": "upstream_connection_error"}}\n\n'
 
-            req = client.stream("POST", "/v1/messages", json=anthropic_body)
-            model = body.get("model", "")
-            return StreamingResponse(
-                _stream_body(req, model),
-                status_code=200,
-                media_type="text/event-stream",
-                headers=extra_headers,
-            )
-        except httpx.TimeoutException:
-            return Response(content=b"upstream timeout", status_code=504)
-        except httpx.RequestError:
-            return Response(content=b"upstream connection error", status_code=502)
-    else:
-        try:
-            upstream = await client.post("/v1/messages", json=anthropic_body)
-        except httpx.TimeoutException:
-            return Response(content=b"upstream timeout", status_code=504)
-        except httpx.RequestError:
-            return Response(content=b"upstream connection error", status_code=502)
-
-        if upstream.status_code != 200:
-            return Response(
-                content=upstream.content,
-                status_code=upstream.status_code,
-                media_type=upstream.headers.get("content-type"),
-                headers=extra_headers,
-            )
-
-        try:
-            anthropic_json = upstream.json()
-            envelope = _translate_response(anthropic_json)
-        except Exception:
-            return Response(
-                content=upstream.content,
-                status_code=upstream.status_code,
-                media_type=upstream.headers.get("content-type"),
-                headers=extra_headers,
-            )
-
-        return Response(
-            content=json.dumps(envelope).encode(),
+        return StreamingResponse(
+            _stream_body(),
             status_code=200,
-            media_type="application/json",
+            media_type="text/event-stream",
             headers=extra_headers,
         )
+
+    try:
+        upstream = await client.post("/v1/messages", json=anthropic_body)
+    except httpx.TimeoutException:
+        return Response(content=b"upstream timeout", status_code=504)
+    except httpx.RequestError:
+        return Response(content=b"upstream connection error", status_code=502)
+
+    if upstream.status_code != 200:
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+            headers=extra_headers,
+        )
+
+    envelope = _translate_response(upstream.json())
+    return Response(
+        content=json.dumps(envelope),
+        status_code=200,
+        media_type="application/json",
+        headers=extra_headers,
+    )

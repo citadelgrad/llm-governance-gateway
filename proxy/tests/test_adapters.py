@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-import httpx
 from proxy.app.providers import (
     anthropic as anthropic_provider,
 )
@@ -370,10 +369,8 @@ def test_gemini_to_openai_envelope_safety_maps_to_content_filter():
 async def test_gemini_chat_completions_end_to_end(httpx_mock):
     httpx_mock.add_response(
         method="POST",
-        url=httpx.URL(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-            params={"key": "gemini-test-key"},
-        ),
+        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        match_headers={"x-goog-api-key": "gemini-test-key"},
         json={
             "candidates": [
                 {
@@ -435,7 +432,7 @@ async def test_ollama_chat_completions_passes_through(httpx_mock):
         json=upstream_body,
     )
 
-    client = ollama_provider.make_client()
+    client = ollama_provider.make_client("http://localhost:11434/v1")
     try:
         response = await ollama_provider.chat_completions(
             client,
