@@ -1,0 +1,19 @@
+policies/llm/audit_scope.rego
+  s_40ab540dc60b4a::t_834d07f664aadd 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "01f4fe8a2bd3164ce967e7e919dfcfa6cb3e08b4",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
