@@ -1,0 +1,21 @@
+proxy/app/providers/ollama.py
+  s_40ab540dc60b4a::t_791b9d99f8c189 1-56
+proxy/app/config.py
+  s_40ab540dc60b4a::t_b90b3fff28ba36 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5e8f191c01fbed48775838c70d87cbf3c95d6025",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
