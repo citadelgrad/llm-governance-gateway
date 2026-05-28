@@ -1,0 +1,19 @@
+proxy/app/providers/generic.py
+  s_40ab540dc60b4a::t_311264207466a6 1-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ecd8ee56e13e4e750aa33641ac2a43972b5e3594",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
