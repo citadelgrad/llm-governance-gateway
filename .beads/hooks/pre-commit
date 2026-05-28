@@ -22,3 +22,20 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v1.0.4 ---
+
+# Security check — block commits containing secrets
+_hook_dir="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -n "$_hook_dir" ] && [ -x "$_hook_dir/scripts/pre-commit-security.sh" ]; then
+  "$_hook_dir/scripts/pre-commit-security.sh" "$@"
+fi
+
+# Ultimate Bug Scanner — static analysis on staged files
+if command -v ubs >/dev/null 2>&1; then
+  _ubs_out=$(ubs --staged --fail-on-warning 2>&1)
+  _ubs_exit=$?
+  printf '%s\n' "$_ubs_out" | tail -30
+  if [ "${_ubs_exit}" -ne 0 ]; then
+    echo "ubs: issues found — fix or use git commit --no-verify to bypass"
+    exit "${_ubs_exit}"
+  fi
+fi

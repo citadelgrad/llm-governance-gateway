@@ -29,6 +29,9 @@ test:
 	cd proxy && uv run pytest tests/
 	cd governance && uv run pytest tests/
 
+test-integration:
+	INTEGRATION_TEST=1 uv run pytest tests/integration/ -v
+
 ## OPA policy tests
 opa-test:
 	docker compose run --rm opa test /policies -v

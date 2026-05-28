@@ -21,5 +21,10 @@ __pycache__/
 *.swp
 *.swo
 
+# Claude Code agent artifacts
+.claude/worktrees/
+.claude/epic-swarm/
+.tldr/
+
 # OPA generated data (contains user/tenant info)
 policies/data/*.json
