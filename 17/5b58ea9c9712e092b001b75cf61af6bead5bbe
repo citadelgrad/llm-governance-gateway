@@ -1,0 +1,23 @@
+.beads/issues.jsonl
+  s_40ab540dc60b4a::t_84153ae8da1d03 15
+  s_40ab540dc60b4a::t_705a688c6002b7 6-8,57
+  s_40ab540dc60b4a::t_b2128cf39d6774 58
+.claude/worktrees/agent-a4dfbd35cffa6b8b8/policies/llm/authz.rego
+  s_40ab540dc60b4a::t_4fda560995ba62 1-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "175b58ea9c9712e092b001b75cf61af6bead5bbe",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
