@@ -1,0 +1,19 @@
+proxy/app/providers/gemini.py
+  s_40ab540dc60b4a::t_020725e29c2d2b 1-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b3c004dad1f929456d7f2571932f90c9a63af03d",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
