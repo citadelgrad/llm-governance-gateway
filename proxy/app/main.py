@@ -15,7 +15,11 @@ from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
 from proxy.app.governance_client import GovernanceError, InspectRequest, make_governance_client
 from proxy.app.headers import error_envelope, pii_headers, rate_limit_headers, retry_headers
+from proxy.app.providers import anthropic as anthropic_provider
+from proxy.app.providers import gemini as gemini_provider
+from proxy.app.providers import generic as generic_provider
 from proxy.app.providers import mock as mock_provider
+from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.routing import load_models_yaml, resolve_provider
@@ -48,8 +52,16 @@ async def lifespan(app: FastAPI):
     governance_client = make_governance_client(gov_http)
 
     openai_client: httpx.AsyncClient | None = None
+    anthropic_client: httpx.AsyncClient | None = None
+    gemini_client: httpx.AsyncClient | None = None
+    ollama_client: httpx.AsyncClient | None = None
+    generic_client: httpx.AsyncClient | None = None
     if not settings.mock_mode:
         openai_client = openai_provider.make_client(settings.openai_api_key)
+        anthropic_client = anthropic_provider.make_client(settings.anthropic_api_key)
+        gemini_client = gemini_provider.make_client(settings.gemini_api_key)
+        ollama_client = ollama_provider.make_client(settings.ollama_base_url)
+        generic_client = generic_provider.make_client()
 
     await maybe_bootstrap(db_pool)
 
@@ -61,6 +73,10 @@ async def lifespan(app: FastAPI):
     app.state.gov_http = gov_http
     app.state.governance_client = governance_client
     app.state.openai_client = openai_client
+    app.state.anthropic_client = anthropic_client
+    app.state.gemini_client = gemini_client
+    app.state.ollama_client = ollama_client
+    app.state.generic_client = generic_client
     app.state.models_config = models_config
     app.state.ready = True
 
@@ -70,8 +86,9 @@ async def lifespan(app: FastAPI):
     await db_pool.close()
     await redis.aclose()
     await gov_http.aclose()
-    if openai_client:
-        await openai_client.aclose()
+    for client in (openai_client, anthropic_client, gemini_client, ollama_client, generic_client):
+        if client is not None:
+            await client.aclose()
 
 
 docs_url = "/docs" if settings.docs_enabled else None
@@ -247,7 +264,32 @@ async def chat_completions(
             return await openai_provider.chat_completions(
                 request.app.state.openai_client, body, stream, extra_headers
             )
+        case "anthropic":
+            return await anthropic_provider.chat_completions(
+                request.app.state.anthropic_client, body, stream, extra_headers
+            )
+        case "gemini" | "google":
+            return await gemini_provider.chat_completions(
+                request.app.state.gemini_client, body, stream, extra_headers
+            )
+        case "ollama":
+            return await ollama_provider.chat_completions(
+                request.app.state.ollama_client, body, stream, extra_headers
+            )
         case _:
+            model_entry = next(
+                (m for m in request.app.state.models_config if m.get("id") == model_id),
+                None,
+            )
+            if model_entry and model_entry.get("base_url"):
+                return await generic_provider.chat_completions(
+                    request.app.state.generic_client,
+                    body,
+                    stream,
+                    extra_headers,
+                    base_url=model_entry["base_url"],
+                    api_key="",
+                )
             raise HTTPException(
                 status_code=400,
                 detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),

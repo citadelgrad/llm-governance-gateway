@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     governance_internal_token: str = Field(...)
     database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
     openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434/v1"
     mock_providers: bool = False
     mock_mode: bool = False
