@@ -1,0 +1,23 @@
+.gitignore
+  s_d7481396bf969f::t_31a836fe221166 24-28
+.beads/issues.jsonl
+  s_d7481396bf969f::t_299287047f0d83 15,21,34,51
+.beads/interactions.jsonl
+  s_d7481396bf969f::t_299287047f0d83 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "33391b527991d59c8505f10d5d6712e2d09d591f",
+  "prompts": {},
+  "sessions": {
+    "s_d7481396bf969f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "89fefc1d-0e07-4f03-b0ab-a60488863b40",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
