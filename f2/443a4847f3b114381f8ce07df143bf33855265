@@ -1,0 +1,46 @@
+proxy/app/providers/generic.py
+  s_40ab540dc60b4a::t_25126320de0101 3-6,11-47,66-77,79-80,83-85,88-91,93-96,99-112
+proxy/app/providers/gemini.py
+  s_40ab540dc60b4a::t_3ea106d24f8696 19-21,23
+  s_40ab540dc60b4a::t_d7c2bc3be17e1e 137-143,162-163,178-192,194-199,201-207,209,211-213,216-223
+proxy/app/providers/anthropic.py
+  s_40ab540dc60b4a::t_0988ed69e4c6b4 184-189,193,245-248,250-255,257-262,264,266-268,271-278
+proxy/tests/test_adapters.py
+  s_40ab540dc60b4a::t_cf0f91f200e3a2 435
+  s_40ab540dc60b4a::t_3cb59dd6bd11ec 372-373
+.beads/issues.jsonl
+  s_40ab540dc60b4a::t_f2b24e98a16a98 22
+proxy/app/main.py
+  s_40ab540dc60b4a::t_361411e9ad0424 69,82
+  s_40ab540dc60b4a::t_111c6a98b33698 282,290
+proxy/pyproject.toml
+  s_ea5ae4c80f71c2::t_fad0901eff6a32 49-51
+proxy/app/providers/openai.py
+  s_40ab540dc60b4a::t_b51b152c94f2f7 25-27,30-33,35-38,41-54
+proxy/app/providers/ollama.py
+  s_40ab540dc60b4a::t_bc950505119cb9 7,10,24-26,29-37,40-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f2443a4847f3b114381f8ce07df143bf33855265",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_ea5ae4c80f71c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08ee2ab9-74fd-4c9b-bdab-5237a4dd28a8",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
