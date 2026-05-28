@@ -1,0 +1,19 @@
+proxy/app/providers/anthropic.py
+  s_40ab540dc60b4a::t_2d9f0863caef0a 1-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "41b940235978f3c0e912c91f61112c87131e2ae8",
+  "prompts": {},
+  "sessions": {
+    "s_40ab540dc60b4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2775a2d3-ad19-45b9-9c1f-d0615ad5a5e8",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
