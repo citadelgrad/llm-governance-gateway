@@ -1,0 +1,19 @@
+docs/demo-scenarios.md
+  s_d5a0ede41b1a0d::t_1564c3217b1448 1-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4fc5e6b93718063a0bd9ef7444a26af69c8b6f03",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
