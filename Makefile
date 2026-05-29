@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-bootstrap rotate-partitions demo help
+.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-bootstrap rotate-partitions demo deploy help
 
 ## Service lifecycle
 up:
@@ -55,6 +55,12 @@ demo:
 	$(MAKE) provision
 	@echo "Demo ready. Run 'make logs' to follow output."
 
+## Fly.io deployment (OPA → governance → proxy order)
+deploy:
+	fly deploy --config fly-opa.toml
+	fly deploy --config fly-governance.toml
+	fly deploy --config fly.toml
+
 ## Help
 help:
 	@echo "Available targets:"
@@ -72,3 +78,4 @@ help:
 	@echo "  rotate-bootstrap    Rotate bootstrap token"
 	@echo "  rotate-partitions   Rotate partition keys"
 	@echo "  demo                Start full demo environment"
+	@echo "  deploy              Deploy all services to Fly.io (OPA → governance → proxy)"

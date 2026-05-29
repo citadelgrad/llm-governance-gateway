@@ -15,4 +15,9 @@ export REDIS_URL="redis://localhost:6379"
 export OPA_URL="http://localhost:8181"
 
 # Models
+# Local: en_core_web_lg (~680MB, higher recall)
+# Fly.io: en_core_web_sm (~12MB, fits 1GB RAM limit, cold-start <30s)
 export SPACY_MODEL="en_core_web_lg"
+
+# Mock providers (set to true to run demo without real API keys)
+export MOCK_PROVIDERS="false"

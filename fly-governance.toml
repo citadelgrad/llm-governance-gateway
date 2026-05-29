@@ -1,0 +1,30 @@
+app = "ai-gateway-governance"
+primary_region = "iad"
+
+[build]
+  dockerfile = "governance/Dockerfile"
+
+[env]
+  LOG_LEVEL = "info"
+  SPACY_MODEL = "en_core_web_sm"
+  DOCS_ENABLED = "false"
+
+# No [[services]] block — internal network only via .internal DNS
+# Reachable at http://ai-gateway-governance.internal:8000 from other Fly apps
+
+[checks]
+  [checks.health]
+    port = 8000
+    type = "http"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "performance-1x"
+  memory = "1024mb"
+
+[machines]
+  auto_stop_machines = true

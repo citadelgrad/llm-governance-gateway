@@ -1,0 +1,37 @@
+app = "ai-gateway-proxy"
+primary_region = "iad"
+
+[build]
+  dockerfile = "proxy/Dockerfile"
+
+[env]
+  OPA_URL = "http://opa.internal:8181"
+  LOG_LEVEL = "info"
+  DOCS_ENABLED = "false"
+
+[metrics]
+  port = 9091
+  path = "/metrics"
+
+[[services]]
+  internal_port = 8000
+  protocol = "tcp"
+  auto_stop_machines = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
