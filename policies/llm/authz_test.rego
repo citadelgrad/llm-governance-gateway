@@ -24,7 +24,7 @@ test_tier1_claude_haiku_allow if {
         "phase": "pre_call",
         "request": {
             "model": "claude-3-haiku",
-            "provider": "openai",
+            "provider": "anthropic",
             "data_classification": [],
             "pii_findings": [],
         },
@@ -67,6 +67,21 @@ test_tier2_allow_with_role if {
         "phase": "pre_call",
         "request": {
             "model": "gpt-4o",
+            "provider": "openai",
+            "data_classification": [],
+            "pii_findings": [],
+        },
+        "user": {"roles": ["tier2-access"]},
+    }
+}
+
+# --- Unknown model (not in model_tiers): deny regardless of roles ---
+
+test_unknown_model_deny if {
+    not authz.allow with input as {
+        "phase": "pre_call",
+        "request": {
+            "model": "some-future-model",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": [],

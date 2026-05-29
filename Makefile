@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test opa-test provision rotate-bootstrap rotate-partitions demo help
+.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-bootstrap rotate-partitions demo help
 
 ## Service lifecycle
 up:
@@ -30,7 +30,7 @@ test:
 	cd governance && uv run pytest tests/
 
 test-integration:
-	INTEGRATION_TEST=1 uv run pytest tests/integration/ -v
+	cd proxy && INTEGRATION_TEST=1 uv run pytest ../tests/integration/ -v
 
 ## OPA policy tests
 opa-test:
@@ -66,6 +66,7 @@ help:
 	@echo "  migrate             Run database migrations"
 	@echo "  lint                Run ruff + pyright on both services"
 	@echo "  test                Run pytest on both services"
+	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
 	@echo "  opa-test            Run OPA policy tests"
 	@echo "  provision           Run IaC provisioner (idempotent)"
 	@echo "  rotate-bootstrap    Rotate bootstrap token"
