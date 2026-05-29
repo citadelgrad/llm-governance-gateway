@@ -1,0 +1,21 @@
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Install governance dependencies only (no project install — source is copied below)
+COPY governance/pyproject.toml governance/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# governance source is placed at /app/governance/ so that
+# `from governance.app.retention import ...` resolves via Python namespace packages
+COPY governance/ governance/
+COPY scripts/rotate_partitions.py scripts/rotate_partitions.py
+COPY scripts/fly-cron-entrypoint.sh scripts/fly-cron-entrypoint.sh
+RUN chmod +x scripts/fly-cron-entrypoint.sh
+
+CMD ["scripts/fly-cron-entrypoint.sh"]

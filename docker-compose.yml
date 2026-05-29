@@ -44,10 +44,12 @@ services:
   governance:
     build: ./governance
     environment:
-      DATABASE_URL: postgresql://gateway:gateway@postgres:5432/gateway
+      DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
       OPA_URL: http://opa:8181
       SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
+      GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
+      PSEUDONYM_HMAC_KEY: ${PSEUDONYM_HMAC_KEY}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -65,6 +67,7 @@ services:
     ports:
       - "8765:8000"
     environment:
+      DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
       GOVERNANCE_URL: http://governance:8000
       GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}

@@ -191,7 +191,7 @@ sequenceDiagram
     else decision == "allow"
         P->>LLM: forwarded request (PII replaced with pseudonyms)
         LLM-->>P: completion response
-        P-->>C: response + X-Audit-Id + X-PII-Redacted headers
+        P-->>C: response + X-Audit-ID + X-PII-Redacted headers
     end
 ```
 

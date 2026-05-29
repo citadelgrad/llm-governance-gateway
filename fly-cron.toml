@@ -2,7 +2,7 @@ app = "ai-gateway-cron"
 primary_region = "iad"
 
 [build]
-  dockerfile = "governance/Dockerfile"
+  dockerfile = "Dockerfile.cron"
 
 # No [[services]] — this is a one-shot cron machine, not a long-running service.
 # Schedule is set at machine-run time:

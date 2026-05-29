@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-bootstrap rotate-partitions demo deploy help
+.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-partitions demo deploy help
 
 ## Service lifecycle
 up:
@@ -40,11 +40,8 @@ opa-test:
 provision:
 	uv run scripts/provision.py
 
-rotate-bootstrap:
-	docker compose exec governance uv run scripts/rotate_bootstrap.py
-
 rotate-partitions:
-	docker compose exec governance uv run scripts/rotate_partitions.py
+	cd governance && uv run python ../scripts/rotate_partitions.py
 
 ## Demo
 demo:
@@ -72,7 +69,6 @@ help:
 	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
 	@echo "  opa-test            Run OPA policy tests"
 	@echo "  provision           Run IaC provisioner (idempotent)"
-	@echo "  rotate-bootstrap    Rotate bootstrap token"
-	@echo "  rotate-partitions   Rotate partition keys"
+	@echo "  rotate-partitions   Rotate audit_log partitions (runs nightly on Fly cron)"
 	@echo "  demo                Run 6 governance scenarios (make up + provision + demo.py)"
 	@echo "  deploy              Deploy all services to Fly.io (OPA → governance → proxy)"

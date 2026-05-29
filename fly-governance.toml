@@ -3,11 +3,13 @@ primary_region = "iad"
 
 [build]
   dockerfile = "governance/Dockerfile"
+  context = "governance"
 
 [env]
   LOG_LEVEL = "info"
   SPACY_MODEL = "en_core_web_sm"
   DOCS_ENABLED = "false"
+  OPA_URL = "http://ai-gateway-opa.internal:8181"
 
 # No [[services]] block — internal network only via .internal DNS
 # Reachable at http://ai-gateway-governance.internal:8000 from other Fly apps
