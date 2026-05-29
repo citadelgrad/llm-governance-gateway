@@ -55,8 +55,8 @@ async def test_governance_blocks(async_client):
     response = await client.post("/v1/chat/completions", json=_CLEAN_BODY)
     assert response.status_code == 403
     body = response.json()
-    assert body["detail"]["error"]["type"] == "policy_violation"
-    assert len(body["detail"]["error"]["violations"]) > 0
+    assert body["error"]["type"] == "policy_violation"
+    assert len(body["error"]["violations"]) > 0
 
 
 async def test_pii_redaction_headers(async_client):
