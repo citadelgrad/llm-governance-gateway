@@ -1,0 +1,9 @@
+fly-secrets.sh.example
+  ai_agent 3,5-10,15,17-23,27-29,36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a7cbb97344b3df81c52085b3f5ee88bb02fee0a2",
+  "prompts": {}
+}
