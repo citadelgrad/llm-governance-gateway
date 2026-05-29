@@ -13,6 +13,7 @@ RUN uv sync --frozen --no-dev
 
 ARG SPACY_MODEL=en_core_web_lg
 RUN uv run python -m spacy download ${SPACY_MODEL}
+ENV SPACY_MODEL=${SPACY_MODEL}
 
 COPY . .
 
