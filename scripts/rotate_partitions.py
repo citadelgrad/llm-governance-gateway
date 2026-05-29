@@ -3,15 +3,17 @@
 import asyncio
 import os
 import sys
+from pathlib import Path
 
-# Add the repo root to path so governance package is importable when running standalone
-_repo_root = str(__file__).split("/scripts/")[0]
+# Add the repo root to path so governance package is importable when running standalone.
+# Using pathlib.Path.resolve() is robust to symlinks and any deployment path.
+_repo_root = str(Path(__file__).resolve().parent.parent)
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from governance.app.retention import create_next_partition, advance_partitions
+from governance.app.retention import advance_partitions, create_next_partition
 
 _raw_url = os.environ.get("DATABASE_URL")
 if not _raw_url:

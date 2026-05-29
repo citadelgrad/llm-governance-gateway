@@ -26,5 +26,6 @@ primary_region = "iad"
   size = "performance-1x"
   memory = "1024mb"
 
-[machines]
-  auto_stop_machines = true
+# auto_stop_machines intentionally disabled: spaCy cold-start (~30s) exceeds the
+# proxy httpx client timeout (10s), causing 503s if the machine is stopped.
+# Configure keep-alive via `fly scale count 1 --app ai-gateway-governance`.

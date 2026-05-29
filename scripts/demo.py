@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from jose import jwt
@@ -32,8 +33,9 @@ _TENANT = "acme-corp"
 
 
 def _token(roles: list[str], user_id: str = _USER_TIER1) -> str:
+    exp = datetime.now(timezone.utc) + timedelta(minutes=15)
     return jwt.encode(
-        {"user_id": user_id, "tenant_id": _TENANT, "roles": roles},
+        {"user_id": user_id, "tenant_id": _TENANT, "roles": roles, "exp": exp},
         JWT_SECRET,
         algorithm="HS256",
     )

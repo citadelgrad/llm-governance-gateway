@@ -5,7 +5,7 @@ primary_region = "iad"
   dockerfile = "proxy/Dockerfile"
 
 [env]
-  OPA_URL = "http://opa.internal:8181"
+  OPA_URL = "http://ai-gateway-opa.internal:8181"
   LOG_LEVEL = "info"
   DOCS_ENABLED = "false"
 
@@ -29,8 +29,8 @@ primary_region = "iad"
 
   [services.concurrency]
     type = "connections"
-    hard_limit = 25
-    soft_limit = 20
+    hard_limit = 250
+    soft_limit = 200
 
 [[vm]]
   size = "shared-cpu-1x"

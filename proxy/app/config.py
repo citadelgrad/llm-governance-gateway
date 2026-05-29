@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
-    governance_url: str = "http://governance:8742"
+    governance_url: str = "http://governance:8000"
     governance_internal_token: str = Field(...)
     database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
     openai_api_key: str = ""
@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     mock_providers: bool = False
     mock_mode: bool = False
-    docs_enabled: bool = True
+    docs_enabled: bool = False
     mock_stream_delay_ms: int = 0
     models_yaml: str = "config/models.yaml"
     jwt_secret: str = Field(...)

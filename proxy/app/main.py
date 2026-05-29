@@ -10,6 +10,7 @@ import httpx
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from proxy.app.auth import AuthError, CallerContext, authenticate
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
@@ -240,9 +241,7 @@ async def chat_completions(
         extra_headers["X-Audit-ID"] = inspect_resp.audit_id
 
     if inspect_resp.decision == "block":
-        from fastapi.responses import JSONResponse
-
-        block_status = 400 if any("prompt_injection" in v for v in inspect_resp.violations) else 403
+        block_status = 400 if any(v == "harm:prompt_injection" for v in inspect_resp.violations) else 403
         return JSONResponse(
             content=error_envelope(
                 "policy_violation",
@@ -398,12 +397,11 @@ async def delete_user(
             detail=error_envelope("forbidden", "Admin role required"),
         )
 
-    async with request.app.state.gov_http as _:
-        resp = await request.app.state.gov_http.delete(
-            f"{settings.governance_url}/v1/users/{user_id}",
-            params={"tenant_id": caller.tenant_id},
-            headers={"X-Internal-Token": settings.governance_internal_token},
-        )
+    resp = await request.app.state.gov_http.delete(
+        f"{settings.governance_url}/v1/users/{user_id}",
+        params={"tenant_id": caller.tenant_id},
+        headers={"X-Internal-Token": settings.governance_internal_token},
+    )
 
     return Response(
         content=resp.content,

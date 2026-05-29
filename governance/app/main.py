@@ -165,8 +165,12 @@ async def audit_export(
     after_audit_id: str | None = Query(default=None),
     until: datetime | None = Query(default=None),
     limit: int = Query(default=500, le=1000),
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
     if until is None:
         until = datetime.now(timezone.utc)
 
@@ -247,8 +251,12 @@ async def audit_export(
 async def audit_list(
     tenant_id: str | None = Query(default=None),
     limit: int = Query(default=50, le=200),
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
     session: AsyncSession = Depends(get_session),
 ):
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
     result = await session.execute(
         text("""
             SELECT audit_id, created_at, user_id, tenant_id, model_id,
