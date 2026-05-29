@@ -1,0 +1,23 @@
+scripts/fly-cron-entrypoint.sh
+  s_d5a0ede41b1a0d::t_93596cb8c010c6 1-6
+fly-cron.toml
+  s_d5a0ede41b1a0d::t_5d90d35397ffcc 1-26
+fly-secrets-example.sh
+  s_d5a0ede41b1a0d::t_042202a04d90cb 27-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "76729d45656f2b3936c1b28f2d75fcb1fd7c4912",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
