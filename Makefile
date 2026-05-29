@@ -48,12 +48,9 @@ rotate-partitions:
 
 ## Demo
 demo:
-	@echo "Starting demo environment..."
 	$(MAKE) up
-	@echo "Waiting for services..."
-	@sleep 10
 	$(MAKE) provision
-	@echo "Demo ready. Run 'make logs' to follow output."
+	MOCK_PROVIDERS=true uv run scripts/demo.py
 
 ## Fly.io deployment (OPA → governance → proxy order)
 deploy:
@@ -77,5 +74,5 @@ help:
 	@echo "  provision           Run IaC provisioner (idempotent)"
 	@echo "  rotate-bootstrap    Rotate bootstrap token"
 	@echo "  rotate-partitions   Rotate partition keys"
-	@echo "  demo                Start full demo environment"
+	@echo "  demo                Run 6 governance scenarios (make up + provision + demo.py)"
 	@echo "  deploy              Deploy all services to Fly.io (OPA → governance → proxy)"
