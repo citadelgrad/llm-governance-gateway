@@ -1,0 +1,31 @@
+fly-secrets-example.sh
+  s_d5a0ede41b1a0d::t_bfb498a49aaf25 1-26
+.envrc.example
+  s_d5a0ede41b1a0d::t_a027711d79df4f 18-19,21-23
+fly.toml
+  s_d5a0ede41b1a0d::t_7a6df9da7fb76b 1-37
+Makefile
+  s_d5a0ede41b1a0d::t_77d8a3f0087963 58-63
+  s_d5a0ede41b1a0d::t_0ad5f635378fff 1
+  s_d5a0ede41b1a0d::t_e7bac67780c026 81
+fly-governance.toml
+  s_d5a0ede41b1a0d::t_c23ec701db2ba0 1-30
+fly-opa.toml
+  s_d5a0ede41b1a0d::t_015156d73eb61d 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "81a05fcfd7cf8c68d61b6fcd251f558a33ebcea9",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
