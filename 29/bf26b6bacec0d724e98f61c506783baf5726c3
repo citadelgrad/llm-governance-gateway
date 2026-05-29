@@ -1,0 +1,40 @@
+governance/app/main.py
+  s_d5a0ede41b1a0d::t_63eec96ca802d8 168,171-173
+  s_d5a0ede41b1a0d::t_dec3d343feac36 254,257-259
+.beads/issues.jsonl
+  s_d5a0ede41b1a0d::t_8b50e0ee0e5b2c 25,49,54
+scripts/rotate_partitions.py
+  s_d5a0ede41b1a0d::t_07c5b304b699ae 6,8-10,14,16
+fly-governance.toml
+  s_d5a0ede41b1a0d::t_6ac08212981a59 29-31
+proxy/app/config.py
+  s_d5a0ede41b1a0d::t_b317e82f4a1493 7
+  s_d5a0ede41b1a0d::t_ed9e644e2f6086 16
+fly.toml
+  s_d5a0ede41b1a0d::t_a2963ca0bc0b42 32-33
+  s_d5a0ede41b1a0d::t_7aedbc057d52d7 8
+scripts/demo.py
+  s_d5a0ede41b1a0d::t_7e6ee2c143ed8f 16
+  s_d5a0ede41b1a0d::t_1b9805bc09f55e 36,38
+proxy/app/main.py
+  s_d5a0ede41b1a0d::t_ddf935e1b59475 244
+  s_d5a0ede41b1a0d::t_802731e778c57f 13
+  s_d5a0ede41b1a0d::t_1d2ec1f74a48d4 400
+  s_d5a0ede41b1a0d::t_8443d1ac642905 401-404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "29bf26b6bacec0d724e98f61c506783baf5726c3",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
