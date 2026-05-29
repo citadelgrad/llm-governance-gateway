@@ -24,3 +24,7 @@ fly secrets set -a ai-gateway-governance \
 
 # OPA — internal only, no secrets needed beyond what's baked into policy bundles
 # fly secrets set -a ai-gateway-opa ...
+
+# Cron — nightly partition rotation (02:00 UTC)
+fly secrets set -a ai-gateway-cron \
+  DATABASE_URL="postgres://gateway:password@top2.nearest.of.ai-gateway-db.internal:5432/gateway"
