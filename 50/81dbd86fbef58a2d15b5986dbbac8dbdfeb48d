@@ -1,0 +1,36 @@
+.beads/issues.jsonl
+  s_f2aab254089e3f::t_6a202718d59159 5,13
+.beads/interactions.jsonl
+  s_f2aab254089e3f::t_6a202718d59159 55-56
+Makefile
+  s_38fe9b2b14fd5f::t_ac82f9d1ab61c0 33
+  s_38fe9b2b14fd5f::t_8292644d425fa3 1
+  s_38fe9b2b14fd5f::t_2f309b3b0228d9 69
+policies/llm/authz_test.rego
+  s_38fe9b2b14fd5f::t_2df50897a57599 27
+  s_38fe9b2b14fd5f::t_d595a8c9deb405 78-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "5081dbd86fbef58a2d15b5986dbbac8dbdfeb48d",
+  "prompts": {},
+  "sessions": {
+    "s_38fe9b2b14fd5f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e06583cd-8a4e-43fe-9422-3c8bf1deda16",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_f2aab254089e3f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "829c1982-503d-42d0-919f-eaada16aeade",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
