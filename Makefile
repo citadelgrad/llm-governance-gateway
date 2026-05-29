@@ -30,7 +30,7 @@ test:
 	cd governance && uv run pytest tests/
 
 test-integration:
-	cd proxy && INTEGRATION_TEST=1 uv run pytest ../tests/integration/ -v
+	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv run pytest ../tests/integration/ -v
 
 ## OPA policy tests
 opa-test:
