@@ -1,0 +1,21 @@
+.beads/issues.jsonl
+  s_d5a0ede41b1a0d::t_cf11430144292b 42
+README.md
+  s_d5a0ede41b1a0d::t_4a5a04a0cf0d22 1-299
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3e6a333989181d594fdd1e39c9531ba2cc3990a0",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
