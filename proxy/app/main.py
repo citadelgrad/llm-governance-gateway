@@ -235,17 +235,23 @@ async def chat_completions(
             detail=error_envelope("governance_unavailable", "Governance service unavailable"),
         ) from exc
 
+    extra_headers: dict[str, str] = {**rl_hdrs}
+    if inspect_resp.audit_id:
+        extra_headers["X-Audit-ID"] = inspect_resp.audit_id
+
     if inspect_resp.decision == "block":
-        raise HTTPException(
-            status_code=403,
-            detail=error_envelope(
+        from fastapi.responses import JSONResponse
+
+        block_status = 400 if any("prompt_injection" in v for v in inspect_resp.violations) else 403
+        return JSONResponse(
+            content=error_envelope(
                 "policy_violation",
                 "Request blocked by policy",
                 violations=inspect_resp.violations,
             ),
+            status_code=block_status,
+            headers=extra_headers,
         )
-
-    extra_headers: dict[str, str] = {**rl_hdrs}
 
     if inspect_resp.pii_findings:
         pii_types = [f.get("type", "") for f in inspect_resp.pii_findings if isinstance(f, dict)]

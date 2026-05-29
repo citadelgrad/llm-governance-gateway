@@ -69,6 +69,8 @@ services:
       GOVERNANCE_URL: http://governance:8000
       GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
       JWT_SECRET: ${JWT_SECRET}
+      MOCK_PROVIDERS: ${MOCK_PROVIDERS:-false}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-5}
     depends_on:
       redis:
         condition: service_healthy
