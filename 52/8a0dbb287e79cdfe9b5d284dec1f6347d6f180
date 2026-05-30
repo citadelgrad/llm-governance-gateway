@@ -1,0 +1,27 @@
+governance/app/harm.py
+  s_61e0aaa75e2d87::t_fa7adec767db63 3,14-15,22-25
+governance/app/settings.py
+  s_61e0aaa75e2d87::t_b23e5a443a9d27 2,6-8,13-14
+governance/app/audit.py
+  s_61e0aaa75e2d87::t_669747068daa79 18-20,22-24
+  s_61e0aaa75e2d87::t_4bbc7ee095a97c 35,37-41,43,64-65
+governance/app/opa.py
+  s_61e0aaa75e2d87::t_d5ba0c7877a122 37-44
+  s_61e0aaa75e2d87::t_6393ad863a1e6c 61-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "528a0dbb287e79cdfe9b5d284dec1f6347d6f180",
+  "prompts": {},
+  "sessions": {
+    "s_61e0aaa75e2d87": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60ccea72-dabf-4cf9-9317-2aa6c9fb5a8f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
