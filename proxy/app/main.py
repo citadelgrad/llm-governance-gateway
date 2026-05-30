@@ -208,7 +208,7 @@ async def chat_completions(
             detail=error_envelope(routing_method, f"Cannot route model: {model_id}"),
         )
 
-    rl_result = await request.app.state.rate_limiter.check(caller.user_id)
+    rl_result = await request.app.state.rate_limiter.check(f"{caller.tenant_id}:{caller.user_id}")
     reset_at = datetime.now(UTC) + timedelta(seconds=settings.rate_limit_window_seconds)
     rl_hdrs = rate_limit_headers(rl_result.limit, rl_result.remaining, reset_at)
 
@@ -228,6 +228,7 @@ async def chat_completions(
                 user_id=caller.user_id,
                 model_id=model_id,
                 routing_method=routing_method,
+                roles=caller.roles,
             )
         )
     except GovernanceError as exc:

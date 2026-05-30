@@ -23,8 +23,8 @@ def _scanners() -> tuple[PromptInjection, BanTopics]:
 def harm_scan(text: str) -> HarmResult:
     injection, topics = _scanners()
 
-    _, inj_valid, inj_score = injection.scan(prompt="", output=text)
-    _, top_valid, top_score = topics.scan(prompt="", output=text)
+    _, inj_valid, inj_score = injection.scan(prompt=text, output="")
+    _, top_valid, top_score = topics.scan(prompt=text, output="")
 
     score = max(inj_score, top_score)
     blocked = not (inj_valid and top_valid)

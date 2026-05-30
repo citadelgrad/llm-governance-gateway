@@ -21,11 +21,18 @@ async def pii_stage(ctx: PipelineContext, opa_url: str) -> None:
 async def harm_opa_stage(ctx: PipelineContext, opa_url: str) -> None:
     text_to_check = ctx.redacted_text or ctx.text
     opa_input = {
-        "user_id": ctx.user_id,
-        "tenant_id": ctx.tenant_id,
-        "model_id": ctx.model_id,
-        "data_classification": ctx.data_classification,
-        "routing_method": ctx.routing_method,
+        "phase": ctx.phase,
+        "request": {
+            "model": ctx.model_id,
+            "provider": ctx.routing_method,
+            "data_classification": ctx.data_classification,
+            "pii_findings": ctx.pii_findings,
+        },
+        "user": {
+            "user_id": ctx.user_id,
+            "tenant_id": ctx.tenant_id,
+            "roles": ctx.roles,
+        },
     }
 
     harm_result, opa_result = await asyncio.gather(

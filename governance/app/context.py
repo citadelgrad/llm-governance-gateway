@@ -12,6 +12,7 @@ class PipelineContext:
     model_id: str
     routing_method: str
     phase: str = "request"
+    roles: list[str] = field(default_factory=list)
 
     # Populated by pii_stage
     pii_findings: list[dict] = field(default_factory=list)

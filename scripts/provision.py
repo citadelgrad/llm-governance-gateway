@@ -54,15 +54,15 @@ def main():
     conn.autocommit = False
     cur = conn.cursor()
 
-    # Create tables
+    # Create tables — column names must match what the proxy queries.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tenants (
-            id TEXT PRIMARY KEY,
+            tenant_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             allowed_models JSONB NOT NULL DEFAULT '[]',
-            rate_limit INTEGER NOT NULL DEFAULT 1000,
+            rate_limit_requests_per_minute INTEGER NOT NULL DEFAULT 1000,
             pii_action TEXT NOT NULL DEFAULT 'redact',
-            pii_redaction_notification BOOLEAN NOT NULL DEFAULT true,
+            pii_redaction_notification TEXT NOT NULL DEFAULT 'header',
             default_provider TEXT NOT NULL,
             contact_email TEXT
         )
@@ -70,21 +70,25 @@ def main():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
-            tenant_id TEXT NOT NULL REFERENCES tenants(id),
+            tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
             roles JSONB NOT NULL DEFAULT '[]'
         )
     """)
+    # api_keys schema must match proxy/app/auth.py (SELECT hash, user_id, tenant_id, roles
+    # WHERE prefix = $1) and proxy/app/main.py create_key INSERT.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS api_keys (
-            id TEXT PRIMARY KEY,
+            prefix TEXT PRIMARY KEY,
+            hash TEXT NOT NULL,
             user_id TEXT NOT NULL REFERENCES users(id),
-            key_hash TEXT NOT NULL,
-            key_prefix TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            roles TEXT[] NOT NULL DEFAULT '{}',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     """)
+    # provisioner_state is separate from governance's bootstrap_state (created by Alembic).
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS bootstrap_state (
+        CREATE TABLE IF NOT EXISTS provisioner_state (
             id TEXT PRIMARY KEY DEFAULT 'singleton',
             provisioned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             config_hash TEXT NOT NULL
@@ -94,7 +98,7 @@ def main():
 
     # Idempotency check
     current_hash = config_hash()
-    cur.execute("SELECT config_hash FROM bootstrap_state WHERE id = 'singleton'")
+    cur.execute("SELECT config_hash FROM provisioner_state WHERE id = 'singleton'")
     row = cur.fetchone()
     if row and row[0] == current_hash:
         print("✓ No changes detected. Provisioner is a no-op.")
@@ -106,13 +110,13 @@ def main():
     # Upsert tenants
     for t in tenants:
         cur.execute("""
-            INSERT INTO tenants (id, name, allowed_models, rate_limit, pii_action,
-                                 pii_redaction_notification, default_provider, contact_email)
+            INSERT INTO tenants (tenant_id, name, allowed_models, rate_limit_requests_per_minute,
+                                 pii_action, pii_redaction_notification, default_provider, contact_email)
             VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s, %s)
-            ON CONFLICT (id) DO UPDATE SET
+            ON CONFLICT (tenant_id) DO UPDATE SET
                 name = EXCLUDED.name,
                 allowed_models = EXCLUDED.allowed_models,
-                rate_limit = EXCLUDED.rate_limit,
+                rate_limit_requests_per_minute = EXCLUDED.rate_limit_requests_per_minute,
                 pii_action = EXCLUDED.pii_action,
                 pii_redaction_notification = EXCLUDED.pii_redaction_notification,
                 default_provider = EXCLUDED.default_provider,
@@ -122,7 +126,7 @@ def main():
             json.dumps(t.get("allowed_models", [])),
             t.get("rate_limit", 1000),
             t.get("pii_action", "redact"),
-            t.get("pii_redaction_notification", True),
+            t.get("pii_redaction_notification", "header"),
             t["default_provider"],
             t.get("contact_email"),
         ))
@@ -141,22 +145,21 @@ def main():
         """, (u["id"], u["tenant_id"], json.dumps(u.get("roles", []))))
 
         # Check if key already exists for this user
-        cur.execute("SELECT id FROM api_keys WHERE user_id = %s", (u["id"],))
+        cur.execute("SELECT prefix FROM api_keys WHERE user_id = %s", (u["id"],))
         if not cur.fetchone():
             plaintext = generate_key()
             key_hash = pwd_ctx.hash(plaintext)
-            key_prefix = plaintext[:12]
-            key_id = f"key_{u['id']}"
+            key_prefix = plaintext[:8]
             cur.execute("""
-                INSERT INTO api_keys (id, user_id, key_hash, key_prefix)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
-            """, (key_id, u["id"], key_hash, key_prefix))
+                INSERT INTO api_keys (prefix, hash, user_id, tenant_id, roles)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (prefix) DO NOTHING
+            """, (key_prefix, key_hash, u["id"], u["tenant_id"], u.get("roles", [])))
             generated_keys.append((u["id"], plaintext))
 
-    # Update bootstrap_state
+    # Update provisioner_state
     cur.execute("""
-        INSERT INTO bootstrap_state (id, config_hash)
+        INSERT INTO provisioner_state (id, config_hash)
         VALUES ('singleton', %s)
         ON CONFLICT (id) DO UPDATE SET
             config_hash = EXCLUDED.config_hash,

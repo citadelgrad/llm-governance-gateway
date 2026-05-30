@@ -24,22 +24,32 @@ class OPAResult:
     violations: list[str] = field(default_factory=list)
 
 
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=5.0)
+    return _client
+
+
 async def check(opa_url: str, input_data: dict) -> OPAResult:
     """
     Query OPA /v1/data/llm/authz. Fail-closed on any error.
     deny wins even when allow=True (deny+allow coexistence -> block).
     """
     try:
-        async with httpx.AsyncClient(timeout=0.05) as client:
-            resp = await client.post(
-                f"{opa_url}/v1/data/llm/authz",
-                json={"input": input_data},
-            )
-            resp.raise_for_status()
+        client = _get_client()
+        resp = await client.post(
+            f"{opa_url}/v1/data/llm/authz",
+            json={"input": input_data},
+        )
+        resp.raise_for_status()
     except httpx.TimeoutException as exc:
         raise OPATimeoutError("OPA request timed out (fail-closed)") from exc
-    except httpx.ConnectError as exc:
-        raise OPAConnectionError(f"Cannot connect to OPA at {opa_url} (fail-closed)") from exc
+    except httpx.RequestError as exc:
+        raise OPAConnectionError(f"Cannot reach OPA at {opa_url} (fail-closed)") from exc
 
     body = resp.json()
     if "result" not in body:

@@ -28,9 +28,9 @@ async def write_audit(
     session: AsyncSession,
     ctx: PipelineContext,
     hmac_key: str,
-) -> str:
-    """Write audit record in background. Returns audit_id string."""
-    audit_id = str(uuid7())
+    audit_id: str,
+) -> None:
+    """Write audit record. audit_id is provided by the caller for response correlation."""
     now = datetime.now(timezone.utc)
 
     try:
@@ -69,5 +69,3 @@ async def write_audit(
     except Exception as exc:
         print(f"[audit] write_audit failed: {exc}", file=sys.stderr)
         await session.rollback()
-
-    return audit_id

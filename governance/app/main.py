@@ -3,13 +3,11 @@ import secrets
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncGenerator
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import AliasChoices, BaseModel, Field
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,25 +18,10 @@ from .context import PipelineContext
 from . import pipeline as pipeline_module
 from . import audit as audit_module
 from . import retention
-from .db import get_session
+from .db import get_session, get_session_factory
+from .settings import settings
 
 
-class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
-    redis_url: str = "redis://localhost:6379"
-    opa_url: str = "http://localhost:8181"
-    spacy_model: str = "en_core_web_lg"
-    internal_token: str = Field(
-        ...,
-        validation_alias=AliasChoices("GOVERNANCE_INTERNAL_TOKEN", "INTERNAL_TOKEN"),
-    )
-    pseudonym_hmac_key: str = Field(...)
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
 _ready = False
 
 
@@ -104,6 +87,7 @@ class InspectRequest(BaseModel):
     model_id: str
     routing_method: str
     phase: str = "request"
+    roles: list[str] = []
 
 
 class InspectResponse(BaseModel):
@@ -120,7 +104,6 @@ async def inspect(
     req: InspectRequest,
     background_tasks: BackgroundTasks,
     x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
-    session: AsyncSession = Depends(get_session),
 ) -> InspectResponse:
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
@@ -132,6 +115,7 @@ async def inspect(
         model_id=req.model_id,
         routing_method=req.routing_method,
         phase=req.phase,
+        roles=req.roles,
     )
 
     await pipeline_module.run(ctx, settings.opa_url)
@@ -141,7 +125,9 @@ async def inspect(
 
     async def _do_audit():
         try:
-            await audit_module.write_audit(session, ctx, settings.pseudonym_hmac_key)
+            factory = get_session_factory()
+            async with factory() as new_session:
+                await audit_module.write_audit(new_session, ctx, settings.pseudonym_hmac_key, audit_id)
         except Exception as exc:
             print(f"[inspect] background audit failed: {exc}", file=sys.stderr)
 

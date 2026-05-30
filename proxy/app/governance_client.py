@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 import tenacity
@@ -19,6 +19,7 @@ class InspectRequest:
     model_id: str
     routing_method: str
     phase: str = "request"
+    roles: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -65,6 +66,7 @@ class GovernanceClient:
                         "model_id": req.model_id,
                         "routing_method": req.routing_method,
                         "phase": req.phase,
+                        "roles": req.roles,
                     },
                 )
                 resp.raise_for_status()
