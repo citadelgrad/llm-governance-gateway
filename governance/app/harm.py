@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from llm_guard.input_scanners import PromptInjection, BanTopics
@@ -10,14 +11,18 @@ class HarmResult:
     blocked: bool         # True if any scanner says is_valid=False
     reason: str           # "prompt_injection" | "banned_topic" | ""
 
+# Task 7: protect lazy-init against concurrent asyncio.to_thread races
+_lock = threading.Lock()
 _injection_scanner: PromptInjection | None = None
 _topics_scanner: BanTopics | None = None
 
 def _scanners() -> tuple[PromptInjection, BanTopics]:
     global _injection_scanner, _topics_scanner
     if _injection_scanner is None:
-        _injection_scanner = PromptInjection()
-        _topics_scanner = BanTopics(topics=["violence", "hate", "illegal", "jailbreak"])
+        with _lock:
+            if _injection_scanner is None:  # double-checked locking
+                _injection_scanner = PromptInjection()
+                _topics_scanner = BanTopics(topics=["violence", "hate", "illegal", "jailbreak"])
     return _injection_scanner, _topics_scanner
 
 def harm_scan(text: str) -> HarmResult:

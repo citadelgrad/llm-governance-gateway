@@ -15,10 +15,13 @@ from . import pseudonym as pseudonym_module
 
 
 def uuid7() -> UUID:
+    # Task 11: fix non-standard bit extraction in hand-rolled UUID7.
+    # Layout (RFC draft): 48-bit unix_ts_ms | 4-bit ver(7) | 12-bit rand_a | 2-bit var | 62-bit rand_b
+    # rand is 80 random bits; rand_a takes the top 12 bits (bits 79..68), rand_b takes bits 61..0.
     ms = int(time.time() * 1000)
-    rand = int.from_bytes(os.urandom(10), "big")
-    rand_a = (rand >> 62) & 0xFFF
-    rand_b = rand & 0x3FFFFFFFFFFFFFFF
+    rand = int.from_bytes(os.urandom(10), "big")  # 80 random bits
+    rand_a = (rand >> 68) & 0xFFF   # top 12 bits of 80-bit value (was incorrectly >> 62)
+    rand_b = rand & 0x3FFFFFFFFFFFFFFF  # low 62 bits for rand_b field
     hi = (ms << 16) | (0x7 << 12) | rand_a
     lo = 0x8000000000000000 | rand_b
     return UUID(int=(hi << 64) | lo)
@@ -29,9 +32,15 @@ async def write_audit(
     ctx: PipelineContext,
     hmac_key: str,
     audit_id: str,
+    created_at: datetime | None = None,
 ) -> None:
-    """Write audit record. audit_id is provided by the caller for response correlation."""
+    """Write audit record. audit_id is provided by the caller for response correlation.
+
+    Task 10: created_at is the request-received time (passed by the caller) so it differs
+    from written_at (the time the background DB write executes).
+    """
     now = datetime.now(timezone.utc)
+    record_created_at = created_at or now
 
     try:
         user_pseudonym = await pseudonym_module.get_or_create(
@@ -52,8 +61,8 @@ async def write_audit(
             """),
             {
                 "audit_id": audit_id,
-                "created_at": now,
-                "written_at": datetime.now(timezone.utc),  # populated after processing
+                "created_at": record_created_at,
+                "written_at": now,
                 "user_id": user_pseudonym,
                 "tenant_id": ctx.tenant_id,
                 "model_id": ctx.model_id,
