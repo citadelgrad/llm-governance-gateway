@@ -1,0 +1,39 @@
+scripts/provision.py
+  s_d5a0ede41b1a0d::t_bd1977b701dd5e 57,60,63,65,73,77-78,81-82,84-85,89,91,101,113-114,116,119,129,148,152,154-157,160,162
+governance/app/main.py
+  s_d5a0ede41b1a0d::t_cce9e6012e17f8 10,21-22,90,118,128-130
+governance/app/opa.py
+  s_d5a0ede41b1a0d::t_cfe02facc1ac02 27-36,43-48,51-52
+governance/app/context.py
+  s_d5a0ede41b1a0d::t_ddacef85ca3cf9 15
+governance/app/pipeline.py
+  s_d5a0ede41b1a0d::t_0edc4403dcfc25 24-35
+governance/app/harm.py
+  s_d5a0ede41b1a0d::t_cfdd39a6920b18 26-27
+proxy/app/main.py
+  s_d5a0ede41b1a0d::t_5061109409a607 231
+  s_d5a0ede41b1a0d::t_dab6433e910ece 211
+proxy/app/governance_client.py
+  s_d5a0ede41b1a0d::t_84fddb23fb4416 69
+  s_d5a0ede41b1a0d::t_30e53a6ab81ffa 3
+governance/app/audit.py
+  s_d5a0ede41b1a0d::t_be8493f2778aaa 31-33
+governance/app/settings.py
+  s_d5a0ede41b1a0d::t_abc70473c8e4fb 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b3e28736c83804ae1f1d7cd5178390e63e48b24a",
+  "prompts": {},
+  "sessions": {
+    "s_d5a0ede41b1a0d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d009c0bb-6b57-4b83-b92c-8f2ae8978485",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
