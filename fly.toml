@@ -2,11 +2,11 @@ app = "ai-gateway-proxy"
 primary_region = "iad"
 
 [build]
-  dockerfile = "proxy/Dockerfile"
-  context = "proxy"
+  dockerfile = "Dockerfile.proxy"
+  context = "."
 
 [env]
-  OPA_URL = "http://ai-gateway-opa.internal:8181"
+  GOVERNANCE_URL = "http://ai-gateway-governance.internal:8000"
   LOG_LEVEL = "info"
   DOCS_ENABLED = "false"
 

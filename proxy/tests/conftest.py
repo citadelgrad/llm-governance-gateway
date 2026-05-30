@@ -95,6 +95,7 @@ def _setup_app_state(pool, gov_mock, roles: list[str] | None = None):
     app.state.governance_client = gov_mock
     app.state.openai_client = None
     app.state.models_config = _MODELS_CONFIG
+    app.state.models_by_id = {m["id"]: m for m in _MODELS_CONFIG}
     app.state.ready = True
 
 

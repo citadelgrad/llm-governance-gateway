@@ -12,9 +12,10 @@ primary_region = "iad"
 #     --schedule daily \
 #     --cron "0 2 * * *" \
 #     --entrypoint /app/scripts/fly-cron-entrypoint.sh \
-#     --env DATABASE_URL="<secret-from-fly-secrets>" \
 #     registry.fly.io/ai-gateway-cron:latest
 #
+# DATABASE_URL and PSEUDONYM_HMAC_KEY must be set via `fly secrets set -a ai-gateway-cron`.
+# Do NOT pass them with --env — that embeds plaintext secrets in the machine config.
 # Or deploy once and use `fly machine update` to set the schedule.
 # Fly v2 scheduled machines honour CRON_SCHEDULE and restart=never by default.
 
