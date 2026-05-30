@@ -17,7 +17,7 @@ class PipelineContext:
     # Populated by pii_stage
     pii_findings: list[dict] = field(default_factory=list)
     data_classification: str = "none"
-    redacted_text: str = ""
+    redacted_text: str | None = None
 
     # Populated by harm_opa_stage
     harm_score: float = 0.0

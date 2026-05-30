@@ -19,7 +19,7 @@ async def pii_stage(ctx: PipelineContext, opa_url: str) -> None:
 
 
 async def harm_opa_stage(ctx: PipelineContext, opa_url: str) -> None:
-    text_to_check = ctx.redacted_text or ctx.text
+    text_to_check = ctx.redacted_text if ctx.redacted_text is not None else ctx.text
     opa_input = {
         "phase": ctx.phase,
         "request": {

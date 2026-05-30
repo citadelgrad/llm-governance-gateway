@@ -1,3 +1,4 @@
+import asyncio
 import json
 import secrets
 import sys
@@ -29,20 +30,21 @@ _ready = False
 async def lifespan(app: FastAPI):
     global _ready
     from governance.app import pii
+    from governance.app import harm as harm_module
+    from governance.app import opa as opa_module
+    await asyncio.to_thread(harm_module._scanners)  # warm up harm scanners at startup
     await pii.initialize(settings.spacy_model)
     _ready = True
     yield
     _ready = False
+    await opa_module.close_client()
 
 
 app = FastAPI(title="AI Gateway Governance", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
@@ -66,13 +68,15 @@ app.add_middleware(BodySizeLimitMiddleware)
 
 
 @app.get("/health")
-async def health(session: AsyncSession = Depends(get_session)):
+async def health():
     if not _ready:
         return Response(status_code=503, content="starting")
     try:
-        stuck = await retention.count_stuck_partitions(session)
-        if stuck > 0:
-            return {"status": "degraded", "reason": f"{stuck} stuck partition(s)"}
+        factory = get_session_factory()
+        async with factory() as session:
+            stuck = await retention.count_stuck_partitions(session)
+            if stuck > 0:
+                return {"status": "degraded", "reason": f"{stuck} stuck partition(s)"}
     except Exception:
         pass
     return {"status": "ok"}
@@ -118,6 +122,7 @@ async def inspect(
         roles=req.roles,
     )
 
+    request_received_at = datetime.now(timezone.utc)
     await pipeline_module.run(ctx, settings.opa_url)
 
     audit_id = str(audit_module.uuid7())
@@ -127,9 +132,9 @@ async def inspect(
         try:
             factory = get_session_factory()
             async with factory() as new_session:
-                await audit_module.write_audit(new_session, ctx, settings.pseudonym_hmac_key, audit_id)
+                await audit_module.write_audit(new_session, ctx, settings.pseudonym_hmac_key, audit_id, request_received_at)
         except Exception as exc:
-            print(f"[inspect] background audit failed: {exc}", file=sys.stderr)
+            print(f"[inspect] background audit {audit_id} failed: {exc}", file=sys.stderr)
 
     background_tasks.add_task(_do_audit)
 
@@ -315,10 +320,11 @@ async def erase_user(
     for pseudonym in pseudonyms:
         await session.execute(
             text("""
-                INSERT INTO erasure_log (pseudonym, audit_row_count, erased_by)
-                VALUES (:pseudonym, :audit_row_count, :erased_by)
+                INSERT INTO erasure_log (erasure_id, pseudonym, audit_row_count, erased_by)
+                VALUES (:erasure_id::uuid, :pseudonym, :audit_row_count, :erased_by)
             """),
             {
+                "erasure_id": erasure_id,
                 "pseudonym": pseudonym,
                 "audit_row_count": audit_row_count,
                 "erased_by": "api",
