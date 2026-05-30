@@ -13,7 +13,7 @@ def _match_scenario(messages: list[dict]) -> MockScenario:
     for scenario in ALL_SCENARIOS:
         if scenario.name != "clean_request" and scenario.trigger(messages):
             return scenario
-    return next(s for s in ALL_SCENARIOS if s.name == "clean_request")
+    return next((s for s in ALL_SCENARIOS if s.name == "clean_request"), ALL_SCENARIOS[0])
 
 
 async def _stream_sse(text: str, model: str, delay_ms: int):

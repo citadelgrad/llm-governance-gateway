@@ -89,7 +89,7 @@ def _mock_rate_limiter(allowed: bool = True):
     return rl
 
 
-def _setup_app_state(pool, gov_mock, roles: list[str] | None = None):
+def _setup_app_state(pool, gov_mock):
     """Set app.state directly — ASGITransport does not fire the ASGI lifespan."""
     app.state.db_pool = pool
     app.state.redis = AsyncMock()

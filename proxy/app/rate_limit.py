@@ -24,7 +24,7 @@ redis.call('EXPIRE', key, math.ceil(window / 1000) + 1)
 redis.call('EXPIRE', counter_key, math.ceil(window / 1000) + 1)
 
 if count <= limit then
-    return {1, 0}
+    return {1, limit - count}
 else
     redis.call('ZREM', key, tostring(seq))
     local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
@@ -64,7 +64,7 @@ class RateLimiter:
             str(now_ms), str(self._window_ms), str(self._limit),
         )
         allowed, retry_after = result
-        remaining = max(0, self._limit - 1) if allowed else 0
+        remaining = int(result[1]) if allowed else 0
         return RateLimitResult(
             allowed=bool(allowed),
             retry_after_seconds=int(retry_after),

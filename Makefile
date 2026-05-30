@@ -51,9 +51,9 @@ demo:
 
 ## Fly.io deployment (OPA → governance → proxy order)
 deploy:
-	fly deploy --config fly-opa.toml
-	fly deploy --config fly-governance.toml
-	fly deploy --config fly.toml
+	fly deploy --config fly-opa.toml --strategy=rolling --wait-timeout=120
+	fly deploy --config fly-governance.toml --strategy=rolling --wait-timeout=120
+	fly deploy --config fly.toml --strategy=rolling --wait-timeout=120
 
 ## Help
 help:

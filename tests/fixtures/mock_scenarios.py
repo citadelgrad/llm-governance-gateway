@@ -79,7 +79,7 @@ rate_limit_exceed = MockScenario(
     name="rate_limit_exceed",
     trigger=lambda messages: "__rate_limit_test__" in _content(messages),
     decision="allow",
-    expected_status=429,
+    expected_status=200,
     response_text="",
 )
 

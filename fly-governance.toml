@@ -11,6 +11,9 @@ primary_region = "iad"
   DOCS_ENABLED = "false"
   OPA_URL = "http://ai-gateway-opa.internal:8181"
 
+[deploy]
+  release_command = "alembic upgrade head"
+
 # No [[services]] block — internal network only via .internal DNS
 # Reachable at http://ai-gateway-governance.internal:8000 from other Fly apps
 

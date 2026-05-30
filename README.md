@@ -29,10 +29,10 @@ direnv allow
 Minimum required variables:
 
 ```bash
-export JWT_SECRET="change-me-in-production"
-export GOVERNANCE_INTERNAL_TOKEN="change-me-in-production"
+export JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+export GOVERNANCE_INTERNAL_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 export DATABASE_URL="postgresql://gateway:gateway@localhost:5432/gateway"
-export PSEUDONYM_HMAC_KEY="change-me-in-production"
+export PSEUDONYM_HMAC_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 ```
 
 **3. Start services**

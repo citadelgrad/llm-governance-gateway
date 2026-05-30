@@ -79,8 +79,10 @@ async def test_pii_redaction_headers(async_client):
     assert "SSN" in response.headers.get("x-gateway-pii-types", "")
 
 
-async def test_phi_block_via_mock_provider(async_client):
+async def test_phi_block_via_mock_provider(async_client, monkeypatch):
     """Governance allows but mock provider blocks PHI content."""
+    from proxy.app.config import settings
+    monkeypatch.setattr(settings, "mock_mode", True)
     client, _ = async_client
     body = {
         "model": "gpt-4o-mini",

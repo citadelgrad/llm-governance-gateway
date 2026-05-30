@@ -3,7 +3,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: gateway
-      POSTGRES_PASSWORD: gateway
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateway}
       POSTGRES_DB: gateway
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -22,7 +22,7 @@ services:
       retries: 10
 
   opa:
-    image: openpolicyagent/opa:latest-static
+    image: openpolicyagent/opa:0.68.0-static
     command: ["run", "--server", "--watch", "/policies"]
     volumes:
       - ./policies:/policies:ro
@@ -36,7 +36,7 @@ services:
     build: ./governance
     command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: postgresql://gateway:gateway@postgres:5432/gateway
+      DATABASE_URL: ${DATABASE_URL:-postgresql://gateway:gateway@postgres:5432/gateway}
     depends_on:
       postgres:
         condition: service_healthy

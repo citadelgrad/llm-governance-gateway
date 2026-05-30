@@ -2,7 +2,7 @@ app = "ai-gateway-opa"
 primary_region = "iad"
 
 [build]
-  image = "openpolicyagent/opa:latest-rootless"
+  image = "openpolicyagent/opa:0.68.0-rootless"
 
 # No [[services]] block — internal network only via .internal DNS
 # Reachable at http://ai-gateway-opa.internal:8181 from other Fly apps
