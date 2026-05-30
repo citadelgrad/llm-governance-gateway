@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import asyncpg
@@ -29,7 +30,10 @@ async def _validate_api_key(key: str, db_pool: asyncpg.Pool) -> CallerContext:
 
     if cache_key in _api_key_cache:
         cached = _api_key_cache[cache_key]
-        if bcrypt.checkpw(key.encode(), cached["hash"].encode()):
+        valid = await asyncio.get_event_loop().run_in_executor(
+            None, bcrypt.checkpw, key.encode(), cached["hash"].encode()
+        )
+        if valid:
             return CallerContext(
                 user_id=cached["user_id"],
                 tenant_id=cached["tenant_id"],
@@ -46,7 +50,10 @@ async def _validate_api_key(key: str, db_pool: asyncpg.Pool) -> CallerContext:
     if row is None:
         raise AuthError("invalid api key")
 
-    if not bcrypt.checkpw(key.encode(), row["hash"].encode()):
+    valid = await asyncio.get_event_loop().run_in_executor(
+        None, bcrypt.checkpw, key.encode(), row["hash"].encode()
+    )
+    if not valid:
         raise AuthError("invalid api key")
 
     _api_key_cache[cache_key] = {
@@ -65,7 +72,12 @@ async def _validate_api_key(key: str, db_pool: asyncpg.Pool) -> CallerContext:
 
 def _validate_jwt(token: str) -> CallerContext:
     try:
-        claims = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        claims = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=["HS256"],
+            options={"require": ["exp"]},
+        )
     except JWTError as exc:
         raise AuthError(f"invalid token: {exc}") from exc
 

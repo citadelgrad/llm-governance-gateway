@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,7 @@ from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from proxy.app.auth import AuthError, CallerContext, authenticate
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
@@ -108,10 +110,18 @@ app.add_middleware(
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next) -> Response:
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > MAX_BODY_SIZE:
             return Response(content="Request body too large (max 1MB)", status_code=413)
+        # Also cap streaming bodies that omit Content-Length
+        body = b""
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_BODY_SIZE:
+                return Response(content="Request body too large (max 1MB)", status_code=413)
+        # Store so downstream handlers can read it
+        request._body = body
         return await call_next(request)
 
 
@@ -243,13 +253,13 @@ async def chat_completions(
 
     if inspect_resp.decision == "block":
         block_status = 400 if any(v == "harm:prompt_injection" for v in inspect_resp.violations) else 403
-        return JSONResponse(
-            content=error_envelope(
+        raise HTTPException(
+            status_code=block_status,
+            detail=error_envelope(
                 "policy_violation",
                 "Request blocked by policy",
                 violations=inspect_resp.violations,
             ),
-            status_code=block_status,
             headers=extra_headers,
         )
 
@@ -330,7 +340,7 @@ async def me(
     request: Request,
     caller: CallerContext = Depends(get_caller),
 ):
-    cache_key = caller.user_id
+    cache_key = (caller.tenant_id, caller.user_id)
     if cache_key in _me_cache:
         return _me_cache[cache_key]
 
@@ -352,9 +362,16 @@ async def me(
     return result
 
 
+class CreateKeyRequest(BaseModel):
+    user_id: str
+    tenant_id: str
+    roles: list[str] = []
+
+
 @app.post("/v1/keys")
 async def create_key(
     request: Request,
+    payload: CreateKeyRequest,
     caller: CallerContext = Depends(get_caller),
 ):
     if "admin" not in caller.roles:
@@ -362,15 +379,17 @@ async def create_key(
             status_code=403,
             detail=error_envelope("forbidden", "Admin role required"),
         )
-
-    payload = await request.json()
-    user_id: str = payload["user_id"]
-    tenant_id: str = payload["tenant_id"]
-    roles: list[str] = payload.get("roles", [])
+    if payload.tenant_id != caller.tenant_id:
+        raise HTTPException(
+            status_code=403,
+            detail=error_envelope("forbidden", "Cannot create keys for other tenants"),
+        )
 
     key = secrets.token_urlsafe(32)
     prefix = key[:8]
-    key_hash = bcrypt.hashpw(key.encode(), bcrypt.gensalt()).decode()
+    key_hash = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: bcrypt.hashpw(key.encode(), bcrypt.gensalt()).decode()
+    )
 
     async with request.app.state.db_pool.acquire() as conn:
         await conn.execute(
@@ -378,9 +397,9 @@ async def create_key(
             " VALUES($1, $2, $3, $4, $5)",
             prefix,
             key_hash,
-            user_id,
-            tenant_id,
-            roles,
+            payload.user_id,
+            payload.tenant_id,
+            payload.roles,
         )
 
     return {"key": key}
@@ -406,7 +425,7 @@ async def delete_user(
 
     return Response(
         content=resp.content,
-        status_code=202,
+        status_code=resp.status_code,
         media_type=resp.headers.get("content-type", "application/json"),
     )
 
@@ -422,10 +441,14 @@ async def audit(
             detail=error_envelope("forbidden", "Admin role required"),
         )
 
+    # Always enforce caller's tenant_id; allow limit to pass through
+    params = {"tenant_id": caller.tenant_id}
+    if "limit" in request.query_params:
+        params["limit"] = request.query_params["limit"]
     resp = await request.app.state.gov_http.get(
         f"{settings.governance_url}/v1/audit",
         headers={"X-Internal-Token": settings.governance_internal_token},
-        params=dict(request.query_params),
+        params=params,
     )
     return Response(
         content=resp.content,
@@ -445,12 +468,17 @@ async def audit_export(
             detail=error_envelope("forbidden", "Admin role required"),
         )
 
+    # Always enforce caller's tenant_id; allow limit to pass through
+    export_params = {"tenant_id": caller.tenant_id}
+    if "limit" in request.query_params:
+        export_params["limit"] = request.query_params["limit"]
+
     async def _stream():
         async with request.app.state.gov_http.stream(
             "GET",
             f"{settings.governance_url}/v1/audit/export",
             headers={"X-Internal-Token": settings.governance_internal_token},
-            params=dict(request.query_params),
+            params=export_params,
         ) as upstream:
             async for chunk in upstream.aiter_bytes():
                 yield chunk

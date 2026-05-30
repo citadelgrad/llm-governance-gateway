@@ -27,8 +27,8 @@ def pii_headers(
     if notification_mode == "silent":
         return {}
     return {
-        "X-Gateway-Pii-Redacted": "true",
-        "X-Gateway-Pii-Types": ",".join(pii_types),
+        "x-gateway-pii-redacted": "true",
+        "x-gateway-pii-types": ",".join(pii_types),
     }
 
 
