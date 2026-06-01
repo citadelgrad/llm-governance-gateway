@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,7 @@ from proxy.app.providers import generic as generic_provider
 from proxy.app.providers import mock as mock_provider
 from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
+from proxy.app.providers.usage import extract_usage
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.routing import load_models_yaml, resolve_provider
 from redis.asyncio import Redis
@@ -58,13 +60,12 @@ async def lifespan(app: FastAPI):
     anthropic_client: httpx.AsyncClient | None = None
     gemini_client: httpx.AsyncClient | None = None
     ollama_client: httpx.AsyncClient | None = None
-    generic_client: httpx.AsyncClient | None = None
     if not settings.mock_mode:
         openai_client = openai_provider.make_client(settings.openai_api_key)
         anthropic_client = anthropic_provider.make_client(settings.anthropic_api_key)
         gemini_client = gemini_provider.make_client(settings.gemini_api_key)
         ollama_client = ollama_provider.make_client(settings.ollama_base_url)
-        generic_client = generic_provider.make_client()
+        # generic_provider uses a module-level pool; no client created here
 
     await maybe_bootstrap(db_pool)
 
@@ -80,7 +81,6 @@ async def lifespan(app: FastAPI):
     app.state.anthropic_client = anthropic_client
     app.state.gemini_client = gemini_client
     app.state.ollama_client = ollama_client
-    app.state.generic_client = generic_client
     app.state.models_config = models_config
     app.state.models_by_id = models_by_id
     app.state.ready = True
@@ -91,9 +91,10 @@ async def lifespan(app: FastAPI):
     await db_pool.close()
     await redis.aclose()
     await gov_http.aclose()
-    for client in (openai_client, anthropic_client, gemini_client, ollama_client, generic_client):
+    for client in (openai_client, anthropic_client, gemini_client, ollama_client):
         if client is not None:
             await client.aclose()
+    await generic_provider.close_all_clients()
 
 
 docs_url = "/docs" if settings.docs_enabled else None
@@ -169,6 +170,39 @@ async def get_tenant_info(tenant_id: str, db_pool: asyncpg.Pool) -> dict:
 
     _tenant_cache[tenant_id] = result
     return result
+
+
+def _attach_usage(
+    response: Response,
+    provider: str,
+    request: Request,
+) -> Response:
+    """Extract usage metrics from a non-streaming JSON response and attach as headers.
+
+    The metrics are stored on request.state.usage_metrics for downstream consumers
+    and also exposed as X-Usage-* response headers.
+    Returns the (possibly mutated) response unchanged so callers can still return it.
+    """
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        return response
+    try:
+        body_json = response.body
+        if not body_json:
+            return response
+        response_dict = json.loads(body_json)
+    except Exception:
+        return response
+
+    metrics = extract_usage(provider, response_dict)
+    request.state.usage_metrics = metrics
+
+    # Expose as headers so downstream consumers (e.g. metering middleware) can read them
+    # without re-parsing the body.
+    response.headers["x-usage-prompt-tokens"] = str(metrics.prompt_tokens)
+    response.headers["x-usage-completion-tokens"] = str(metrics.completion_tokens)
+    response.headers["x-usage-total-tokens"] = str(metrics.total_tokens)
+    return response
 
 
 def _extract_user_message(body: dict) -> str:
@@ -275,40 +309,54 @@ async def chat_completions(
                     msg["content"] = inspect_resp.redacted_text
                     break
 
+    response: Response | StreamingResponse
+    effective_provider: str
     match provider:
         case _ if settings.mock_mode:
-            return await mock_provider.chat_completions(body, extra_headers)
+            response = await mock_provider.chat_completions(body, extra_headers)
+            effective_provider = "openai"  # mock uses OpenAI-shaped responses
         case "openai":
-            return await openai_provider.chat_completions(
+            response = await openai_provider.chat_completions(
                 request.app.state.openai_client, body, stream, extra_headers
             )
+            effective_provider = "openai"
         case "anthropic":
-            return await anthropic_provider.chat_completions(
+            response = await anthropic_provider.chat_completions(
                 request.app.state.anthropic_client, body, stream, extra_headers
             )
+            effective_provider = "anthropic"
         case "gemini" | "google":
-            return await gemini_provider.chat_completions(
+            response = await gemini_provider.chat_completions(
                 request.app.state.gemini_client, body, stream, extra_headers
             )
+            effective_provider = "openai"  # gemini adapter translates to OpenAI envelope
         case "ollama":
-            return await ollama_provider.chat_completions(
+            response = await ollama_provider.chat_completions(
                 request.app.state.ollama_client, body, stream, extra_headers
             )
+            effective_provider = "ollama"
         case _:
             model_entry = request.app.state.models_by_id.get(model_id)
             if model_entry and model_entry.get("base_url"):
-                return await generic_provider.chat_completions(
-                    request.app.state.generic_client,
+                response = await generic_provider.chat_completions(
                     body,
                     stream,
                     extra_headers,
                     base_url=model_entry["base_url"],
                     api_key=model_entry.get("api_key", ""),
                 )
-            raise HTTPException(
-                status_code=400,
-                detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
-            )
+                effective_provider = "generic"
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
+                )
+
+    # Extract usage metrics from non-streaming successful responses and attach to state/headers.
+    if not stream and isinstance(response, Response):
+        _attach_usage(response, effective_provider, request)
+
+    return response
 
 
 @app.get("/v1/models")

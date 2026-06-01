@@ -36,6 +36,11 @@ dev = [
     "httpx>=0.28",
 ]
 
+[dependency-groups]
+dev = [
+    "bcrypt>=5.0.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
