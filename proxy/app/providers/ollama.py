@@ -3,6 +3,8 @@
 import httpx
 from starlette.responses import Response, StreamingResponse
 
+from proxy.app.providers.errors import sanitize_upstream_error
+
 
 def make_client(base_url: str) -> httpx.AsyncClient:
     """Create the shared client. Call once at lifespan startup."""
@@ -44,6 +46,9 @@ async def chat_completions(
         return Response(content=b"upstream timeout", status_code=504)
     except httpx.RequestError:
         return Response(content=b"upstream connection error", status_code=502)
+
+    if upstream.status_code != 200:
+        return sanitize_upstream_error(upstream, extra_headers, provider="ollama")
 
     return Response(
         content=upstream.content,

@@ -6,6 +6,8 @@ import secrets
 import httpx
 from starlette.responses import Response, StreamingResponse
 
+from proxy.app.providers.errors import sanitize_upstream_error
+
 GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 _FINISH_REASON_MAP = {
@@ -207,12 +209,7 @@ async def chat_completions(
         return Response(content=b"upstream connection error", status_code=502)
 
     if upstream.status_code != 200:
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type"),
-            headers=extra_headers,
-        )
+        return sanitize_upstream_error(upstream, extra_headers, provider="gemini")
 
     envelope = _to_openai_envelope(upstream.json(), model)
     return Response(

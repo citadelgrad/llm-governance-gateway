@@ -612,18 +612,13 @@ async def test_generic_chat_completions_with_api_key_sends_bearer(httpx_mock):
         json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
     )
 
-    client = generic_provider.make_client()
-    try:
-        response = await generic_provider.chat_completions(
-            client,
-            {"model": "custom-llm", "messages": [{"role": "user", "content": "hi"}]},
-            stream=False,
-            extra_headers={},
-            base_url="https://example.com/v1",
-            api_key="secret-token",
-        )
-    finally:
-        await client.aclose()
+    response = await generic_provider.chat_completions(
+        {"model": "custom-llm", "messages": [{"role": "user", "content": "hi"}]},
+        stream=False,
+        extra_headers={},
+        base_url="https://example.com/v1",
+        api_key="secret-token",
+    )
 
     assert response.status_code == 200
     sent = httpx_mock.get_requests()[0]
@@ -637,18 +632,13 @@ async def test_generic_chat_completions_without_api_key_omits_auth(httpx_mock):
         json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
     )
 
-    client = generic_provider.make_client()
-    try:
-        response = await generic_provider.chat_completions(
-            client,
-            {"model": "custom-llm", "messages": [{"role": "user", "content": "hi"}]},
-            stream=False,
-            extra_headers={},
-            base_url="https://example.com/v1/",  # trailing slash should be stripped
-            api_key="",
-        )
-    finally:
-        await client.aclose()
+    response = await generic_provider.chat_completions(
+        {"model": "custom-llm", "messages": [{"role": "user", "content": "hi"}]},
+        stream=False,
+        extra_headers={},
+        base_url="https://example.com/v1/",  # trailing slash should be stripped
+        api_key="",
+    )
 
     assert response.status_code == 200
     sent = httpx_mock.get_requests()[0]
@@ -665,17 +655,141 @@ async def test_generic_propagates_upstream_status_code(httpx_mock):
         content=b'{"error":"upstream"}',
     )
 
-    client = generic_provider.make_client()
-    try:
-        response = await generic_provider.chat_completions(
-            client,
-            {"model": "x", "messages": [{"role": "user", "content": "hi"}]},
-            stream=False,
-            extra_headers={},
-            base_url="https://example.com/v1",
-            api_key="",
-        )
-    finally:
-        await client.aclose()
+    response = await generic_provider.chat_completions(
+        {"model": "x", "messages": [{"role": "user", "content": "hi"}]},
+        stream=False,
+        extra_headers={},
+        base_url="https://example.com/v1",
+        api_key="",
+    )
 
     assert response.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Error sanitization — shared utility (proxy.app.providers.errors)
+# ---------------------------------------------------------------------------
+
+
+from proxy.app.providers.errors import _extract_message, sanitize_upstream_error  # noqa: E402
+
+
+def _make_upstream(status_code: int, body: bytes, content_type: str = "application/json") -> object:
+    """Build a minimal fake httpx.Response for sanitize_upstream_error tests."""
+    import httpx
+
+    return httpx.Response(
+        status_code=status_code,
+        content=body,
+        headers={"content-type": content_type},
+    )
+
+
+def test_sanitize_401_returns_authentication_error():
+    upstream = _make_upstream(401, b'{"error": {"message": "Invalid API key."}}')
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 401
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "authentication_error"
+    # Raw internal details must NOT be present
+    assert "Invalid API key." not in resp.body.decode() or body["error"]["message"] == "Invalid API key."
+    # Content-Type must always be application/json
+    assert resp.media_type == "application/json"
+
+
+def test_sanitize_429_returns_rate_limit_error():
+    upstream = _make_upstream(429, b'{"error": {"message": "Too many requests."}}')
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 429
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "rate_limit_error"
+    assert body["error"]["code"] == "429"
+
+
+def test_sanitize_400_returns_invalid_request_error():
+    upstream = _make_upstream(400, b'{"error": {"message": "Bad request."}}')
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 400
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "invalid_request_error"
+
+
+def test_sanitize_500_returns_api_error():
+    upstream = _make_upstream(
+        500,
+        b'{"error": {"message": "An internal server error occurred."}}',
+    )
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 500
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "api_error"
+    # Response is always valid JSON with the normalized envelope shape
+    assert "error" in body
+    assert body["error"]["code"] == "500"
+    assert resp.media_type == "application/json"
+
+
+def test_sanitize_unknown_status_returns_api_error():
+    upstream = _make_upstream(418, b'{"error": {"message": "I am a teapot."}}')
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 418
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "api_error"
+
+
+def test_sanitize_json_upstream_extracts_message():
+    upstream = _make_upstream(
+        401,
+        b'{"error": {"message": "Incorrect API key provided.", "type": "invalid_api_key"}}',
+    )
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    body = json.loads(resp.body)
+    assert body["error"]["message"] == "Incorrect API key provided."
+
+
+def test_sanitize_non_json_upstream_returns_generic_message():
+    upstream = _make_upstream(503, b"Service Unavailable", content_type="text/plain")
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    assert resp.status_code == 503
+    body = json.loads(resp.body)
+    assert body["error"]["type"] == "api_error"
+    # Message is a generic fallback, not raw bytes
+    assert "Service Unavailable" not in body["error"]["message"]
+    assert body["error"]["message"]  # non-empty
+
+
+def test_sanitize_raw_body_not_forwarded_verbatim():
+    """The raw upstream body must not be forwarded as-is — only the normalized envelope is returned."""
+    raw = b'{"error": {"message": "something went wrong"}, "extra_internal_field": "secret-value"}'
+    upstream = _make_upstream(500, raw)
+    resp = sanitize_upstream_error(upstream, provider="anthropic")
+    body = json.loads(resp.body)
+    # Response must be the normalized envelope shape, not the raw upstream body
+    assert set(body["error"].keys()) == {"message", "type", "code"}
+    # Extra internal fields from the upstream must not leak into the envelope
+    assert "extra_internal_field" not in resp.body.decode()
+    assert "secret-value" not in resp.body.decode()
+
+
+def test_extract_message_openai_nested():
+    assert _extract_message(b'{"error": {"message": "hello"}}') == "hello"
+
+
+def test_extract_message_flat_detail():
+    assert _extract_message(b'{"detail": "not found"}') == "not found"
+
+
+def test_extract_message_invalid_json_returns_generic():
+    msg = _extract_message(b"not json at all")
+    assert msg  # non-empty
+    assert "upstream" in msg.lower() or "error" in msg.lower()
+
+
+def test_sanitize_response_always_application_json():
+    """Content-Type must always be application/json regardless of upstream type."""
+    upstream = _make_upstream(500, b"<html>Error</html>", content_type="text/html")
+    resp = sanitize_upstream_error(upstream, provider="gemini")
+    assert resp.media_type == "application/json"
+    # Body must be valid JSON
+    body = json.loads(resp.body)
+    assert "error" in body

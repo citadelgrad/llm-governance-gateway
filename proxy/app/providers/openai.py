@@ -1,6 +1,8 @@
 import httpx
 from starlette.responses import Response, StreamingResponse
 
+from proxy.app.providers.errors import sanitize_upstream_error
+
 OPENAI_BASE = "https://api.openai.com/v1"
 
 
@@ -45,6 +47,9 @@ async def chat_completions(
         return Response(content=b"upstream timeout", status_code=504)
     except httpx.RequestError:
         return Response(content=b"upstream connection error", status_code=502)
+
+    if upstream.status_code != 200:
+        return sanitize_upstream_error(upstream, extra_headers, provider="openai")
 
     return Response(
         content=upstream.content,

@@ -1,11 +1,14 @@
 """Generic OpenAI-compatible pass-through adapter for unknown providers with a base_url."""
 
+import asyncio
 import ipaddress
 import json
 from urllib.parse import urlparse
 
 import httpx
 from starlette.responses import Response, StreamingResponse
+
+from proxy.app.providers.errors import sanitize_upstream_error
 
 
 class InvalidBaseURLError(ValueError):
@@ -45,16 +48,61 @@ def _sanitise_api_key(api_key: str) -> str:
     return api_key.replace("\r", "").replace("\n", "").strip()
 
 
-def make_client() -> httpx.AsyncClient:
-    """Create the shared client. No base_url or auth — both supplied per request."""
-    return httpx.AsyncClient(
-        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-        timeout=httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0),
-    )
+def _extract_origin(base_url: str) -> str:
+    """Return scheme + host + optional port (no path) as the pool key.
+
+    Examples:
+        "https://api.example.com/v1"  -> "https://api.example.com"
+        "https://api.example.com:8443/v1" -> "https://api.example.com:8443"
+        "http://localhost:11434/api"  -> "http://localhost:11434"
+    """
+    parsed = urlparse(base_url)
+    if parsed.port:
+        return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+    return f"{parsed.scheme}://{parsed.hostname}"
+
+
+# ---------------------------------------------------------------------------
+# Per-base_url client pool
+# ---------------------------------------------------------------------------
+
+_CLIENT_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=100)
+_CLIENT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
+
+_pool: dict[str, httpx.AsyncClient] = {}
+_pool_lock = asyncio.Lock()
+
+
+async def get_pooled_client(origin: str) -> httpx.AsyncClient:
+    """Return a cached AsyncClient for *origin*, creating one on first access.
+
+    The client is keyed by origin (scheme + host + port) so all requests to the
+    same host share keepalive connections while different hosts stay isolated.
+    """
+    # Fast path — already exists (no lock needed for reads on a dict in CPython,
+    # but we still double-check inside the lock to avoid duplicate creation).
+    if origin in _pool:
+        return _pool[origin]
+
+    async with _pool_lock:
+        if origin not in _pool:
+            _pool[origin] = httpx.AsyncClient(
+                base_url=origin,
+                limits=_CLIENT_LIMITS,
+                timeout=_CLIENT_TIMEOUT,
+            )
+        return _pool[origin]
+
+
+async def close_all_clients() -> None:
+    """Close every pooled client. Call once at application shutdown."""
+    async with _pool_lock:
+        for client in _pool.values():
+            await client.aclose()
+        _pool.clear()
 
 
 async def chat_completions(
-    client: httpx.AsyncClient,
     body: dict,
     stream: bool,
     extra_headers: dict[str, str],
@@ -75,6 +123,9 @@ async def chat_completions(
             headers=extra_headers,
         )
 
+    origin = _extract_origin(base_url)
+    client = await get_pooled_client(origin)
+    # Use an absolute URL so it works even if the client has a base_url set.
     url = f"{base_url.rstrip('/')}/chat/completions"
     safe_key = _sanitise_api_key(api_key)
     auth_headers = {"Authorization": f"Bearer {safe_key}"} if safe_key else {}
@@ -103,6 +154,9 @@ async def chat_completions(
         return Response(content=b"upstream timeout", status_code=504)
     except httpx.RequestError:
         return Response(content=b"upstream connection error", status_code=502)
+
+    if upstream.status_code != 200:
+        return sanitize_upstream_error(upstream, extra_headers, provider="generic")
 
     return Response(
         content=upstream.content,
