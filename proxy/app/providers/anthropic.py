@@ -5,6 +5,8 @@ import json
 import httpx
 from starlette.responses import Response, StreamingResponse
 
+from proxy.app.providers.errors import sanitize_upstream_error
+
 ANTHROPIC_BASE = "https://api.anthropic.com"
 
 _STOP_REASON_MAP: dict[str, str] = {
@@ -185,6 +187,9 @@ async def chat_completions(
 
         async def _stream_body():
             completion_id = ""
+            # Maps content_block index → tool_calls array index for tool_use blocks
+            tool_block_index: dict[int, int] = {}
+            tool_call_counter = 0
             try:
                 async with client.stream("POST", "/v1/messages", json=anthropic_body) as upstream:
                     async for line in upstream.aiter_lines():
@@ -205,6 +210,40 @@ async def chat_completions(
                             completion_id = msg.get("id", "")
                             continue
 
+                        if etype == "content_block_start":
+                            cb = event.get("content_block", {})
+                            if cb.get("type") == "tool_use":
+                                block_idx = event.get("index", 0)
+                                tc_idx = tool_call_counter
+                                tool_block_index[block_idx] = tc_idx
+                                tool_call_counter += 1
+                                chunk = {
+                                    "id": completion_id,
+                                    "object": "chat.completion.chunk",
+                                    "model": model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "tool_calls": [
+                                                    {
+                                                        "index": tc_idx,
+                                                        "id": cb.get("id", ""),
+                                                        "type": "function",
+                                                        "function": {
+                                                            "name": cb.get("name", ""),
+                                                            "arguments": "",
+                                                        },
+                                                    }
+                                                ]
+                                            },
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                                yield f"data: {json.dumps(chunk)}\n\n"
+                            continue
+
                         if etype == "content_block_delta":
                             delta = event.get("delta", {})
                             if delta.get("type") == "text_delta":
@@ -216,6 +255,31 @@ async def chat_completions(
                                         {
                                             "index": 0,
                                             "delta": {"content": delta.get("text", "")},
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                                yield f"data: {json.dumps(chunk)}\n\n"
+                            elif delta.get("type") == "input_json_delta":
+                                block_idx = event.get("index", 0)
+                                tc_idx = tool_block_index.get(block_idx, 0)
+                                chunk = {
+                                    "id": completion_id,
+                                    "object": "chat.completion.chunk",
+                                    "model": model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "tool_calls": [
+                                                    {
+                                                        "index": tc_idx,
+                                                        "function": {
+                                                            "arguments": delta.get("partial_json", ""),
+                                                        },
+                                                    }
+                                                ]
+                                            },
                                             "finish_reason": None,
                                         }
                                     ],
@@ -262,12 +326,7 @@ async def chat_completions(
         return Response(content=b"upstream connection error", status_code=502)
 
     if upstream.status_code != 200:
-        return Response(
-            content=upstream.content,
-            status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type"),
-            headers=extra_headers,
-        )
+        return sanitize_upstream_error(upstream, extra_headers, provider="anthropic")
 
     envelope = _translate_response(upstream.json())
     return Response(

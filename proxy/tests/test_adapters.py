@@ -258,6 +258,155 @@ async def test_anthropic_chat_completions_end_to_end(httpx_mock):
 
 
 # ---------------------------------------------------------------------------
+# Anthropic — streaming tool_use translation
+# ---------------------------------------------------------------------------
+
+
+async def test_anthropic_stream_tool_use_content_block_start(httpx_mock):
+    """content_block_start with tool_use emits OpenAI tool_calls delta chunk with name."""
+    sse_lines = [
+        'data: {"type": "message_start", "message": {"id": "msg_stream1", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_abc", "name": "get_weather"}}',
+        'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.anthropic.com/v1/messages",
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = anthropic_provider.make_client("test-key")
+    try:
+        response = await anthropic_provider.chat_completions(
+            client,
+            {
+                "model": "claude-3-5-sonnet",
+                "messages": [{"role": "user", "content": "what is the weather?"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        chunks = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:") and not line.endswith("[DONE]"):
+                    chunks.append(json.loads(line[len("data:"):].strip()))
+    finally:
+        await client.aclose()
+
+    # Find the tool_calls chunk (content_block_start)
+    tool_start_chunks = [
+        c for c in chunks
+        if c["choices"][0]["delta"].get("tool_calls")
+        and c["choices"][0]["delta"]["tool_calls"][0].get("id")
+    ]
+    assert len(tool_start_chunks) == 1
+    tc = tool_start_chunks[0]["choices"][0]["delta"]["tool_calls"][0]
+    assert tc["index"] == 0
+    assert tc["id"] == "toolu_abc"
+    assert tc["type"] == "function"
+    assert tc["function"]["name"] == "get_weather"
+    assert tc["function"]["arguments"] == ""
+
+
+async def test_anthropic_stream_input_json_delta(httpx_mock):
+    """content_block_delta with input_json_delta emits OpenAI tool_calls chunk with partial arguments."""
+    sse_lines = [
+        'data: {"type": "message_start", "message": {"id": "msg_stream2", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_xyz", "name": "get_weather"}}',
+        'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{\\"city\\":"}}',
+        'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "\\"NYC\\"}"}}',
+        'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.anthropic.com/v1/messages",
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = anthropic_provider.make_client("test-key")
+    try:
+        response = await anthropic_provider.chat_completions(
+            client,
+            {
+                "model": "claude-3-5-sonnet",
+                "messages": [{"role": "user", "content": "weather?"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        chunks = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:") and not line.endswith("[DONE]"):
+                    chunks.append(json.loads(line[len("data:"):].strip()))
+    finally:
+        await client.aclose()
+
+    # Find argument delta chunks (have tool_calls but no "id" key — just function.arguments)
+    arg_chunks = [
+        c for c in chunks
+        if c["choices"][0]["delta"].get("tool_calls")
+        and "id" not in c["choices"][0]["delta"]["tool_calls"][0]
+    ]
+    assert len(arg_chunks) == 2
+    assert arg_chunks[0]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] == '{"city":'
+    assert arg_chunks[1]["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"] == '"NYC"}'
+    # Both reference the correct tool_calls index
+    assert arg_chunks[0]["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
+
+
+async def test_anthropic_stream_tool_use_stop_reason_maps_to_tool_calls(httpx_mock):
+    """message_delta with stop_reason=tool_use produces finish_reason=tool_calls."""
+    sse_lines = [
+        'data: {"type": "message_start", "message": {"id": "msg_stream3", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_fin", "name": "do_thing"}}',
+        'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.anthropic.com/v1/messages",
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = anthropic_provider.make_client("test-key")
+    try:
+        response = await anthropic_provider.chat_completions(
+            client,
+            {
+                "model": "claude-3-5-sonnet",
+                "messages": [{"role": "user", "content": "do a thing"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        chunks = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:") and not line.endswith("[DONE]"):
+                    chunks.append(json.loads(line[len("data:"):].strip()))
+    finally:
+        await client.aclose()
+
+    # The final chunk (from message_delta) must have finish_reason=tool_calls
+    final_chunk = chunks[-1]
+    assert final_chunk["choices"][0]["finish_reason"] == "tool_calls"
+    assert final_chunk["choices"][0]["delta"] == {}
+
+
+# ---------------------------------------------------------------------------
 # Gemini — request translation
 # ---------------------------------------------------------------------------
 
