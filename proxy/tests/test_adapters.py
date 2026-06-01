@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from proxy.app.providers import (
     anthropic as anthropic_provider,
 )
@@ -664,6 +666,49 @@ async def test_generic_propagates_upstream_status_code(httpx_mock):
     )
 
     assert response.status_code == 502
+
+
+# ---------------------------------------------------------------------------
+# Generic — per-base_url client pool
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+async def clear_generic_pool():
+    """Reset the generic adapter's client pool before and after each test."""
+    await generic_provider.close_all_clients()
+    yield
+    await generic_provider.close_all_clients()
+
+
+async def test_generic_pool_same_base_url_returns_same_client():
+    """Two calls with identical base_url must return the same client instance."""
+    origin = "https://pool-test.example.com"
+    client_a = await generic_provider.get_pooled_client(origin)
+    client_b = await generic_provider.get_pooled_client(origin)
+    assert client_a is client_b
+
+
+async def test_generic_pool_different_base_urls_return_different_clients():
+    """Two calls with different base_urls must return distinct client instances."""
+    client_a = await generic_provider.get_pooled_client("https://host-a.example.com")
+    client_b = await generic_provider.get_pooled_client("https://host-b.example.com")
+    assert client_a is not client_b
+
+
+async def test_generic_pool_client_has_correct_base_url():
+    """Pooled client must have its base_url set to the origin passed in."""
+    origin = "https://myapi.example.com"
+    client = await generic_provider.get_pooled_client(origin)
+    # httpx normalises the base_url — compare without trailing slash
+    assert str(client.base_url).rstrip("/") == origin
+
+
+async def test_generic_pool_extract_origin_strips_path():
+    """_extract_origin must strip the path component, keeping only scheme+host."""
+    assert generic_provider._extract_origin("https://api.example.com/v1") == "https://api.example.com"
+    assert generic_provider._extract_origin("https://api.example.com:8443/v1") == "https://api.example.com:8443"
+    assert generic_provider._extract_origin("http://localhost:11434/api") == "http://localhost:11434"
 
 
 # ---------------------------------------------------------------------------
