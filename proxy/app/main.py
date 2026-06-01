@@ -25,7 +25,7 @@ from proxy.app.providers import generic as generic_provider
 from proxy.app.providers import mock as mock_provider
 from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
-from proxy.app.providers.usage import extract_usage
+from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.routing import load_models_yaml, resolve_provider
 from redis.asyncio import Redis
@@ -186,12 +186,12 @@ def _attach_usage(
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type:
         return response
+    body_json = response.body
+    if not body_json:
+        return response
     try:
-        body_json = response.body
-        if not body_json:
-            return response
         response_dict = json.loads(body_json)
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return response
 
     metrics = extract_usage(provider, response_dict)
@@ -234,6 +234,7 @@ async def chat_completions(
     body = await request.json()
     model_id = body.get("model", "")
     stream = body.get("stream", False)
+    request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
 
@@ -353,7 +354,8 @@ async def chat_completions(
                 )
 
     # Extract usage metrics from non-streaming successful responses and attach to state/headers.
-    if not stream and isinstance(response, Response):
+    # Streaming responses are excluded — usage extraction for streams is a future task.
+    if not stream and isinstance(response, Response) and not isinstance(response, StreamingResponse):
         _attach_usage(response, effective_provider, request)
 
     return response

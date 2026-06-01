@@ -3,7 +3,10 @@
 import asyncio
 import ipaddress
 import json
+import logging
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from starlette.responses import Response, StreamingResponse
@@ -49,17 +52,9 @@ def _sanitise_api_key(api_key: str) -> str:
 
 
 def _extract_origin(base_url: str) -> str:
-    """Return scheme + host + optional port (no path) as the pool key.
-
-    Examples:
-        "https://api.example.com/v1"  -> "https://api.example.com"
-        "https://api.example.com:8443/v1" -> "https://api.example.com:8443"
-        "http://localhost:11434/api"  -> "http://localhost:11434"
-    """
+    """Return scheme + netloc (host + optional port, no path) as the pool key."""
     parsed = urlparse(base_url)
-    if parsed.port:
-        return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-    return f"{parsed.scheme}://{parsed.hostname}"
+    return f"{parsed.scheme}://{parsed.netloc}"
 
 
 # ---------------------------------------------------------------------------
@@ -69,23 +64,30 @@ def _extract_origin(base_url: str) -> str:
 _CLIENT_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=100)
 _CLIENT_TIMEOUT = httpx.Timeout(connect=5.0, read=120.0, write=10.0, pool=5.0)
 
+_MAX_POOL_SIZE = 50  # base_url comes from models.yaml; cardinality should be well below this
+
 _pool: dict[str, httpx.AsyncClient] = {}
-_pool_lock = asyncio.Lock()
+_pool_lock: asyncio.Lock | None = None  # lazy-init inside running event loop
 
 
 async def get_pooled_client(origin: str) -> httpx.AsyncClient:
-    """Return a cached AsyncClient for *origin*, creating one on first access.
-
-    The client is keyed by origin (scheme + host + port) so all requests to the
-    same host share keepalive connections while different hosts stay isolated.
-    """
-    # Fast path — already exists (no lock needed for reads on a dict in CPython,
-    # but we still double-check inside the lock to avoid duplicate creation).
-    if origin in _pool:
-        return _pool[origin]
-
+    """Return a cached AsyncClient for *origin*, creating one on first access."""
+    global _pool_lock
+    if _pool_lock is None:
+        _pool_lock = asyncio.Lock()
     async with _pool_lock:
         if origin not in _pool:
+            if len(_pool) >= _MAX_POOL_SIZE:
+                logger.warning(
+                    "generic_pool size limit (%d) reached; using uncached client for %s",
+                    _MAX_POOL_SIZE,
+                    origin,
+                )
+                return httpx.AsyncClient(
+                    base_url=origin,
+                    limits=_CLIENT_LIMITS,
+                    timeout=_CLIENT_TIMEOUT,
+                )
             _pool[origin] = httpx.AsyncClient(
                 base_url=origin,
                 limits=_CLIENT_LIMITS,
@@ -96,6 +98,9 @@ async def get_pooled_client(origin: str) -> httpx.AsyncClient:
 
 async def close_all_clients() -> None:
     """Close every pooled client. Call once at application shutdown."""
+    global _pool_lock
+    if _pool_lock is None:
+        return
     async with _pool_lock:
         for client in _pool.values():
             await client.aclose()

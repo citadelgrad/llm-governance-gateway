@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _STATUS_TO_TYPE: dict[int, str] = {
     400: "invalid_request_error",
     401: "authentication_error",
-    403: "invalid_request_error",
+    403: "permission_error",
     429: "rate_limit_error",
     500: "api_error",
     502: "api_error",
@@ -27,7 +27,12 @@ _STATUS_TO_TYPE: dict[int, str] = {
     504: "api_error",
 }
 
+# For these statuses, always use the generic message — upstream bodies may contain
+# credential details (401/403) or internal infrastructure info (5xx).
+_OPAQUE_STATUSES: frozenset[int] = frozenset({401, 403, 500, 502, 503, 504})
+
 _GENERIC_MESSAGE = "An error occurred while communicating with the upstream provider."
+_MAX_MESSAGE_LEN = 300
 
 
 def _error_type_for_status(status_code: int) -> str:
@@ -35,7 +40,7 @@ def _error_type_for_status(status_code: int) -> str:
 
 
 def _extract_message(raw_body: bytes) -> str:
-    """Try to pull a clean message from a JSON error body; fall back to generic."""
+    """Pull a clean message from a JSON error body; fall back to generic."""
     try:
         data = json.loads(raw_body)
     except (json.JSONDecodeError, ValueError):
@@ -44,21 +49,18 @@ def _extract_message(raw_body: bytes) -> str:
     if not isinstance(data, dict):
         return _GENERIC_MESSAGE
 
-    # OpenAI-shape: {"error": {"message": "..."}}
+    # Nested {"error": {"message": "..."}} shape (OpenAI, Anthropic, Gemini)
     error_obj = data.get("error")
     if isinstance(error_obj, dict):
         msg = error_obj.get("message") or error_obj.get("msg") or error_obj.get("description")
         if msg and isinstance(msg, str):
-            return msg
-
-    # Anthropic-shape: {"error": {"type": "...", "message": "..."}}  (already handled above)
-    # Gemini-shape: {"error": {"code": ..., "message": "...", "status": "..."}}  (handled above)
+            return msg[:_MAX_MESSAGE_LEN]
 
     # Flat shapes: {"message": "..."}, {"detail": "..."}, {"msg": "..."}
     for key in ("message", "detail", "msg", "description", "error"):
         val = data.get(key)
         if val and isinstance(val, str):
-            return val
+            return val[:_MAX_MESSAGE_LEN]
 
     return _GENERIC_MESSAGE
 
@@ -95,7 +97,9 @@ def sanitize_upstream_error(
     )
 
     error_type = _error_type_for_status(status_code)
-    message = _extract_message(raw_body)
+    # For auth and server errors, always use the generic message to prevent
+    # credential hints or internal hostnames from reaching API consumers.
+    message = _GENERIC_MESSAGE if status_code in _OPAQUE_STATUSES else _extract_message(raw_body)
 
     envelope = {
         "error": {

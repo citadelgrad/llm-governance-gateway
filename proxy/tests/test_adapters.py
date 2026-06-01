@@ -782,14 +782,27 @@ def test_sanitize_unknown_status_returns_api_error():
     assert body["error"]["type"] == "api_error"
 
 
-def test_sanitize_json_upstream_extracts_message():
+def test_sanitize_json_upstream_extracts_message_for_400():
+    # 400 is not an opaque status — the upstream message is extracted.
+    upstream = _make_upstream(
+        400,
+        b'{"error": {"message": "Invalid model specified.", "type": "invalid_request_error"}}',
+    )
+    resp = sanitize_upstream_error(upstream, provider="openai")
+    body = json.loads(resp.body)
+    assert body["error"]["message"] == "Invalid model specified."
+
+
+def test_sanitize_401_always_returns_generic_message():
+    # Auth errors use the generic message to avoid leaking credential hints.
     upstream = _make_upstream(
         401,
         b'{"error": {"message": "Incorrect API key provided.", "type": "invalid_api_key"}}',
     )
     resp = sanitize_upstream_error(upstream, provider="openai")
     body = json.loads(resp.body)
-    assert body["error"]["message"] == "Incorrect API key provided."
+    assert "Incorrect API key" not in body["error"]["message"]
+    assert body["error"]["type"] == "authentication_error"
 
 
 def test_sanitize_non_json_upstream_returns_generic_message():
