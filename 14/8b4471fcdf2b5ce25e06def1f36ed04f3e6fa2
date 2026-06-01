@@ -1,0 +1,25 @@
+.beads/issues.jsonl
+  s_472606304f0059::t_b414405519aaab 7,43
+proxy/tests/test_adapters.py
+  s_472606304f0059::t_33d15d52943307 261-408
+proxy/app/providers/anthropic.py
+  s_472606304f0059::t_6b969584acf5e8 8-9
+  s_472606304f0059::t_de1520a815b76a 190-192,213-246,263-282
+  s_472606304f0059::t_31cd840a140c05 329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "148b4471fcdf2b5ce25e06def1f36ed04f3e6fa2",
+  "prompts": {},
+  "sessions": {
+    "s_472606304f0059": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b3ee241a-1729-49a1-9a0d-d32eabb7e9ae",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
