@@ -5,11 +5,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-WORKDIR /app
+WORKDIR /workspace
+ENV PYTHONPATH=/workspace:/workspace/proxy
 
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+COPY pyproject.toml uv.lock ./proxy/
+RUN cd proxy && uv sync --frozen --no-dev
 
-COPY . .
+COPY . ./proxy
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+WORKDIR /workspace/proxy
+CMD ["uv", "run", "--project", "/workspace/proxy", "uvicorn", "proxy.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

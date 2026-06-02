@@ -29,9 +29,9 @@ _ready = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _ready
-    from governance.app import pii
-    from governance.app import harm as harm_module
-    from governance.app import opa as opa_module
+    from . import pii
+    from . import harm as harm_module
+    from . import opa as opa_module
     await asyncio.to_thread(harm_module._scanners)  # warm up harm scanners at startup
     await pii.initialize(settings.spacy_model)
     _ready = True

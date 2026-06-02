@@ -27,7 +27,7 @@ services:
     volumes:
       - ./policies:/policies:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8181/health || exit 1"]
+      test: ["CMD", "/opa", "version"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -36,7 +36,7 @@ services:
     build: ./governance
     command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://gateway:gateway@postgres:5432/gateway}
+      DATABASE_URL: postgresql://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +67,7 @@ services:
     ports:
       - "8765:8000"
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/workspace/proxy/config:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
       REDIS_URL: redis://redis:6379

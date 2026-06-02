@@ -6,7 +6,8 @@ import json
 from proxy.app.config import settings
 from proxy.app.headers import error_envelope
 from starlette.responses import Response, StreamingResponse
-from tests.fixtures.mock_scenarios import ALL_SCENARIOS, MockScenario
+
+from .mock_scenarios import ALL_SCENARIOS, MockScenario
 
 
 def _match_scenario(messages: list[dict]) -> MockScenario:
