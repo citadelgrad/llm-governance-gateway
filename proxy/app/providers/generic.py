@@ -6,12 +6,12 @@ import json
 import logging
 from urllib.parse import urlparse
 
-logger = logging.getLogger(__name__)
-
 import httpx
 from starlette.responses import Response, StreamingResponse
 
 from proxy.app.providers.errors import sanitize_upstream_error
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidBaseURLError(ValueError):
@@ -78,15 +78,9 @@ async def get_pooled_client(origin: str) -> httpx.AsyncClient:
     async with _pool_lock:
         if origin not in _pool:
             if len(_pool) >= _MAX_POOL_SIZE:
-                logger.warning(
-                    "generic_pool size limit (%d) reached; using uncached client for %s",
-                    _MAX_POOL_SIZE,
-                    origin,
-                )
-                return httpx.AsyncClient(
-                    base_url=origin,
-                    limits=_CLIENT_LIMITS,
-                    timeout=_CLIENT_TIMEOUT,
+                raise RuntimeError(
+                    f"generic_pool size limit ({_MAX_POOL_SIZE}) reached; "
+                    f"cannot create client for {origin}"
                 )
             _pool[origin] = httpx.AsyncClient(
                 base_url=origin,
@@ -129,7 +123,18 @@ async def chat_completions(
         )
 
     origin = _extract_origin(base_url)
-    client = await get_pooled_client(origin)
+    try:
+        client = await get_pooled_client(origin)
+    except RuntimeError as exc:
+        logger.error("generic_pool exhausted: %s", exc)
+        return Response(
+            content=json.dumps(
+                {"error": {"type": "api_error", "message": "Service temporarily unavailable"}}
+            ).encode(),
+            status_code=503,
+            media_type="application/json",
+            headers=extra_headers,
+        )
     # Use an absolute URL so it works even if the client has a base_url set.
     url = f"{base_url.rstrip('/')}/chat/completions"
     safe_key = _sanitise_api_key(api_key)

@@ -355,7 +355,7 @@ async def chat_completions(
 
     # Extract usage metrics from non-streaming successful responses and attach to state/headers.
     # Streaming responses are excluded — usage extraction for streams is a future task.
-    if not stream and isinstance(response, Response) and not isinstance(response, StreamingResponse):
+    if not stream and isinstance(response, Response) and not isinstance(response, StreamingResponse) and response.status_code < 400:
         _attach_usage(response, effective_provider, request)
 
     return response

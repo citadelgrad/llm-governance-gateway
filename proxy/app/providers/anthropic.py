@@ -262,7 +262,9 @@ async def chat_completions(
                                 yield f"data: {json.dumps(chunk)}\n\n"
                             elif delta.get("type") == "input_json_delta":
                                 block_idx = event.get("index", 0)
-                                tc_idx = tool_block_index.get(block_idx, 0)
+                                if block_idx not in tool_block_index:
+                                    continue
+                                tc_idx = tool_block_index[block_idx]
                                 chunk = {
                                     "id": completion_id,
                                     "object": "chat.completion.chunk",
