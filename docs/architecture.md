@@ -100,7 +100,7 @@ make demo
 
 ## Production deployment shape
 
-The included Fly.io files are intended for a split topology:
+The optional Fly.io examples in `infra/example/fly.io/` are intended for a split topology:
 
 - Public proxy app is the only internet-facing service.
 - Governance and OPA stay on private networking.

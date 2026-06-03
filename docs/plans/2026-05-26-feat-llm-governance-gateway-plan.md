@@ -1295,7 +1295,7 @@ test_phi_to_non_approved_provider_blocks_even_when_allow_fires {
 - `auto_stop_machines = true` on governance and proxy Fly apps
 - `SPACY_MODEL` env var: `en_core_web_lg` locally, `en_core_web_sm` on Fly.io
 - `fly secrets set` for: `JWT_SECRET`, `GOVERNANCE_INTERNAL_TOKEN`, `GATEWAY_BOOTSTRAP_TOKEN`, `PSEUDONYM_HMAC_KEY`, all provider API keys, `DATABASE_URL` (internal Fly Postgres URL)
-- Non-secret config in `fly.toml` `[env]`: `OPA_URL=http://opa.internal:8181`, `LOG_LEVEL=info`, `DOCS_ENABLED=false`
+- Non-secret config in `infra/example/fly.io/*.toml` `[env]`: `OPA_URL=http://opa.internal:8181`, `LOG_LEVEL=info`, `DOCS_ENABLED=false`
 - Fly.io **scheduled job** (cron-style machine) for `scripts/rotate_partitions.py`: nightly at 02:00 UTC; verifies `pg_partman` is NOT in use (we use native partitioning), creates next month's partition, walks `partition_archive_state` to advance any stuck rows, detaches partitions older than `RETENTION_HOT_MONTHS=12`, dumps detached partitions to S3, drops verified partitions
 - Drift-detection `/health` sub-check: returns "degraded" if any partition has `detached_at > 48h ago AND dumped_at IS NULL`
 - `README.md`: architecture diagram (Mermaid C4, per CLAUDE.md), quickstart, demo scenarios, design decisions, portfolio notes including the explicit "no LiteLLM" rationale
@@ -1303,7 +1303,7 @@ test_phi_to_non_approved_provider_blocks_even_when_allow_fires {
 - `make demo` script runs all 6 scenarios with expected outcomes — works with `MOCK_PROVIDERS=true` so portfolio reviewers need no API keys
 
 **Fly.io deployment notes (system-architect):**
-- Each service is a separate `fly.toml` file (proxy, governance, opa)
+- Each service has a separate example Fly.io config under `infra/example/fly.io/` (proxy, governance, OPA, cron)
 - Only proxy (8741) gets a `[[services]]` public endpoint
 - Governance (8742) and OPA (8181) must have NO `[[services]]` — internal network only
 - Governance engine needs `performance-1x` (1GB RAM) — `en_core_web_lg` alone is ~680MB
@@ -1317,7 +1317,7 @@ test_phi_to_non_approved_provider_blocks_even_when_allow_fires {
 
 **Files to create:**
 - `README.md`
-- `fly.toml`, `fly-governance.toml`, `fly-opa.toml`
+- `infra/example/fly.io/fly-proxy.toml`, `infra/example/fly.io/fly-governance.toml`, `infra/example/fly.io/fly-opa.toml`
 - `.envrc.example`
 - `docs/demo-scenarios.md`
 - `scripts/demo.sh`

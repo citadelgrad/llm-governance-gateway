@@ -15,7 +15,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 # `from governance.app.retention import ...` resolves via Python namespace packages
 COPY governance/ governance/
 COPY scripts/rotate_partitions.py scripts/rotate_partitions.py
-COPY scripts/fly-cron-entrypoint.sh scripts/fly-cron-entrypoint.sh
-RUN chmod +x scripts/fly-cron-entrypoint.sh
+COPY infra/example/fly.io/fly-cron-entrypoint.sh infra/example/fly.io/fly-cron-entrypoint.sh
+RUN chmod +x infra/example/fly.io/fly-cron-entrypoint.sh
 
-CMD ["scripts/fly-cron-entrypoint.sh"]
+CMD ["infra/example/fly.io/fly-cron-entrypoint.sh"]

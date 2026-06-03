@@ -26,7 +26,6 @@ This repo is being prepared for public release as `llm-governance-gateway`.
 
 2. Review tracked internal artifacts:
 
-   - `.claude/settings.json`
    - `AGENTS.md`
    - `CLAUDE.md`
    - `.beads/*`

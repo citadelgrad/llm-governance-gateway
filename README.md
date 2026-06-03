@@ -27,6 +27,7 @@ Production-grade OpenAI-compatible LLM gateway with policy enforcement, PII reda
 ├── scripts/               # Provisioning, demos, partition rotation, Fly helpers
 ├── tests/integration/     # Docker Compose smoke tests
 ├── docs/                  # Architecture, demo scenarios, release notes, plans
+├── infra/example/fly.io/  # Optional Fly.io deployment examples
 ├── docker-compose.yml     # Local stack: proxy, governance, OPA, Postgres, Redis
 └── Makefile               # Main operator interface
 ```
@@ -220,7 +221,7 @@ Policy and control-plane defaults are intentionally strict:
 
 ## Deployment notes
 
-The repo includes Fly.io config for a split topology:
+The repo includes optional [Fly.io example config](infra/example/fly.io/) for a split topology:
 
 | App | Exposure | Role |
 |---|---|---|

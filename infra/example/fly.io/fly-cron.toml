@@ -2,7 +2,8 @@ app = "ai-gateway-cron"
 primary_region = "iad"
 
 [build]
-  dockerfile = "Dockerfile.cron"
+  dockerfile = "infra/example/fly.io/Dockerfile.cron"
+  context = "."
 
 # No [[services]] — this is a one-shot cron machine, not a long-running service.
 # Schedule is set at machine-run time:
@@ -11,7 +12,7 @@ primary_region = "iad"
 #     --app ai-gateway-cron \
 #     --schedule daily \
 #     --cron "0 2 * * *" \
-#     --entrypoint /app/scripts/fly-cron-entrypoint.sh \
+#     --entrypoint /app/infra/example/fly.io/fly-cron-entrypoint.sh \
 #     registry.fly.io/ai-gateway-cron:latest
 #
 # DATABASE_URL must be set via `fly secrets set -a ai-gateway-cron`.
