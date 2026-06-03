@@ -29,7 +29,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.9",
-    "pyright>=1.1",
+    "ty>=0.0.40",
     "httpx>=0.28",
 ]
 
@@ -47,8 +47,6 @@ ignore = ["B008", "E501"]  # FastAPI dependency defaults and long SQL/policy str
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "standard"
-venvPath = "."
-venv = ".venv"
+[tool.ty.environment]
+python-version = "3.12"
+python-platform = "all"

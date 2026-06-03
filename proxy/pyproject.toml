@@ -32,7 +32,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-httpx>=0.35",
     "ruff>=0.9",
-    "pyright>=1.1",
+    "ty>=0.0.40",
     "httpx>=0.28",
 ]
 
@@ -55,10 +55,7 @@ asyncio_mode = "auto"
 # "." = proxy/ (for proxy.app.* imports)
 pythonpath = ["..", "."]
 
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "standard"
-venvPath = "."
-venv = ".venv"
-extraPaths = [".."]
-exclude = [".venv", "tests"]
+[tool.ty.environment]
+python-version = "3.12"
+python-platform = "all"
+extra-paths = [".."]

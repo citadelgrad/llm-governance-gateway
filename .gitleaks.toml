@@ -1,0 +1,11 @@
+title = "AI Gateway gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Historical non-secret example/test placeholders before scanner-friendly cleanup"
+paths = [
+  '''(^|/)fly-secrets\.sh\.example$''',
+  '''(^|/)proxy/tests/conftest\.py$''',
+]

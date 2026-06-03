@@ -146,7 +146,7 @@ Chat completions:
 ```bash
 TOKEN="replace-with-jwt-or-api-key"
 curl -X POST http://localhost:8765/v1/chat/completions \
-  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4o-mini",
@@ -178,7 +178,7 @@ Useful response headers:
 | `make test` | Run proxy and governance unit tests |
 | `make test-integration` | Run Docker Compose smoke tests |
 | `make opa-test` | Run OPA Rego policy tests |
-| `make lint` | Run ruff and pyright |
+| `make lint` | Run ruff and ty |
 | `make rotate-partitions` | Rotate audit partitions |
 
 ## Configuration
@@ -243,7 +243,7 @@ Before publishing:
 - Run a current-tree and git-history secret scan.
 - Confirm no real tenant/user/provider credentials are tracked.
 - Confirm `.envrc` and `.env` are ignored.
-- Decide on a license.
+- Confirm the Apache-2.0 license is still the intended public license.
 - Run `make test`, `make opa-test`, `make lint`, and `make test-integration`.
 - Review `docs/public-release.md`.
 
@@ -253,4 +253,4 @@ See `SECURITY.md`.
 
 ## License
 
-No license has been selected yet. Add one before publishing if you want others to have explicit reuse rights.
+Apache License 2.0. See `LICENSE`.

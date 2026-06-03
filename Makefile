@@ -23,8 +23,8 @@ migrate:
 
 ## Code quality
 lint:
-	cd proxy && uv run ruff check . && uv run pyright app
-	cd governance && uv run ruff check app && uv run pyright app
+	cd proxy && uv run --extra dev ruff check . && uv run --extra dev ty check app
+	cd governance && uv run --extra dev ruff check app && uv run --extra dev ty check app
 
 test:
 	cd proxy && uv run pytest tests/
@@ -60,7 +60,7 @@ help:
 	@echo "  status              Show service status"
 	@echo "  logs                Follow service logs"
 	@echo "  migrate             Run database migrations"
-	@echo "  lint                Run ruff + pyright on both services"
+	@echo "  lint                Run ruff + ty on both services"
 	@echo "  test                Run pytest on both services"
 	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
 	@echo "  opa-test            Run OPA policy tests"

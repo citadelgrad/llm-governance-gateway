@@ -1,57 +1,44 @@
 # Security Policy
 
-## Supported use
+AI Gateway is a security-sensitive LLM proxy: it handles prompts, provider credentials, API keys, policy decisions, PII redaction, and audit logs. Treat deployments accordingly.
 
-This project is a reference implementation for an LLM governance gateway. It is not safe to expose without real secrets, private networking, tenant review, and provider-specific compliance checks.
+## Supported Versions
 
-The proxy may be public. Governance, OPA, Postgres, and Redis should stay private/internal.
+This project is pre-1.0. Security fixes land on `main` until a formal release policy exists.
 
-## Reporting vulnerabilities
+## Reporting a Vulnerability
 
-If this repo is published under an organization, report vulnerabilities through that organization's preferred private channel or GitHub Security Advisories.
+Do not open public issues for suspected vulnerabilities.
 
-Do not open public issues containing:
+Report privately to the repository owner/security contact. Include:
 
-- real API keys or tokens
-- JWT secrets
-- HMAC pseudonymization keys
-- tenant/user identifiers from production systems
-- request payloads containing PII, PHI, or customer data
-- audit records from real deployments
+- affected commit/version
+- reproduction steps
+- impact
+- relevant logs with secrets redacted
+- whether any credentials, prompts, tenant data, or audit data may have been exposed
 
-## Secret handling
+## Deployment Security Notes
 
-Never commit:
+- Set strong unique values for `JWT_SECRET`, `GOVERNANCE_INTERNAL_TOKEN`, `GATEWAY_BOOTSTRAP_TOKEN`, and `PSEUDONYM_HMAC_KEY`.
+- Never commit real provider keys or generated `.envrc` / `.env` files.
+- Keep Governance, OPA, Redis, and Postgres on private networks. The proxy is the only service intended to be public-facing.
+- Do not expose the local Docker Compose stack directly to the public internet.
+- Use mock providers for demos/tests; use real provider credentials only in trusted environments.
+- Audit logs may contain pseudonymized or governance-processed prompt metadata. Confirm retention and access policies before production use.
 
-- `.envrc` or `.env`
-- provider API keys
-- `JWT_SECRET`
-- `GOVERNANCE_INTERNAL_TOKEN`
-- `GATEWAY_BOOTSTRAP_TOKEN`
-- `PSEUDONYM_HMAC_KEY`
-- production `DATABASE_URL` or `REDIS_URL`
-- Fly.io secrets or deploy tokens
+## Secret Scanning
 
-Use `.envrc.example` only as a template. It intentionally contains non-secret placeholders.
-
-## Deployment warnings
-
-- Keep governance and OPA off the public internet.
-- Use private networking for Postgres and Redis.
-- Rotate pseudonymization keys deliberately; rotation affects correlation semantics.
-- Treat audit data as sensitive even when raw PII is not stored.
-- Validate provider compliance before allowing PHI or regulated data to leave the system.
-- Keep fail-closed behavior intact. Do not add fallback provider passthroughs when governance is unavailable.
-
-## Pre-release checks
-
-Before publishing or deploying from this repo:
+Run before publishing or pushing sensitive work:
 
 ```bash
-make test
-make opa-test
-make lint
-make test-integration
+gitleaks detect --source . --redact --no-banner
 ```
 
-Also run current-tree and git-history secret scans. See `docs/public-release.md`.
+For current-tree checks that intentionally include ignored local files, use:
+
+```bash
+gitleaks detect --source . --no-git --redact --no-banner
+```
+
+Ignored local agent worktrees and caches are not part of a public export, but real findings in tracked files or git history must be fixed before release.
