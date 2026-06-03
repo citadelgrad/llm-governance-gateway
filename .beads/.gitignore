@@ -53,6 +53,9 @@ dolt-server.activity
 # Backup data (auto-exported JSONL, local-only)
 backup/
 
+# Passive JSONL exports (local-only; Dolt DB is source of truth)
+*.jsonl
+
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 

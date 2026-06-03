@@ -3,15 +3,29 @@
 .dolt/
 *.db
 .beads-credential-key
+.beads/.linear-sync.lock
+.beads/.local_version
+.beads/embeddeddolt/
+.beads/*.jsonl
+.beads/export-state.json
+.beads/last-touched
 
-# direnv
+# Environment / secrets
 .envrc
+.env
+.env.*
+!.envrc.example
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
 
 # Docker
 .docker/
@@ -25,6 +39,7 @@ __pycache__/
 .claude/worktrees/
 .claude/epic-swarm/
 .tldr/
+.tldrignore
 
 # OPA generated data (contains user/tenant info)
 policies/data/*.json

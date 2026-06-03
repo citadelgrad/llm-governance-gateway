@@ -13,6 +13,13 @@ This project uses **bd** (beads) for issue tracking. Run `bd prime` for full wor
 > source of truth; don't `bd import` during normal operation; don't
 > reach for third-party Dolt hosting before trying the default).
 
+## Beads Git Hygiene
+
+Current Beads source of truth is the local Dolt database under `.beads/`.
+Sync/share issue state with `bd dolt push` and `bd dolt pull`, not by committing
+JSONL exports. Files like `.beads/issues.jsonl` and `.beads/interactions.jsonl`
+are passive/local exports and should stay ignored/untracked.
+
 ## Quick Reference
 
 ```bash
@@ -68,6 +75,8 @@ bd close <id>         # Complete work
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+
+Do not commit `.beads/*.jsonl`; use `bd dolt push/pull` for issue sync.
 
 ## Session Completion
 
