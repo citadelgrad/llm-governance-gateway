@@ -2,10 +2,6 @@
 
 Production-grade OpenAI-compatible LLM gateway with policy enforcement, PII redaction, tenant-aware routing, rate limiting, and append-only audit logging.
 
-Recommended public repository name: `llm-governance-gateway`.
-
-Why that name: `ai-gateway` is too generic; `llm-governance-gateway` says what this actually is, is searchable, and matches the repo's strongest differentiator: governance controls around LLM traffic.
-
 ## What it does
 
 - Exposes an OpenAI-compatible `POST /v1/chat/completions` API.
