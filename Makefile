@@ -1,5 +1,10 @@
 .PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-partitions demo help
 
+JWT_SECRET ?= local-dev-jwt-secret-for-compose-tests-only
+GOVERNANCE_INTERNAL_TOKEN ?= local-dev-governance-token
+PSEUDONYM_HMAC_KEY ?= local-dev-pseudonym-hmac-key-for-compose-tests-only
+export JWT_SECRET GOVERNANCE_INTERNAL_TOKEN PSEUDONYM_HMAC_KEY
+
 ## Service lifecycle
 up:
 	docker compose up -d --wait

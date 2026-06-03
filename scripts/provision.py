@@ -188,12 +188,15 @@ def main():
         print(f"✓ OPA data documents written to {POLICIES_DATA}")
 
     if generated_keys:
-        print("\n" + "=" * 60)
-        print("WARNING: GENERATED API KEYS — STORE THESE NOW, NOT SHOWN AGAIN")
-        print("=" * 60)
-        for user_id, key in generated_keys:
-            print(f"  {user_id}: {key}")
-        print("=" * 60 + "\n")
+        if os.environ.get("SUPPRESS_GENERATED_KEYS") == "true":
+            print(f"✓ Generated {len(generated_keys)} API key(s); plaintext output suppressed.")
+        else:
+            print("\n" + "=" * 60)
+            print("WARNING: GENERATED API KEYS — STORE THESE NOW, NOT SHOWN AGAIN")
+            print("=" * 60)
+            for user_id, key in generated_keys:
+                print(f"  {user_id}: {key}")
+            print("=" * 60 + "\n")
     else:
         print("✓ All keys already exist. No new keys generated.")
 
