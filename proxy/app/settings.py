@@ -1,3 +1,3 @@
-from proxy.app.main import Settings, settings
+from proxy.app.config import Settings, settings
 
 __all__ = ["Settings", "settings"]

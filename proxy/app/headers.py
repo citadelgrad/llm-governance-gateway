@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 
 
@@ -35,9 +36,9 @@ def pii_headers(
 def error_envelope(
     error_type: str,
     message: str,
-    violations: list[str] = (),
-    required_roles: list[str] = (),
-    approved_providers_for_classification: list[str] = (),
+    violations: Sequence[str] = (),
+    required_roles: Sequence[str] = (),
+    approved_providers_for_classification: Sequence[str] = (),
 ) -> dict:
     body: dict = {
         "type": error_type,

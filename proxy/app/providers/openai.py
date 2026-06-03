@@ -1,7 +1,6 @@
 import httpx
-from starlette.responses import Response, StreamingResponse
-
 from proxy.app.providers.errors import sanitize_upstream_error
+from starlette.responses import Response, StreamingResponse
 
 OPENAI_BASE = "https://api.openai.com/v1"
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Any, cast
 
 from redis.asyncio import Redis
 
@@ -59,7 +60,7 @@ class RateLimiter:
     async def check(self, user_id: str) -> RateLimitResult:
         now_ms = int(time.time() * 1000)
         key = f"rl:{user_id}"
-        result = await self._redis.evalsha(
+        result = await cast(Any, self._redis.evalsha)(
             self._sha, 1, key,
             str(now_ms), str(self._window_ms), str(self._limit),
         )

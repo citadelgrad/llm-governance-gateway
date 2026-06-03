@@ -47,7 +47,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["B008"]  # FastAPI Depends() in function defaults is idiomatic
+ignore = ["B008", "E501"]  # FastAPI Depends() in function defaults is idiomatic; long provider fixtures are tolerated
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -60,3 +60,5 @@ pythonVersion = "3.12"
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
+extraPaths = [".."]
+exclude = [".venv", "tests"]

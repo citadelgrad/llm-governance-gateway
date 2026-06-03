@@ -1,9 +1,8 @@
 """Ollama provider — OpenAI-compatible endpoint with configurable base URL."""
 
 import httpx
-from starlette.responses import Response, StreamingResponse
-
 from proxy.app.providers.errors import sanitize_upstream_error
+from starlette.responses import Response, StreamingResponse
 
 
 def make_client(base_url: str) -> httpx.AsyncClient:

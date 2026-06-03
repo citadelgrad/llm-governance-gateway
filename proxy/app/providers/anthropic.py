@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 
 import httpx
-from starlette.responses import Response, StreamingResponse
-
 from proxy.app.providers.errors import sanitize_upstream_error
+from starlette.responses import Response, StreamingResponse
 
 ANTHROPIC_BASE = "https://api.anthropic.com"
 

@@ -7,9 +7,8 @@ import logging
 from urllib.parse import urlparse
 
 import httpx
-from starlette.responses import Response, StreamingResponse
-
 from proxy.app.providers.errors import sanitize_upstream_error
+from starlette.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
 

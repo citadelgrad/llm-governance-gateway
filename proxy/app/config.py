@@ -29,4 +29,4 @@ class Settings(BaseSettings):
         return self
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]

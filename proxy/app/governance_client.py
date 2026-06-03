@@ -18,7 +18,7 @@ class InspectRequest:
     user_id: str
     model_id: str
     routing_method: str
-    phase: str = "request"
+    phase: str = "pre_call"
     roles: list[str] = field(default_factory=list)
 
 

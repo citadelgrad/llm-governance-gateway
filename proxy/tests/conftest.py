@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import bcrypt
@@ -34,7 +34,7 @@ def make_jwt(
         "user_id": user_id,
         "tenant_id": tenant_id,
         "roles": roles or ["user"],
-        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        "exp": datetime.now(UTC) + timedelta(hours=1),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 

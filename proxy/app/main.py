@@ -12,8 +12,6 @@ import httpx
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 from proxy.app.auth import AuthError, CallerContext, authenticate
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
@@ -28,6 +26,7 @@ from proxy.app.providers import openai as openai_provider
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.routing import load_models_yaml, resolve_provider
+from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -130,8 +129,8 @@ app.add_middleware(BodySizeLimitMiddleware)
 
 
 async def get_caller(
+    request: Request,
     authorization: str | None = Header(default=None),
-    request: Request = ...,
 ) -> CallerContext:
     try:
         return await authenticate(authorization, request.app.state.db_pool)
@@ -190,7 +189,7 @@ def _attach_usage(
     if not body_json:
         return response
     try:
-        response_dict = json.loads(body_json)
+        response_dict = json.loads(bytes(body_json))
     except (json.JSONDecodeError, ValueError):
         return response
 
