@@ -15,7 +15,7 @@ from proxy.app.rate_limit import RateLimitResult
 TEST_JWT_SECRET = "test-jwt-secret-for-tests-only-32chars!!"
 
 # Pre-computed for API key auth tests; low rounds so tests stay fast
-TEST_API_KEY = "testkey-abcdefgh12345678"
+TEST_API_KEY = "local-fixture-token-for-auth-tests"
 TEST_API_KEY_HASH = bcrypt.hashpw(TEST_API_KEY.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 _MODELS_CONFIG = [

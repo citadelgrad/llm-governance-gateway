@@ -1,299 +1,256 @@
-# AI Gateway
+# LLM Governance Gateway
 
-Production-grade LLM proxy with governance, PII redaction, and policy enforcement.
+Production-grade OpenAI-compatible LLM gateway with policy enforcement, PII redaction, tenant-aware routing, rate limiting, and append-only audit logging.
 
----
+Recommended public repository name: `llm-governance-gateway`.
+
+Why that name: `ai-gateway` is too generic; `llm-governance-gateway` says what this actually is, is searchable, and matches the repo's strongest differentiator: governance controls around LLM traffic.
+
+## What it does
+
+- Exposes an OpenAI-compatible `POST /v1/chat/completions` API.
+- Routes requests across OpenAI, Anthropic, Google Gemini, Ollama, mock providers, and generic OpenAI-compatible backends.
+- Authenticates callers with JWTs or provisioned API keys.
+- Enforces per-tenant model access, tier-based RBAC, and provider override rules.
+- Runs PII detection and pseudonymization before provider dispatch.
+- Blocks PHI routing to non-approved providers by default.
+- Blocks prompt-injection and banned-topic style harm signals before provider dispatch.
+- Applies Redis-backed sliding-window rate limits per tenant/user.
+- Writes append-only audit records to Postgres with tenant isolation via Row-Level Security.
+- Runs local demos without real provider keys using `MOCK_PROVIDERS=true`.
+
+## Repository layout
+
+```text
+.
+├── proxy/                 # Public FastAPI gateway, auth, routing, adapters, rate limiting
+├── governance/            # Internal FastAPI governance service, PII/harm/policy/audit pipeline
+├── policies/llm/          # OPA Rego policies and policy tests
+├── policies/data/         # Generated OPA data documents
+├── config/                # Seed tenants, users, and model routing config
+├── scripts/               # Provisioning, demos, partition rotation, Fly helpers
+├── tests/integration/     # Docker Compose smoke tests
+├── docs/                  # Architecture, demo scenarios, release notes, plans
+├── docker-compose.yml     # Local stack: proxy, governance, OPA, Postgres, Redis
+└── Makefile               # Main operator interface
+```
+
+## Architecture
+
+```mermaid
+flowchart TB
+    client[Client / API consumer]
+
+    subgraph gateway[LLM Governance Gateway]
+        proxy[Proxy FastAPI\npublic :8765]
+        governance[Governance FastAPI\ninternal]
+        opa[Open Policy Agent\nRego policies]
+        postgres[(Postgres\naudit + pseudonyms)]
+        redis[(Redis\nrate limits)]
+    end
+
+    providers[LLM providers\nOpenAI / Anthropic / Gemini / Ollama / generic]
+
+    client -->|JWT or API key| proxy
+    proxy --> redis
+    proxy --> governance
+    governance --> opa
+    governance --> postgres
+    proxy --> providers
+```
+
+Request path:
+
+1. Client calls the proxy with an OpenAI-compatible chat-completions request.
+2. Proxy authenticates the caller and resolves tenant/user context.
+3. Proxy checks the Redis sliding-window rate limit.
+4. Proxy asks governance to inspect the request text.
+5. Governance detects PII, pseudonymizes sensitive values, scores harm, and asks OPA for policy decisions.
+6. Governance writes an audit record and returns allow/block/redacted-text metadata.
+7. Proxy blocks the request or dispatches the redacted request to the selected provider.
+8. Proxy returns the provider response with audit and rate-limit headers.
+
+See `docs/architecture.md` for the deeper architecture notes.
 
 ## Quickstart
 
-**Prerequisites**
+Prerequisites:
 
 - Docker + Docker Compose v2
-- [direnv](https://direnv.net/) (or set env vars manually)
-- Python 3.11+ with [uv](https://github.com/astral-sh/uv)
+- Python 3.11+
+- `uv`
+- `make`
+- Optional: `direnv`
 
-**1. Clone**
+Clone:
 
 ```bash
-git clone <repo-url> ai-gateway
-cd ai-gateway
+git clone https://github.com/<owner>/llm-governance-gateway.git
+cd llm-governance-gateway
 ```
 
-**2. Configure environment**
+Configure local environment:
 
 ```bash
-cp .envrc.example .envrc   # if provided, else create manually
+cp .envrc.example .envrc
+# edit .envrc if you want real provider calls; mock mode works without provider keys
 direnv allow
 ```
 
-Minimum required variables:
+If you do not use `direnv`, export the variables in `.envrc.example` manually.
+
+Generate local secrets:
 
 ```bash
-export JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-export GOVERNANCE_INTERNAL_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-export DATABASE_URL="postgresql://gateway:gateway@localhost:5432/gateway"
-export PSEUDONYM_HMAC_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+export JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+export GOVERNANCE_INTERNAL_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+export GATEWAY_BOOTSTRAP_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+export PSEUDONYM_HMAC_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+export MOCK_PROVIDERS=true
 ```
 
-**3. Start services**
+Start the stack:
 
 ```bash
 make up
+make status
 ```
 
-Expected output:
-
-```
-[+] Running 6/6
- ✔ Container ai-gateway-postgres-1    Healthy
- ✔ Container ai-gateway-redis-1       Healthy
- ✔ Container ai-gateway-opa-1         Healthy
- ✔ Container ai-gateway-migrate-1     Exited (0)
- ✔ Container ai-gateway-governance-1  Healthy
- ✔ Container ai-gateway-proxy-1       Healthy
-```
-
-**4. Provision and run demo**
+Run the seeded demo:
 
 ```bash
 make demo
 ```
 
-This runs `make up`, waits for health checks, then executes the idempotent provisioner (`scripts/provision.py`) which seeds tenants, users, and model config into Postgres and writes OPA data documents.
+The demo starts the stack in mock-provider mode, provisions tenants/users/models, and runs six governance scenarios:
 
-**5. Send a test request**
+1. clean request allowed
+2. PII redacted and allowed
+3. PHI blocked for non-approved provider
+4. prompt injection blocked
+5. tier-2 model denied for tier-1 caller
+6. rate limit exceeded
+
+See `docs/demo-scenarios.md` for request/response examples and expected audit behavior.
+
+## Basic API usage
+
+Health check:
 
 ```bash
-# Health check
 curl http://localhost:8765/health
-# {"status": "ok"}
-
-# Chat completions (requires provisioned API key)
-curl -X POST http://localhost:8765/v1/chat/completions \
-  -H "Authorization: Bearer gw_<your-key>" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
-**Other useful targets**
+Chat completions:
+
+```bash
+TOKEN="replace-with-jwt-or-api-key"
+curl -X POST http://localhost:8765/v1/chat/completions \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+```
+
+Useful response headers:
+
+- `X-Audit-ID` — audit record correlation ID when governance is reached.
+- `X-Gateway-Pii-Redacted` — present when PII was redacted and the tenant config asks for notification.
+- `X-Gateway-Pii-Types` — comma-separated PII entity types found.
+- `x-ratelimit-limit-requests` — configured request limit for the window.
+- `x-ratelimit-remaining-requests` — remaining requests in the current window.
+- `x-ratelimit-reset-requests` — rate-limit reset timestamp.
+
+## Make targets
 
 | Target | Description |
 |---|---|
-| `make status` | Show container health |
-| `make logs` | Follow all service logs |
-| `make test` | Unit tests (proxy + governance) |
-| `make test-integration` | Integration smoke tests (requires `make up`) |
-| `make opa-test` | OPA Rego policy unit tests |
-| `make lint` | ruff + pyright on both services |
-| `make down` | Stop all services |
+| `make up` | Start the Docker Compose stack and wait for health checks |
+| `make down` | Stop the stack |
+| `make restart` | Restart all services |
+| `make status` | Show container health/status |
+| `make logs` | Follow service logs |
+| `make migrate` | Run governance Alembic migrations |
+| `make provision` | Seed tenants, users, models, and OPA data documents |
+| `make demo` | Run the local six-scenario governance demo |
+| `make test` | Run proxy and governance unit tests |
+| `make test-integration` | Run Docker Compose smoke tests |
+| `make opa-test` | Run OPA Rego policy tests |
+| `make lint` | Run ruff and pyright |
+| `make rotate-partitions` | Rotate audit partitions |
 
----
+## Configuration
 
-## Architecture
+Seed config lives in:
 
-### C4 Context Diagram
+- `config/models.yaml` — model IDs, providers, base URLs, aliases.
+- `config/tenants.yaml` — allowed models, rate limits, PII behavior, default provider.
+- `config/users.yaml` — demo users and roles.
 
-```mermaid
-flowchart TB
-    user["Client / API Consumer"]:::person
-    gateway["AI Gateway"]:::system
-    openai["OpenAI"]:::external
-    anthropic["Anthropic"]:::external
-    gemini["Google Gemini"]:::external
-    ollama["Ollama (local)"]:::external
+Important environment variables:
 
-    user -->|"JWT Bearer + chat request"| gateway
-    gateway -->|"forwarded prompt"| openai
-    gateway -->|"forwarded prompt"| anthropic
-    gateway -->|"forwarded prompt"| gemini
-    gateway -->|"forwarded prompt"| ollama
+| Variable | Purpose |
+|---|---|
+| `JWT_SECRET` | Signs and verifies JWT callers |
+| `GOVERNANCE_INTERNAL_TOKEN` | Shared internal token between proxy and governance |
+| `GATEWAY_BOOTSTRAP_TOKEN` | Optional bootstrap/admin token |
+| `PSEUDONYM_HMAC_KEY` | Key for deterministic PII pseudonymization |
+| `DATABASE_URL` | Postgres connection string |
+| `REDIS_URL` | Redis connection string |
+| `OPA_URL` | OPA server URL used by governance |
+| `MODELS_YAML` | Model routing config path |
+| `MOCK_PROVIDERS` | Use local mock provider responses instead of external provider calls |
+| `OPENAI_API_KEY` | OpenAI provider key |
+| `ANTHROPIC_API_KEY` | Anthropic provider key |
+| `GEMINI_API_KEY` | Google Gemini provider key |
+| `OLLAMA_BASE_URL` | Ollama/OpenAI-compatible local base URL |
+| `SPACY_MODEL` | spaCy model used by Presidio PII detection |
 
-    classDef person fill:#1168bd,color:#fff,stroke:#0b4884
-    classDef system fill:#2d7d46,color:#fff,stroke:#1a5c33
-    classDef external fill:#666,color:#fff,stroke:#444
-```
+Never commit real `.envrc`, `.env`, provider keys, JWT secrets, HMAC keys, or database credentials.
 
-**Legend**
+## Governance controls
 
-| Node | Type | Notes |
+Policy and control-plane defaults are intentionally strict:
+
+- Fail closed when governance or OPA is unavailable.
+- Deny by default in OPA; requests need explicit allow rules.
+- PII findings store types/spans/scores, not matched raw values.
+- Pseudonyms are deterministic HMAC-derived values, keyed by `PSEUDONYM_HMAC_KEY`.
+- PHI is blocked from providers outside the approved BAA set.
+- Audit rows are append-only and partitioned.
+- Postgres RLS is enabled with `FORCE` for tenant isolation.
+
+## Deployment notes
+
+The repo includes Fly.io config for a split topology:
+
+| App | Exposure | Role |
 |---|---|---|
-| Client / API Consumer | Person | Any HTTP client using OpenAI-compatible API |
-| AI Gateway | System | This project — proxy + governance + OPA + Postgres |
-| OpenAI / Anthropic / Gemini / Ollama | External System | Upstream LLM providers |
+| proxy | Public HTTPS | Only internet-facing app |
+| governance | Private/internal | PII, harm, OPA, audit pipeline |
+| database/redis | Private/internal | State and rate limiting |
 
----
+Do not expose the governance service, OPA, Postgres, or Redis directly to the public internet.
 
-### C4 Container Diagram
+## Public release status
 
-```mermaid
-flowchart TB
-    subgraph gateway_system["AI Gateway System"]
-        proxy["Proxy\n(FastAPI)\n:8765 public"]:::container
-        governance["Governance\n(FastAPI + spaCy + Presidio)\ninternal only"]:::container
-        opa["OPA\n(Rego policies)\n:8181 internal"]:::container
-        postgres["PostgreSQL\n(audit log + pseudonyms)\ninternal only"]:::container
-        redis["Redis\n(rate limiting)\ninternal only"]:::container
-    end
+This codebase is suitable as a public reference implementation, but do not flip an existing private repository public until release checks pass.
 
-    client["Client"]:::person
-    llm["LLM Providers"]:::external
+Before publishing:
 
-    client -->|"HTTPS + JWT"| proxy
-    proxy -->|"POST /inspect"| governance
-    governance -->|"POST /v1/data/llm/authz"| opa
-    governance -->|"audit write (async)"| postgres
-    governance -->|"pseudonym lookup"| postgres
-    proxy -->|"rate limit check"| redis
-    proxy -->|"forward request"| llm
+- Run a current-tree and git-history secret scan.
+- Confirm no real tenant/user/provider credentials are tracked.
+- Confirm `.envrc` and `.env` are ignored.
+- Decide on a license.
+- Run `make test`, `make opa-test`, `make lint`, and `make test-integration`.
+- Review `docs/public-release.md`.
 
-    classDef person fill:#1168bd,color:#fff,stroke:#0b4884
-    classDef container fill:#2d7d46,color:#fff,stroke:#1a5c33
-    classDef external fill:#666,color:#fff,stroke:#444
-```
+## Security
 
-**Legend**
+See `SECURITY.md`.
 
-| Container | Tech | Responsibility |
-|---|---|---|
-| Proxy | FastAPI, asyncpg, httpx | Auth, routing, rate limiting, PII header propagation |
-| Governance | FastAPI, spaCy, Presidio | PII detection + pseudonymization, harm scoring, policy pipeline |
-| OPA | Open Policy Agent | Rego-based authz: model tiers, PHI routing, prompt injection |
-| PostgreSQL | Postgres 16 | Append-only partitioned audit log, pseudonym map, erasure log |
-| Redis | Redis 7 | Sliding-window rate limiter (Lua script, per-user) |
+## License
 
----
-
-### Request Flow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant P as Proxy :8765
-    participant RL as Redis (rate limiter)
-    participant G as Governance
-    participant OPA as OPA
-    participant DB as PostgreSQL
-    participant LLM as LLM Provider
-
-    C->>P: POST /v1/chat/completions (JWT)
-    P->>P: authenticate JWT / API key
-    P->>RL: sliding window check (user_id)
-    RL-->>P: allowed / rate_limited
-    P->>G: POST /inspect (text, tenant_id, user_id, model_id)
-    G->>G: spaCy + Presidio PII scan
-    G->>G: harm scoring
-    G->>OPA: POST /v1/data/llm/authz (phase, user, request)
-    OPA-->>G: {allow, deny_reasons, redact_pii}
-    G->>DB: write audit_log row (async background task)
-    G-->>P: {decision, redacted_text, pii_findings, audit_id}
-    alt decision == "block"
-        P-->>C: 403 policy_violation
-    else decision == "allow"
-        P->>LLM: forwarded request (PII replaced with pseudonyms)
-        LLM-->>P: completion response
-        P-->>C: response + X-Audit-ID + X-PII-Redacted headers
-    end
-```
-
----
-
-## Design Decisions
-
-### Why Not LiteLLM?
-
-The proxy ships custom provider adapters (`proxy/app/providers/`) for OpenAI, Anthropic, Gemini, Ollama, and a generic OpenAI-compatible backend. This was a deliberate choice rather than wrapping LiteLLM.
-
-**Reasons:**
-
-- **Control over request/response transformation** — PII pseudonymization requires rewriting message content in-flight; generic wrappers make this fragile.
-- **Dependency risk** — LiteLLM is a large, rapidly-changing dependency. A custom adapter is ~50 LOC per provider and has no transitive surprises.
-- **Engineering depth** — Building adapters demonstrates understanding of provider API differences (Anthropic's `x-api-key` vs OpenAI Bearer, Gemini's distinct schema) rather than delegating to an abstraction layer.
-- **Streaming** — Each provider's streaming format differs; custom adapters handle this transparently without fighting a framework.
-
-### Fail-Closed Boundaries
-
-If the governance service or OPA is unreachable, the proxy returns `503 governance_unavailable` — the request is **denied**, not passed through. This is enforced in `proxy/app/governance_client.py` via `GovernanceError` propagation. The same pattern applies at the OPA layer inside governance: a connection failure to OPA results in `block`, not `allow`.
-
-**Rationale:** In a regulated environment, a silent passthrough on control-plane failure is a compliance incident. Fail-closed trades availability for auditability.
-
-### Audit Log as Metadata
-
-Every request through governance generates a UUID7 `audit_id` returned in the `InspectResponse`. The proxy surface area propagates this value to the caller via response headers (`X-Audit-Id`). The audit record includes:
-
-- `user_id` (pseudonymized), `tenant_id`, `model_id`, `routing_method`
-- `decision` (allow/block), `violations`, `harm_score`
-- `pii_findings` (types only — not the raw PII values)
-- `created_at` (event time) and `written_at` (DB write time)
-
-The audit table is append-only and partitioned. Audit rows are written asynchronously via FastAPI `BackgroundTasks` to keep the hot path latency low.
-
-### GDPR Pseudonymization
-
-PII entities detected by Presidio are replaced with HMAC-SHA256 keyed pseudonyms before the text leaves the governance service. Key properties:
-
-- **Deterministic** — the same (PII value, key) pair always produces the same pseudonym, enabling consistent audit correlation without storing the original.
-- **Keyed** — pseudonyms are only reversible with the HMAC key (`PSEUDONYM_HMAC_KEY`), which is never logged.
-- **Rotation** — pseudonym partitions can be rotated (`make rotate-partitions`). After rotation, new requests get pseudonyms under the new key. Old partitions are archived; the mapping is severed.
-- **Right to erasure** — `DELETE /v1/users/{user_id}` overwrites `real_user_id` with `[ERASED]` in `user_pseudonym_map` and writes an `erasure_log` entry. The audit rows remain (for compliance) but the link from pseudonym to real user is destroyed.
-
-### PostgreSQL RLS + FORCE
-
-All audit and pseudonym tables have `ROW SECURITY FORCE` enabled. Policies restrict reads to the owning tenant. `FORCE` means the policy applies even to the table owner and superuser roles — a misconfigured application connection cannot accidentally read another tenant's audit rows.
-
-### OPA Deny+Allow Pattern
-
-All Rego policies follow the deny+allow structure: the default is `allow := false`. Explicit `allow` rules must fire for a request to proceed. Deny reasons are collected as a set and surfaced in the `violations` list returned to the proxy.
-
-Model tiers are enforced at the policy layer: tier-1 models are open to all authenticated users; tier-2 models require the `tier2-access` role. PHI is blocked from routing to non-HIPAA-BAA providers — only `azure-openai` and `bedrock` are in the approved set. Policy files live in `policies/llm/` and are hot-reloaded by OPA via `--watch`.
-
----
-
-## Deployment (Fly.io)
-
-The project targets a three-app topology on Fly.io:
-
-| App | Exposure | Services |
-|---|---|---|
-| `ai-gateway-proxy` | Public (HTTPS) | Proxy only — the single ingress point |
-| `ai-gateway-governance` | Internal (`*.internal`) | Governance + OPA — not reachable from the internet |
-| `ai-gateway-db` | Internal | Managed Postgres (Fly Postgres or Supabase) |
-
-OPA runs as a sidecar or co-deployed container alongside governance and is never exposed externally. The `GOVERNANCE_INTERNAL_TOKEN` ensures that even if the internal network were misconfigured, unauthenticated calls to `/inspect` are rejected with `403`.
-
-Redis (rate limiter) is deployed as a Fly-managed Redis instance, accessible only within the private network.
-
----
-
-## Portfolio Notes
-
-This project is designed to be representative of production AI platform engineering work. Specifically, it demonstrates:
-
-**LLM Infrastructure**
-- OpenAI-compatible API surface with multi-provider routing (OpenAI, Anthropic, Gemini, Ollama, generic)
-- Streaming support across all providers
-- Model alias resolution and tier-based RBAC
-- Per-user sliding-window rate limiting via Redis Lua scripts
-
-**Governance and Compliance**
-- GDPR-compliant PII detection at inference time using spaCy NER + Microsoft Presidio
-- HMAC-keyed pseudonymization with rotation and right-to-erasure support
-- HIPAA-aware PHI routing restrictions enforced at the policy layer
-- Append-only partitioned audit log with UUID7 time-ordered IDs
-
-**Policy as Code**
-- OPA Rego policies with full unit test coverage (`make opa-test`)
-- Deny-by-default with explicit allow — no implicit passthrough
-- Hot-reload of policies without proxy restart
-
-**Security Design**
-- Fail-closed: governance or OPA unreachable = request denied
-- PostgreSQL Row-Level Security with FORCE — tenant isolation enforced at the DB layer
-- JWT + bcrypt API key dual auth with TTL-cached tenant context
-- 1MB body size limit, CORS, and request ID propagation throughout
-
-**Operational Readiness**
-- Docker Compose local stack with health checks and ordered startup
-- Idempotent IaC provisioner for tenants, users, and model config
-- Alembic migrations with a dedicated migrate service
-- Integration test suite runnable against the live stack (`make test-integration`)
-- Makefile-first interface: `make up`, `make down`, `make demo`, `make logs`
+No license has been selected yet. Add one before publishing if you want others to have explicit reuse rights.

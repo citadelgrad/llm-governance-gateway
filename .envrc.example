@@ -1,23 +1,32 @@
-# Provider API Keys
-export OPENAI_API_KEY="sk-..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GEMINI_API_KEY="AIza..."
+# Copy to .envrc for local development. Do not commit real .envrc files.
 
-# Security
-export JWT_SECRET="change-me-min-32-chars-secret-key"
-export GOVERNANCE_INTERNAL_TOKEN="change-me-internal-token"
-export GATEWAY_BOOTSTRAP_TOKEN="change-me-bootstrap-token"
-export PSEUDONYM_HMAC_KEY="change-me-hmac-key-32-chars-min"
+# Provider API keys are optional when MOCK_PROVIDERS=true.
+# Use non-secret placeholders in this example file; put real keys only in .envrc or your secret manager.
+export OPENAI_API_KEY="your-openai-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+export GEMINI_API_KEY="your-gemini-api-key"
 
-# Services
-export DATABASE_URL="postgresql://gateway:gateway@localhost:5432/gateway"
+# Security: replace every value below before running outside disposable local dev.
+export JWT_SECRET="replace-with-32-plus-byte-random-hex"
+export GOVERNANCE_INTERNAL_TOKEN="replace-with-32-plus-byte-random-hex"
+export GATEWAY_BOOTSTRAP_TOKEN="replace-with-32-plus-byte-random-hex"
+export PSEUDONYM_HMAC_KEY="replace-with-32-plus-byte-random-hex"
+
+# Services: Docker Compose maps Postgres to localhost:15432 and the proxy to localhost:8765.
+export DATABASE_URL="postgresql://gateway:gateway@localhost:15432/gateway"
 export REDIS_URL="redis://localhost:6379"
 export OPA_URL="http://localhost:8181"
+export GOVERNANCE_URL="http://localhost:8000"
+export GATEWAY_BASE_URL="http://localhost:8765"
+export MODELS_YAML="config/models.yaml"
 
-# Models
-# Local: en_core_web_lg (~680MB, higher recall)
-# Fly.io: en_core_web_sm (~12MB, fits 1GB RAM limit, cold-start <30s)
+# PII detection model.
+# Local high-recall option: en_core_web_lg (~680MB)
+# Smaller deploy-friendly option: en_core_web_sm (~12MB)
 export SPACY_MODEL="en_core_web_lg"
 
-# Mock providers (set to true to run demo without real API keys)
-export MOCK_PROVIDERS="false"
+# Mock providers let demos/tests run without real upstream LLM API keys.
+export MOCK_PROVIDERS="true"
+
+# Optional local provider.
+export OLLAMA_BASE_URL="http://localhost:11434/v1"
