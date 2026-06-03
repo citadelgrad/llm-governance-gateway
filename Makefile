@@ -2,13 +2,14 @@
 
 ## Service lifecycle
 up:
-	docker compose up -d
+	docker compose up -d --wait
 
 down:
 	docker compose down
 
 restart:
-	docker compose down && docker compose up -d
+	$(MAKE) down
+	$(MAKE) up
 
 status:
 	docker compose ps
