@@ -28,17 +28,17 @@ migrate:
 
 ## Code quality
 lint:
-	cd proxy && uv run --extra dev ruff check . && uv run --extra dev ty check app
-	cd governance && uv run --extra dev ruff check app && uv run --extra dev ty check app
+	cd proxy && uv --no-config run --extra dev ruff check . && uv --no-config run --extra dev ty check app
+	cd governance && uv --no-config run --extra dev ruff check app && uv --no-config run --extra dev ty check app
 
 test:
-	cd proxy && uv run pytest tests/
-	cd governance && uv run pytest tests/
+	cd proxy && uv --no-config run pytest tests/
+	cd governance && uv --no-config run pytest tests/
 
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
-	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv run pytest ../tests/integration/ -v
+	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv --no-config run pytest ../tests/integration/ -v
 
 ## OPA policy tests
 opa-test:
@@ -46,16 +46,16 @@ opa-test:
 
 ## Provisioning
 provision:
-	DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
+	DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
 
 rotate-partitions:
-	cd governance && DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv run python ../scripts/rotate_partitions.py
+	cd governance && DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv --no-config run python ../scripts/rotate_partitions.py
 
 ## Demo
 demo:
 	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
-	MOCK_PROVIDERS=true uv run --with httpx --with 'python-jose[cryptography]' scripts/demo.py
+	MOCK_PROVIDERS=true uv --no-config run --with httpx --with 'python-jose[cryptography]' scripts/demo.py
 
 ## Help
 help:
