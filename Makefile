@@ -32,6 +32,7 @@ test:
 
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
+	$(MAKE) provision
 	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv run pytest ../tests/integration/ -v
 
 ## OPA policy tests
