@@ -66,7 +66,7 @@ Request path:
 7. Proxy blocks the request or dispatches the redacted request to the selected provider.
 8. Proxy returns the provider response with audit and rate-limit headers.
 
-See `docs/architecture.md` for the deeper architecture notes.
+See [Architecture](docs/architecture.md) for the deeper architecture notes.
 
 ## Quickstart
 
@@ -127,7 +127,7 @@ The demo starts the stack in mock-provider mode, provisions tenants/users/models
 5. tier-2 model denied for tier-1 caller
 6. rate limit exceeded
 
-See `docs/demo-scenarios.md` for request/response examples and expected audit behavior.
+See [Demo scenarios](docs/demo-scenarios.md) for request/response examples and expected audit behavior.
 
 ## Basic API usage
 
@@ -241,14 +241,14 @@ Before publishing:
 - Confirm `.envrc` and `.env` are ignored.
 - Confirm the Apache-2.0 license is still the intended public license.
 - Run `make test`, `make opa-test`, `make lint`, and `make test-integration`.
-- Review `docs/public-release.md`.
+- Review [Public release checklist](docs/public-release.md).
 
 ## Security
 
-See `SECURITY.md`.
+See [Security policy](SECURITY.md).
 
-For the boundary between gateway runtime checks, CI/release scanning, local developer hooks, and production/SIEM workflows, see `docs/secret-detection-boundaries.md`.
+For the boundary between gateway runtime checks, CI/release scanning, local developer hooks, and production/SIEM workflows, see [Secret detection boundaries](docs/secret-detection-boundaries.md).
 
 ## License
 
-Apache License 2.0. See `LICENSE`.
+Apache License 2.0. See [LICENSE](LICENSE).
