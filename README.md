@@ -247,6 +247,8 @@ Before publishing:
 
 See `SECURITY.md`.
 
+For the boundary between gateway runtime checks, CI/release scanning, local developer hooks, and production/SIEM workflows, see `docs/secret-detection-boundaries.md`.
+
 ## License
 
 Apache License 2.0. See `LICENSE`.
