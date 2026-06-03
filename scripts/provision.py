@@ -13,14 +13,11 @@ from pathlib import Path
 import psycopg2
 import psycopg2.extras
 import yaml
-from passlib.context import CryptContext
+import bcrypt
 
 ROOT = Path(__file__).parent.parent
 CONFIG = ROOT / "config"
 POLICIES_DATA = ROOT / "policies" / "data"
-
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 def load_config():
     tenants = yaml.safe_load((CONFIG / "tenants.yaml").read_text())["tenants"]
@@ -148,7 +145,7 @@ def main():
             cur.execute("SELECT prefix FROM api_keys WHERE user_id = %s", (u["id"],))
             if not cur.fetchone():
                 plaintext = generate_key()
-                key_hash = pwd_ctx.hash(plaintext)
+                key_hash = bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
                 key_prefix = plaintext[:8]
                 cur.execute("""
                     INSERT INTO api_keys (prefix, hash, user_id, tenant_id, roles)

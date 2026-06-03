@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-partitions demo deploy help
+.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-partitions demo help
 
 ## Service lifecycle
 up:
@@ -22,14 +22,15 @@ migrate:
 
 ## Code quality
 lint:
-	cd proxy && uv run ruff check . && uv run pyright
-	cd governance && uv run ruff check . && uv run pyright
+	cd proxy && uv run ruff check . && uv run pyright app
+	cd governance && uv run ruff check app && uv run pyright app
 
 test:
 	cd proxy && uv run pytest tests/
 	cd governance && uv run pytest tests/
 
 test-integration:
+	MOCK_PROVIDERS=true $(MAKE) up
 	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv run pytest ../tests/integration/ -v
 
 ## OPA policy tests
@@ -38,22 +39,16 @@ opa-test:
 
 ## Provisioning
 provision:
-	uv run scripts/provision.py
+	DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
 
 rotate-partitions:
-	cd governance && uv run python ../scripts/rotate_partitions.py
+	cd governance && DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv run python ../scripts/rotate_partitions.py
 
 ## Demo
 demo:
-	$(MAKE) up
+	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
-	MOCK_PROVIDERS=true uv run scripts/demo.py
-
-## Fly.io deployment (OPA → governance → proxy order)
-deploy:
-	fly deploy --config fly-opa.toml --strategy=rolling --wait-timeout=120
-	fly deploy --config fly-governance.toml --strategy=rolling --wait-timeout=120
-	fly deploy --config fly.toml --strategy=rolling --wait-timeout=120
+	MOCK_PROVIDERS=true uv run --with httpx --with 'python-jose[cryptography]' scripts/demo.py
 
 ## Help
 help:
@@ -71,4 +66,4 @@ help:
 	@echo "  provision           Run IaC provisioner (idempotent)"
 	@echo "  rotate-partitions   Rotate audit_log partitions (runs nightly on Fly cron)"
 	@echo "  demo                Run 6 governance scenarios (make up + provision + demo.py)"
-	@echo "  deploy              Deploy all services to Fly.io (OPA → governance → proxy)"
+

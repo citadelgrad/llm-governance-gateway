@@ -20,13 +20,14 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
 def _jwt() -> str:
     return jwt.encode(
-        {"user_id": "smoke-user", "tenant_id": "test-tenant", "roles": ["user"]},
+        {"user_id": "smoke-user", "tenant_id": "acme-corp", "roles": ["tier1"]},
         JWT_SECRET,
         algorithm="HS256",
     )
 
 
 @pytest.mark.skipif(SKIP, reason="Set INTEGRATION_TEST=1 to run stack smoke tests")
+@pytest.mark.asyncio
 class TestSmoke:
     async def test_health(self):
         async with httpx.AsyncClient(base_url=GATEWAY_URL) as client:
