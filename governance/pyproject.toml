@@ -42,6 +42,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]  # FastAPI dependency defaults and long SQL/policy strings are idiomatic here
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from typing import cast
 
-from llm_guard.input_scanners import PromptInjection, BanTopics
+from llm_guard.input_scanners import BanTopics, PromptInjection
+
 
 @dataclass
 class HarmResult:
@@ -23,13 +25,13 @@ def _scanners() -> tuple[PromptInjection, BanTopics]:
             if _injection_scanner is None:  # double-checked locking
                 _injection_scanner = PromptInjection()
                 _topics_scanner = BanTopics(topics=["violence", "hate", "illegal", "jailbreak"])
-    return _injection_scanner, _topics_scanner
+    return _injection_scanner, cast(BanTopics, _topics_scanner)
 
 def harm_scan(text: str) -> HarmResult:
     injection, topics = _scanners()
 
-    _, inj_valid, inj_score = injection.scan(prompt=text, output="")
-    _, top_valid, top_score = topics.scan(prompt=text, output="")
+    _, inj_valid, inj_score = injection.scan(prompt=text)
+    _, top_valid, top_score = topics.scan(prompt=text)
 
     score = max(inj_score, top_score)
     blocked = not (inj_valid and top_valid)

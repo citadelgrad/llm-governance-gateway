@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any, cast
 
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
+
 
 @dataclass
 class PiiResult:
@@ -45,7 +47,7 @@ async def redact(text: str, results: list[RecognizerResult]) -> str:
     anonymized = await asyncio.to_thread(
         _anonymizer.anonymize,
         text=text,
-        analyzer_results=results,
+        analyzer_results=cast(Any, results),
     )
     return anonymized.text
 

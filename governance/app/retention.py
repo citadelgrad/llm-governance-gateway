@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
-from calendar import monthrange
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,7 +65,7 @@ async def advance_partitions(session: AsyncSession) -> None:
 
     for row in rows:
         table_name = _safe_partition_name(row.table_name)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if row.detached_at is None:
             # Detach the partition

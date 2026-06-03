@@ -4,14 +4,14 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .context import PipelineContext
 from . import pseudonym as pseudonym_module
+from .context import PipelineContext
 
 
 def uuid7() -> UUID:
@@ -39,7 +39,7 @@ async def write_audit(
     Task 10: created_at is the request-received time (passed by the caller) so it differs
     from written_at (the time the background DB write executes).
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     record_created_at = created_at or now
 
     try:
@@ -56,7 +56,11 @@ async def write_audit(
                 ) VALUES (
                     :audit_id, :created_at, :written_at,
                     :user_id, :tenant_id, :model_id, :routing_method,
-                    :decision, :pii_findings::jsonb, :harm_score, :violations::jsonb, :phase
+                    :decision,
+                    CAST(:pii_findings AS jsonb),
+                    :harm_score,
+                    CAST(:violations AS jsonb),
+                    :phase
                 )
             """),
             {

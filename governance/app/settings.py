@@ -19,6 +19,6 @@ class Settings(BaseSettings):
     pseudonym_hmac_key: str = Field(...)
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]
 
 __all__ = ["Settings", "settings"]

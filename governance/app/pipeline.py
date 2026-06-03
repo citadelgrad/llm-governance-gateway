@@ -6,7 +6,8 @@ import sys
 from . import pii as pii_module
 from .context import PipelineContext
 from .harm import harm_scan
-from .opa import check as opa_check, OPAError
+from .opa import OPAError
+from .opa import check as opa_check
 
 HARM_THRESHOLD = 0.8
 

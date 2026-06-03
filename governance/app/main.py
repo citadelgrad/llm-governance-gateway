@@ -3,7 +3,7 @@ import json
 import secrets
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,13 +15,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
-from .context import PipelineContext
-from . import pipeline as pipeline_module
 from . import audit as audit_module
+from . import pipeline as pipeline_module
 from . import retention
+from .context import PipelineContext
 from .db import get_session, get_session_factory
 from .settings import settings
-
 
 _ready = False
 
@@ -29,9 +28,9 @@ _ready = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _ready
-    from . import pii
     from . import harm as harm_module
     from . import opa as opa_module
+    from . import pii
     await asyncio.to_thread(harm_module._scanners)  # warm up harm scanners at startup
     await pii.initialize(settings.spacy_model)
     _ready = True
@@ -90,7 +89,7 @@ class InspectRequest(BaseModel):
     user_id: str
     model_id: str
     routing_method: str
-    phase: str = "request"
+    phase: str = "pre_call"
     roles: list[str] = []
 
 
@@ -122,7 +121,7 @@ async def inspect(
         roles=req.roles,
     )
 
-    request_received_at = datetime.now(timezone.utc)
+    request_received_at = datetime.now(UTC)
     await pipeline_module.run(ctx, settings.opa_url)
 
     audit_id = str(audit_module.uuid7())
@@ -163,7 +162,7 @@ async def audit_export(
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
 
     if until is None:
-        until = datetime.now(timezone.utc)
+        until = datetime.now(UTC)
 
     if after_created_at is None or after_audit_id is None:
         # First page — no keyset
@@ -305,7 +304,7 @@ async def erase_user(
     audit_row_count = audit_count_result.scalar() or 0
 
     # Overwrite real_user_id with sentinel and set deleted_at
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     await session.execute(
         text("""
             UPDATE user_pseudonym_map
