@@ -35,7 +35,10 @@ services:
       retries: 10
 
   migrate:
-    build: ./governance
+    build:
+      context: ./governance
+      args:
+        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_sm}
     command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
@@ -44,7 +47,10 @@ services:
         condition: service_healthy
 
   governance:
-    build: ./governance
+    build:
+      context: ./governance
+      args:
+        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_sm}
     environment:
       DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
