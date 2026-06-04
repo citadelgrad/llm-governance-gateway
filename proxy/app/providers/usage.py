@@ -25,7 +25,8 @@ def extract_usage(provider: str, response_json: dict) -> UsageMetrics:
             usage = response_json.get("usage") or {}
             prompt = int(usage.get("prompt_tokens", 0) or 0)
             completion = int(usage.get("completion_tokens", 0) or 0)
-            total = int(usage.get("total_tokens", 0) or 0) or (prompt + completion)
+            reported = int(usage.get("total_tokens", 0) or 0)
+            total = max(reported, prompt + completion)
             return UsageMetrics(prompt, completion, total)
         case "anthropic":
             # Anthropic-shape: {"usage": {"input_tokens", "output_tokens"}}
@@ -38,7 +39,8 @@ def extract_usage(provider: str, response_json: dict) -> UsageMetrics:
             usage = response_json.get("usageMetadata") or {}
             prompt = int(usage.get("promptTokenCount", 0) or 0)
             completion = int(usage.get("candidatesTokenCount", 0) or 0)
-            total = int(usage.get("totalTokenCount", 0) or 0) or (prompt + completion)
+            reported = int(usage.get("totalTokenCount", 0) or 0)
+            total = max(reported, prompt + completion)
             return UsageMetrics(prompt, completion, total)
         case _:
             return UsageMetrics.zero()

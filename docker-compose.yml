@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateway}
       POSTGRES_DB: gateway
     ports:
-      - "15432:5432"
+      - "${GATEWAY_POSTGRES_PORT:-15433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -52,7 +52,7 @@ services:
       args:
         SPACY_MODEL: ${SPACY_MODEL:-en_core_web_sm}
     environment:
-      DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
+      DATABASE_URL: postgresql+asyncpg://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
       OPA_URL: http://opa:8181
       SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
@@ -73,11 +73,11 @@ services:
   proxy:
     build: ./proxy
     ports:
-      - "8765:8000"
+      - "${GATEWAY_PROXY_PORT:-18765}:8000"
     volumes:
       - ./config:/workspace/proxy/config:ro
     environment:
-      DATABASE_URL: postgresql+asyncpg://gateway:gateway@postgres:5432/gateway
+      DATABASE_URL: postgresql+asyncpg://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
       GOVERNANCE_URL: http://governance:8000
       GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}

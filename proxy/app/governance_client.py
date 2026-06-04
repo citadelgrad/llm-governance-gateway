@@ -93,3 +93,18 @@ class GovernanceClient:
 
 def make_governance_client(client: httpx.AsyncClient) -> GovernanceClient:
     return GovernanceClient(client, settings.governance_internal_token)
+
+
+def extract_user_message(body: dict) -> str:
+    """Extract the last user message text from a chat completion request body."""
+    messages = body.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(
+                    part.get("text", "") for part in content if isinstance(part, dict)
+                )
+    return ""

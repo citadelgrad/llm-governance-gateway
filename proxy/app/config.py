@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     governance_url: str = "http://governance:8000"
     governance_internal_token: str = Field(...)
-    database_url: str = "postgresql+asyncpg://gateway:gateway@localhost:5432/gateway"
+    database_url: str = Field(..., description="PostgreSQL connection string (required)")
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
