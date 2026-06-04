@@ -3,7 +3,11 @@
 JWT_SECRET ?= local-dev-jwt-secret-for-compose-tests-only
 GOVERNANCE_INTERNAL_TOKEN ?= local-dev-governance-token
 PSEUDONYM_HMAC_KEY ?= local-dev-pseudonym-hmac-key-for-compose-tests-only
-export JWT_SECRET GOVERNANCE_INTERNAL_TOKEN PSEUDONYM_HMAC_KEY
+GATEWAY_PROXY_PORT ?= 18765
+GATEWAY_POSTGRES_PORT ?= 15433
+GATEWAY_BASE_URL ?= http://localhost:$(GATEWAY_PROXY_PORT)
+DATABASE_URL ?= postgresql://gateway:gateway@localhost:$(GATEWAY_POSTGRES_PORT)/gateway
+export JWT_SECRET GOVERNANCE_INTERNAL_TOKEN PSEUDONYM_HMAC_KEY GATEWAY_PROXY_PORT GATEWAY_POSTGRES_PORT GATEWAY_BASE_URL DATABASE_URL
 
 ## Service lifecycle
 up:
@@ -38,7 +42,7 @@ test:
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
-	cd proxy && INTEGRATION_TEST=1 GATEWAY_BASE_URL=http://localhost:8765 uv --no-config run pytest ../tests/integration/ -v
+	cd proxy && INTEGRATION_TEST=1 uv --no-config run pytest ../tests/integration/ -v
 
 ## OPA policy tests
 opa-test:
@@ -46,10 +50,10 @@ opa-test:
 
 ## Provisioning
 provision:
-	DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
+	uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
 
 rotate-partitions:
-	cd governance && DATABASE_URL=postgresql://gateway:$${POSTGRES_PASSWORD:-gateway}@localhost:15432/gateway uv --no-config run python ../scripts/rotate_partitions.py
+	cd governance && uv --no-config run python ../scripts/rotate_partitions.py
 
 ## Demo
 demo:

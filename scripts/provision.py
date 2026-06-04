@@ -120,7 +120,7 @@ def main():
                     contact_email = EXCLUDED.contact_email
             """, (
                 t["id"], t["name"],
-                json.dumps(t.get("allowed_models", [])),
+                psycopg2.extras.Json(t.get("allowed_models", [])),
                 t.get("rate_limit", 1000),
                 t.get("pii_action", "redact"),
                 t.get("pii_redaction_notification", "header"),
@@ -139,7 +139,7 @@ def main():
                 ON CONFLICT (id) DO UPDATE SET
                     tenant_id = EXCLUDED.tenant_id,
                     roles = EXCLUDED.roles
-            """, (u["id"], u["tenant_id"], json.dumps(u.get("roles", []))))
+            """, (u["id"], u["tenant_id"], psycopg2.extras.Json(u.get("roles", []))))
 
             # Check if key already exists for this user
             cur.execute("SELECT prefix FROM api_keys WHERE user_id = %s", (u["id"],))

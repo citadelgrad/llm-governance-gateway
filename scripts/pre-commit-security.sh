@@ -62,6 +62,12 @@ check_file() {
     FAIL=1
   fi
 
+  if echo "$added_lines" | grep -qiE "$BEARER_PATTERN"; then
+    echo -e "${RED}BLOCKED${NC}: Possible Bearer token in staged changes"
+    echo "  File: $file"
+    FAIL=1
+  fi
+
   if echo "$added_lines" | grep -qiE "$GENERIC_SECRET_PATTERN"; then
     echo -e "${YELLOW}WARNING${NC}: Possible hardcoded secret/password/token assignment"
     echo "  File: $file"

@@ -39,6 +39,7 @@ dev = [
 [dependency-groups]
 dev = [
     "bcrypt>=5.0.0",
+    "hypothesis>=6.155.1",
 ]
 
 [tool.ruff]

@@ -15,8 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from proxy.app.auth import AuthError, CallerContext, authenticate
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
+from proxy.app.db import jsonb_list as _jsonb_list
 from proxy.app.governance_client import GovernanceError, InspectRequest, make_governance_client
+from proxy.app.governance_client import extract_user_message as _extract_user_message
 from proxy.app.headers import error_envelope, pii_headers, rate_limit_headers, retry_headers
+from proxy.app.middleware import BodySizeLimitMiddleware
 from proxy.app.providers import anthropic as anthropic_provider
 from proxy.app.providers import gemini as gemini_provider
 from proxy.app.providers import generic as generic_provider
@@ -28,14 +31,11 @@ from proxy.app.rate_limit import RateLimiter
 from proxy.app.routing import load_models_yaml, resolve_provider
 from pydantic import BaseModel
 from redis.asyncio import Redis
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 
 _tenant_cache: TTLCache = TTLCache(maxsize=500, ttl=30)
 _me_cache: TTLCache = TTLCache(maxsize=500, ttl=30)
-
-MAX_BODY_SIZE = 1 * 1024 * 1024
 
 
 def _asyncpg_dsn(url: str) -> str:
@@ -109,21 +109,6 @@ app.add_middleware(
 )
 
 
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_BODY_SIZE:
-            return Response(content="Request body too large (max 1MB)", status_code=413)
-        # Also cap streaming bodies that omit Content-Length
-        body = b""
-        async for chunk in request.stream():
-            body += chunk
-            if len(body) > MAX_BODY_SIZE:
-                return Response(content="Request body too large (max 1MB)", status_code=413)
-        # Store so downstream handlers can read it
-        request._body = body
-        return await call_next(request)
-
 
 app.add_middleware(BodySizeLimitMiddleware)
 
@@ -161,7 +146,7 @@ async def get_tenant_info(tenant_id: str, db_pool: asyncpg.Pool) -> dict:
     else:
         result = {
             "default_provider": row["default_provider"] or "",
-            "allowed_models": list(row["allowed_models"] or []),
+            "allowed_models": _jsonb_list(row["allowed_models"]),
             "pii_redaction_notification": row["pii_redaction_notification"] or "header",
             "rate_limit_requests_per_minute": row["rate_limit_requests_per_minute"]
             or settings.rate_limit_requests,
@@ -204,20 +189,6 @@ def _attach_usage(
     return response
 
 
-def _extract_user_message(body: dict) -> str:
-    messages = body.get("messages", [])
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return " ".join(
-                    part.get("text", "") for part in content if isinstance(part, dict)
-                )
-    return ""
-
-
 @app.get("/health")
 async def health():
     if not app.state.ready:
@@ -230,7 +201,18 @@ async def chat_completions(
     request: Request,
     caller: CallerContext = Depends(get_caller),
 ):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not valid JSON"),
+        ) from None
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("invalid_request", "Request body must be a JSON object"),
+        )
     model_id = body.get("model", "")
     stream = body.get("stream", False)
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming

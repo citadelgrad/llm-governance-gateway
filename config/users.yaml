@@ -24,3 +24,15 @@ users:
       - admin
       - tier1
     initial_key: "REPLACE_IN_PROVISIONER"
+
+  - id: local-integration-tier1-user
+    tenant_id: local-integration
+    roles:
+      - tier1
+    initial_key: "REPLACE_IN_PROVISIONER"
+
+  - id: local-integration-admin-user
+    tenant_id: local-integration
+    roles:
+      - admin
+    initial_key: "REPLACE_IN_PROVISIONER"
