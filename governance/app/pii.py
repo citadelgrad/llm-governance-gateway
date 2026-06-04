@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, cast
 
-from presidio_analyzer import AnalyzerEngine, RecognizerResult
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 
 
@@ -36,7 +36,32 @@ async def initialize(spacy_model: str = "en_core_web_lg") -> None:
         })
         nlp_engine = await asyncio.to_thread(provider.create_engine)
         _analyzer = await asyncio.to_thread(AnalyzerEngine, nlp_engine=nlp_engine)
+        _register_high_recall_ssn_recognizer(_analyzer)
         _anonymizer = await asyncio.to_thread(AnonymizerEngine)
+
+
+def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
+    """Presidio's built-in US_SSN recognizer rejects common test/dummy values.
+
+    The gateway should redact SSN-shaped secrets even when they are non-issued
+    examples such as 123-45-6789. This local recognizer intentionally favors
+    recall for the canonical dashed SSN shape; audit records store only spans
+    and entity type, not the matched text.
+    """
+    analyzer.registry.add_recognizer(
+        PatternRecognizer(
+            name="GatewayHighRecallUsSsnRecognizer",
+            supported_entity="US_SSN",
+            patterns=[
+                Pattern(
+                    name="dashed_ssn_shape",
+                    regex=r"\b\d{3}-\d{2}-\d{4}\b",
+                    score=0.85,
+                )
+            ],
+            context=["ssn", "social", "security", "taxpayer", "tin"],
+        )
+    )
 
 async def scan(text: str) -> list[RecognizerResult]:
     assert _analyzer is not None, "call initialize() first"

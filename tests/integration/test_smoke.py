@@ -18,9 +18,9 @@ GATEWAY_URL = os.environ.get("GATEWAY_BASE_URL", "http://localhost:8765")
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
 
-def _jwt() -> str:
+def _jwt(user_id: str = "smoke-user") -> str:
     return jwt.encode(
-        {"user_id": "smoke-user", "tenant_id": "acme-corp", "roles": ["tier1"]},
+        {"user_id": user_id, "tenant_id": "acme-corp", "roles": ["tier1"]},
         JWT_SECRET,
         algorithm="HS256",
     )
@@ -71,3 +71,20 @@ class TestSmoke:
         assert "choices" in body
         assert len(body["choices"]) > 0
         assert body["choices"][0]["message"]["content"]
+
+    async def test_pii_redaction_headers(self):
+        async with httpx.AsyncClient(base_url=GATEWAY_URL, timeout=30.0) as client:
+            response = await client.post(
+                "/v1/chat/completions",
+                headers={"Authorization": f"Bearer {_jwt(user_id='smoke-pii-user')}"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {"role": "user", "content": "My SSN is 123-45-6789, can you help?"}
+                    ],
+                },
+            )
+        assert response.status_code == 200
+        assert response.headers.get("x-gateway-pii-redacted") == "true"
+        assert response.headers.get("x-gateway-pii-types") == "US_SSN"
+        assert response.headers.get("x-audit-id")
