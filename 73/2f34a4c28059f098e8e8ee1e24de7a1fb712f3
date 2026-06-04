@@ -1,0 +1,84 @@
+config/tenants.yaml
+  s_54d9d37f91d245::t_1cda9663ef6ae5 12,30-41
+proxy/uv.lock
+  ai_agent 5-8,401,403,405-456,523-534,537,539,541,605,634-637,955-963,1034,1036,1038-1054,1080,1086,1088
+proxy/app/db.py
+  s_54d9d37f91d245::t_ac47f0c3ba5a07 1-22
+apps/local-integration-tests/gateway_client.py
+  s_54d9d37f91d245::t_c378344c2a12b8 37
+  s_54d9d37f91d245::t_51866d40fc1098 58-59
+  s_54d9d37f91d245::t_31e06718eff469 74-80
+config/users.yaml
+  s_54d9d37f91d245::t_71e028ca22a0f9 28,32-37
+  s_54d9d37f91d245::t_1cda9663ef6ae5 27,29-31,38
+Makefile
+  s_54d9d37f91d245::t_1cda9663ef6ae5 6-10,45,53,56
+proxy/tests/helpers.py
+  s_54d9d37f91d245::t_8b742a4ddd2eef 1-41
+scripts/pre-commit-security.sh
+  s_54d9d37f91d245::t_d057d9a8505b21 65-70
+proxy/app/governance_client.py
+  s_54d9d37f91d245::t_e22e7e7b441aed 96-110
+proxy/pyproject.toml
+  s_54d9d37f91d245::t_1cda9663ef6ae5 42
+proxy/app/providers/usage.py
+  s_54d9d37f91d245::t_25731d75172a12 42-43
+  s_54d9d37f91d245::t_2b521cf55d7aa3 28-29
+proxy/app/main.py
+  s_54d9d37f91d245::t_1221d7bf8a83a0 18
+  s_54d9d37f91d245::t_2542cbdee1868a 204-205,207-209
+  s_54d9d37f91d245::t_1d183961946503 206
+  s_54d9d37f91d245::t_5295c20b1ca107 210
+  s_54d9d37f91d245::t_9123c75a55cb7c 211-215
+  s_54d9d37f91d245::t_762bfb3f86d1d0 20,22
+  s_54d9d37f91d245::t_1cda9663ef6ae5 149
+scripts/provision.py
+  s_54d9d37f91d245::t_1cda9663ef6ae5 123,142
+proxy/tests/test_properties.py
+  s_54d9d37f91d245::t_6e947edf554ec2 37,39,41
+  s_54d9d37f91d245::t_08d07e98ee5834 223
+  s_54d9d37f91d245::t_7371f4e0045cfa 366
+  s_54d9d37f91d245::t_c08f6af41f0efc 512-518
+  s_54d9d37f91d245::t_d85fcba6257da3 120-126
+  s_54d9d37f91d245::t_ef10a9c8f30969 133
+  s_54d9d37f91d245::t_bcc4e8c531149e 375
+  s_54d9d37f91d245::t_237edaca1843c4 35
+  s_54d9d37f91d245::t_7611e3038940d7 36
+  s_54d9d37f91d245::t_d88f1259be4d34 414
+  s_54d9d37f91d245::t_c939f97de55b61 282
+  s_54d9d37f91d245::t_f2e80224378aad 93-94
+  s_54d9d37f91d245::t_faf0823291d2cd 103-118
+  s_54d9d37f91d245::t_ec4c6ae07f8f77 26,45-47
+  s_54d9d37f91d245::t_762bfb3f86d1d0 32,38,40,42,510
+  s_54d9d37f91d245::t_bf0a848444f68b 29
+  s_54d9d37f91d245::t_fd6ca984e403b0 191
+  s_54d9d37f91d245::t_01bd0598e30c16 76
+  s_54d9d37f91d245::t_fd008f100f733b 162-166
+  s_54d9d37f91d245::t_c46e26622d0607 187,207,256,295-339,408,434-484,545
+docs/plans/2026-06-04-fix-gateway-proxy-test-infra-hardening-plan.md
+  ai_agent 1-877
+docker-compose.yml
+  s_54d9d37f91d245::t_c34eb32e3963e8 80
+  s_54d9d37f91d245::t_d4a726c591663d 9
+  s_54d9d37f91d245::t_44d32e64b47e99 55
+proxy/app/config.py
+  s_54d9d37f91d245::t_72c00ddc06fe9e 9
+proxy/app/middleware.py
+  s_54d9d37f91d245::t_79658f7f69bc49 1-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "732f34a4c28059f098e8e8ee1e24de7a1fb712f3",
+  "prompts": {},
+  "sessions": {
+    "s_54d9d37f91d245": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd53bf-85ed-4262-adcd-8f79f9129623",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
