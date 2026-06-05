@@ -57,11 +57,6 @@ _FAST = settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 # Shared strategies
 # ---------------------------------------------------------------------------
 
-_SAFE_TEXT = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs",)),  # no surrogates
-    max_size=200,
-)
-
 # A "clean" content string that won't accidentally trigger mock scenarios
 # (avoids SSN pattern, diagnosis, patient record, injection phrases, gpt-4o).
 _CLEAN_CONTENT = st.text(
@@ -84,10 +79,6 @@ _MESSAGES = st.lists(_MESSAGE, min_size=1, max_size=5)
 
 # Known-good routable model (present in conftest._MODELS_CONFIG)
 _KNOWN_MODEL = st.just("gpt-4o-mini")
-
-_VALID_BODY = st.fixed_dictionaries(
-    {"model": _KNOWN_MODEL, "messages": _MESSAGES}
-)
 
 # ---------------------------------------------------------------------------
 # Fixture helpers — imported from proxy.tests.helpers so this file stays DRY.
@@ -157,7 +148,7 @@ def _is_valid_json_object(data: bytes) -> bool:
     try:
         parsed = json.loads(data)
         return isinstance(parsed, dict)
-    except (json.JSONDecodeError, ValueError):
+    except json.JSONDecodeError:
         return False
 
 
