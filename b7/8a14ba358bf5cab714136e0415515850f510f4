@@ -1,0 +1,19 @@
+proxy/tests/test_properties.py
+  s_4332af6c2f116b::t_2ad76f6cf76e2c 151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "b78a14ba358bf5cab714136e0415515850f510f4",
+  "prompts": {},
+  "sessions": {
+    "s_4332af6c2f116b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f69c0352-57f8-4a2f-bf02-af041bde92e3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
