@@ -130,6 +130,8 @@ The demo starts the stack in mock-provider mode, provisions tenants/users/models
 
 See [Demo scenarios](docs/demo-scenarios.md) for request/response examples and expected audit behavior.
 
+For operator rollout steps, see [Onboarding users and routing agents through the gateway](docs/onboarding.md).
+
 ## Basic API usage
 
 Health check:
