@@ -1,0 +1,32 @@
+proxy/app/auth.py
+  s_6d66f912746741::t_5ea33a3be27e9e 115-138
+proxy/tests/test_claude_code_config.py
+  s_6d66f912746741::t_a17f39ad5454be 1-116
+proxy/tests/conftest.py
+  s_6d66f912746741::t_8a193ead10a24f 26-30
+  s_6d66f912746741::t_2048099ed9e40c 165-192
+  s_6d66f912746741::t_b03c65abfa18ae 12
+  s_6d66f912746741::t_f434bcfeb2beb0 97,99,106-108
+proxy/app/anthropic_compat.py
+  s_6d66f912746741::t_e226dcbb5c767f 1-152
+proxy/app/main.py
+  s_6d66f912746741::t_451c782c9eed88 15-23,116-117,137-150,215-217,219-224,227,349-418,422-447
+proxy/tests/test_messages.py
+  s_6d66f912746741::t_7e9994cfed4c7d 1-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "67de8c26f44fbfa01e393ff27987c0ebdd6c2fb4",
+  "prompts": {},
+  "sessions": {
+    "s_6d66f912746741": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "64a856be-fef7-4e82-8888-4daa34cd2e66",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
