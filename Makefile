@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test test-integration opa-test provision rotate-partitions demo help
+.PHONY: up down restart status logs migrate lint test test-integration opa-test provision onboard-help rotate-partitions demo help
 
 JWT_SECRET ?= local-dev-jwt-secret-for-compose-tests-only
 GOVERNANCE_INTERNAL_TOKEN ?= local-dev-governance-token
@@ -52,6 +52,9 @@ opa-test:
 provision:
 	uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
 
+onboard-help:
+	uv --no-config run --with pyyaml scripts/onboard.py --help
+
 rotate-partitions:
 	cd governance && uv --no-config run python ../scripts/rotate_partitions.py
 
@@ -75,6 +78,7 @@ help:
 	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
 	@echo "  opa-test            Run OPA policy tests"
 	@echo "  provision           Run IaC provisioner (idempotent)"
-	@echo "  rotate-partitions   Rotate audit_log partitions (runs nightly on Fly cron)"
+	@echo "  onboard-help        Show user/service-account onboarding CLI help"
+	@echo "  rotate-partitions   Rotate audit_log partitions (runs nightly on configured scheduler)"
 	@echo "  demo                Run 6 governance scenarios (make up + provision + demo.py)"
 

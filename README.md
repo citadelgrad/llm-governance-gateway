@@ -173,6 +173,7 @@ Useful response headers:
 | `make logs` | Follow service logs |
 | `make migrate` | Run governance Alembic migrations |
 | `make provision` | Seed tenants, users, models, and OPA data documents |
+| `make onboard-help` | Show the onboarding CLI for users, service accounts, and endpoint snippets |
 | `make demo` | Run the local six-scenario governance demo |
 | `make test` | Run proxy and governance unit tests |
 | `make test-integration` | Run Docker Compose smoke tests |

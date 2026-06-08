@@ -124,7 +124,25 @@ If you are provisioning in automation, set `SUPPRESS_GENERATED_KEYS=true` and di
 
 ## Enroll a normal user or service account
 
-The cleanest flow is:
+Preferred CLI flow:
+
+```bash
+uv --no-config run --with pyyaml scripts/onboard.py add-user \
+  --user-id scott-laptop \
+  --tenant-id example-co \
+  --role tier1
+
+uv --no-config run --with pyyaml scripts/onboard.py add-service-account \
+  --account-id ci-release \
+  --tenant-id example-co \
+  --role tier1
+
+make provision
+```
+
+The CLI updates `config/users.yaml`, keeps the provisioner placeholder, and is idempotent. Service accounts are written with a `svc-` prefix and a `service_account` role.
+
+Manual flow:
 
 1. Add the user to `config/users.yaml` so the user exists in the control plane:
 
@@ -221,6 +239,20 @@ Useful headers to inspect with `curl -i`:
 - `x-ratelimit-limit-requests`
 - `x-ratelimit-remaining-requests`
 - `x-ratelimit-reset-requests`
+
+## Configure production endpoint snippets
+
+Use the onboarding CLI to generate copy/pasteable config for Hermes, Claude Code, and Codex without embedding a plaintext gateway key:
+
+```bash
+uv --no-config run --with pyyaml scripts/onboard.py agent-config \
+  --gateway-url https://llm-gateway.example.com \
+  --api-key-env GATEWAY_API_KEY \
+  --model gpt-4o-mini \
+  --claude-model claude-3-5-sonnet
+```
+
+The output includes macOS/Linux and Windows PowerShell environment snippets plus the Codex `config.toml` block. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
 
 ## Configure Hermes
 
