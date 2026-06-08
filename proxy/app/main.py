@@ -12,7 +12,15 @@ import httpx
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from proxy.app.auth import AuthError, CallerContext, authenticate
+from proxy.app.anthropic_compat import (
+    AnthropicMessagesRequest,
+    CountTokensRequest,
+    chat_response_to_anthropic,
+    count_tokens_approximate,
+    messages_to_chat_body,
+    openai_sse_to_anthropic_sse,
+)
+from proxy.app.auth import AuthError, CallerContext, authenticate, authenticate_compat
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
 from proxy.app.db import jsonb_list as _jsonb_list
@@ -105,7 +113,8 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "x-api-key",
+                   "anthropic-version", "anthropic-beta"],
 )
 
 
@@ -119,6 +128,20 @@ async def get_caller(
 ) -> CallerContext:
     try:
         return await authenticate(authorization, request.app.state.db_pool)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=401, detail=error_envelope("auth_error", "Invalid credentials")
+        ) from exc
+
+
+async def get_caller_compat(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> CallerContext:
+    """Auth dependency for Anthropic-compatible endpoints."""
+    try:
+        return await authenticate_compat(authorization, x_api_key, request.app.state.db_pool)
     except AuthError as exc:
         raise HTTPException(
             status_code=401, detail=error_envelope("auth_error", "Invalid credentials")
@@ -189,33 +212,19 @@ def _attach_usage(
     return response
 
 
-@app.get("/health")
-async def health():
-    if not app.state.ready:
-        return Response(status_code=503)
-    return {"status": "ok"}
-
-
-@app.post("/v1/chat/completions")
-async def chat_completions(
+async def _run_gateway_pipeline(
+    body: dict,
+    caller: CallerContext,
     request: Request,
-    caller: CallerContext = Depends(get_caller),
-):
-    try:
-        body = await request.json()
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise HTTPException(
-            status_code=400,
-            detail=error_envelope("invalid_request", "Request body is not valid JSON"),
-        ) from None
-    if not isinstance(body, dict):
-        raise HTTPException(
-            status_code=422,
-            detail=error_envelope("invalid_request", "Request body must be a JSON object"),
-        )
+) -> tuple[Response | StreamingResponse, dict[str, str]]:
+    """Run the full gateway pipeline (routing, rate-limit, governance, dispatch).
+
+    Returns (response, extra_headers) so callers can re-wrap the response body
+    while preserving gateway headers (rate-limit, PII, audit).
+    """
     model_id = body.get("model", "")
     stream = body.get("stream", False)
-    request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
+    request.state.usage_metrics = UsageMetrics.zero()
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
 
@@ -334,12 +343,108 @@ async def chat_completions(
                     detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
                 )
 
-    # Extract usage metrics from non-streaming successful responses and attach to state/headers.
-    # Streaming responses are excluded — usage extraction for streams is a future task.
     if not stream and isinstance(response, Response) and not isinstance(response, StreamingResponse) and response.status_code < 400:
         _attach_usage(response, effective_provider, request)
 
+    return response, extra_headers
+
+
+@app.get("/health")
+async def health():
+    if not app.state.ready:
+        return Response(status_code=503)
+    return {"status": "ok"}
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    request: Request,
+    caller: CallerContext = Depends(get_caller),
+):
+    try:
+        body = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not valid JSON"),
+        ) from None
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("invalid_request", "Request body must be a JSON object"),
+        )
+
+    response, _ = await _run_gateway_pipeline(body, caller, request)
     return response
+
+
+@app.post("/v1/messages")
+async def messages(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_compat),
+):
+    try:
+        req = AnthropicMessagesRequest.model_validate(await request.json())
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not a valid Anthropic Messages request"),
+        ) from None
+
+    body = messages_to_chat_body(req)
+    response, extra_headers = await _run_gateway_pipeline(body, caller, request)
+
+    if req.stream and isinstance(response, StreamingResponse):
+        translated = openai_sse_to_anthropic_sse(response.body_iterator, req.model)
+        return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
+
+    if (
+        not req.stream
+        and isinstance(response, Response)
+        and not isinstance(response, StreamingResponse)
+        and response.status_code == 200
+    ):
+        try:
+            chat_json = json.loads(bytes(response.body))
+        except (json.JSONDecodeError, ValueError):
+            return response
+        return Response(
+            content=json.dumps(chat_response_to_anthropic(chat_json, req.model)),
+            status_code=200,
+            media_type="application/json",
+            headers=extra_headers,
+        )
+
+    # Error or unexpected: pass through as-is
+    return response
+
+
+@app.post("/v1/messages/count_tokens")
+async def count_tokens(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_compat),
+):
+    try:
+        req = CountTokensRequest.model_validate(await request.json())
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not valid"),
+        ) from None
+
+    tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
+    lower_headers = {k.lower(): v for k, v in request.headers.items()}
+    _, routing_method = resolve_provider(
+        req.model, lower_headers, caller.roles,
+        tenant["default_provider"], request.app.state.models_config,
+    )
+    if routing_method in ("model_not_found", "override_denied"):
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope(routing_method, f"Cannot route model: {req.model}"),
+        )
+
+    return {"input_tokens": count_tokens_approximate(req.messages, req.system)}
 
 
 @app.get("/v1/models")

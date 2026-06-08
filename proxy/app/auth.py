@@ -112,3 +112,27 @@ async def authenticate(
         return await _validate_api_key(authorization, db_pool)
 
     raise AuthError("missing credentials")
+
+
+async def authenticate_compat(
+    authorization: str | None,
+    x_api_key: str | None,
+    db_pool: asyncpg.Pool,
+) -> CallerContext:
+    """Compat auth for Anthropic-compatible endpoints.
+
+    Treats Authorization: Bearer <key> as a gateway API key (not a JWT), since
+    Claude Code sends ANTHROPIC_AUTH_TOKEN with the Bearer prefix.
+    Also accepts the x-api-key header used by the Anthropic SDK.
+    """
+    if x_api_key:
+        return await _validate_api_key(x_api_key, db_pool)
+    if not authorization:
+        raise AuthError("missing credentials")
+    if authorization.startswith("Bearer "):
+        return await _validate_api_key(authorization[len("Bearer "):], db_pool)
+    if authorization.startswith("ApiKey "):
+        return await _validate_api_key(authorization[len("ApiKey "):], db_pool)
+    if " " not in authorization:
+        return await _validate_api_key(authorization, db_pool)
+    raise AuthError("missing credentials")

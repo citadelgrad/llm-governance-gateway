@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from proxy.app.auth import CallerContext, _api_key_cache
 from proxy.app.governance_client import InspectResponse
-from proxy.app.main import _me_cache, _tenant_cache, app, get_caller
+from proxy.app.main import _me_cache, _tenant_cache, app, get_caller, get_caller_compat
 from proxy.app.rate_limit import RateLimitResult
 
 TEST_JWT_SECRET = "test-jwt-secret-for-tests-only-32chars!!"
@@ -21,6 +21,11 @@ TEST_API_KEY_HASH = bcrypt.hashpw(TEST_API_KEY.encode(), bcrypt.gensalt(rounds=4
 _MODELS_CONFIG = [
     {"id": "gpt-4o-mini", "provider": "openai"},
     {"id": "gpt-4o", "provider": "openai"},
+]
+
+_CLAUDE_MODELS_CONFIG = [
+    {"id": "claude-3-5-sonnet", "provider": "anthropic"},
+    {"id": "claude-3-haiku", "provider": "anthropic"},
 ]
 
 
@@ -89,16 +94,18 @@ def _mock_rate_limiter(allowed: bool = True):
     return rl
 
 
-def _setup_app_state(pool, gov_mock):
+def _setup_app_state(pool, gov_mock, models_config=None):
     """Set app.state directly — ASGITransport does not fire the ASGI lifespan."""
+    cfg = models_config if models_config is not None else _MODELS_CONFIG
     app.state.db_pool = pool
     app.state.redis = AsyncMock()
     app.state.rate_limiter = _mock_rate_limiter()
     app.state.gov_http = AsyncMock()
     app.state.governance_client = gov_mock
     app.state.openai_client = None
-    app.state.models_config = _MODELS_CONFIG
-    app.state.models_by_id = {m["id"]: m for m in _MODELS_CONFIG}
+    app.state.anthropic_client = None
+    app.state.models_config = cfg
+    app.state.models_by_id = {m["id"]: m for m in cfg}
     app.state.ready = True
 
 
@@ -152,6 +159,34 @@ async def auth_client(gov_mock):
     """
     pool = _mock_pool()
     _setup_app_state(pool, gov_mock)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client, pool
+
+
+@pytest.fixture
+async def messages_client(gov_mock):
+    """ASGI client for /v1/messages — uses Claude models and overrides both caller deps."""
+    pool = _mock_pool()
+    caller = CallerContext(user_id="test-user", tenant_id="test-tenant", roles=["user"])
+    app.dependency_overrides[get_caller] = lambda: caller
+    app.dependency_overrides[get_caller_compat] = lambda: caller
+    _setup_app_state(pool, gov_mock, models_config=_CLAUDE_MODELS_CONFIG)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client, gov_mock
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def auth_messages_client(gov_mock):
+    """Messages client with NO caller override — tests real compat auth code paths.
+
+    Yields (client, mock_pool) so tests can configure DB mock's fetchrow result.
+    """
+    pool = _mock_pool()
+    _setup_app_state(pool, gov_mock, models_config=_CLAUDE_MODELS_CONFIG)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client, pool
