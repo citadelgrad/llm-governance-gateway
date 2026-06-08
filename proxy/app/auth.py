@@ -94,6 +94,8 @@ def _validate_jwt(token: str) -> CallerContext:
 async def authenticate(
     authorization: str | None,
     db_pool: asyncpg.Pool,
+    *,
+    allow_bearer_api_key_fallback: bool = False,
 ) -> CallerContext:
     """Raises AuthError if invalid."""
     if not authorization:
@@ -101,7 +103,12 @@ async def authenticate(
 
     if authorization.startswith("Bearer "):
         token = authorization[len("Bearer "):]
-        return _validate_jwt(token)
+        try:
+            return _validate_jwt(token)
+        except AuthError:
+            if allow_bearer_api_key_fallback:
+                return await _validate_api_key(token, db_pool)
+            raise
 
     if authorization.startswith("ApiKey "):
         key = authorization[len("ApiKey "):]

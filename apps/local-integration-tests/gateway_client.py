@@ -110,3 +110,11 @@ class GatewayClient:
                 headers=self.headers,
                 json={"model": model, "messages": [{"role": "user", "content": prompt}]},
             )
+
+    async def responses(self, prompt: str, *, model: str = "gpt-4o-mini") -> httpx.Response:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=30) as client:
+            return await client.post(
+                "/v1/responses",
+                headers=self.headers,
+                json={"model": model, "input": prompt},
+            )

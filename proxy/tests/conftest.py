@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from proxy.app.auth import CallerContext, _api_key_cache
 from proxy.app.governance_client import InspectResponse
-from proxy.app.main import _me_cache, _tenant_cache, app, get_caller
+from proxy.app.main import _me_cache, _tenant_cache, app, get_caller, get_responses_caller
 from proxy.app.rate_limit import RateLimitResult
 
 TEST_JWT_SECRET = "test-jwt-secret-for-tests-only-32chars!!"
@@ -122,6 +122,7 @@ async def async_client(gov_mock):
     pool = _mock_pool()
     caller = CallerContext(user_id="test-user", tenant_id="test-tenant", roles=["user"])
     app.dependency_overrides[get_caller] = lambda: caller
+    app.dependency_overrides[get_responses_caller] = lambda: caller
     _setup_app_state(pool, gov_mock)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -136,6 +137,7 @@ async def admin_client(gov_mock):
     pool = _mock_pool()
     caller = CallerContext(user_id="admin-user", tenant_id="test-tenant", roles=["admin"])
     app.dependency_overrides[get_caller] = lambda: caller
+    app.dependency_overrides[get_responses_caller] = lambda: caller
     _setup_app_state(pool, gov_mock)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

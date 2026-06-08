@@ -8,6 +8,7 @@ Requires:  make up  (proxy in mock mode: MOCK_PROVIDERS=true or OPENAI_API_KEY=m
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 import pytest
@@ -20,7 +21,14 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
 def _jwt(user_id: str = "smoke-user") -> str:
     return jwt.encode(
-        {"user_id": user_id, "tenant_id": "acme-corp", "roles": ["tier1"]},
+        {
+            "user_id": user_id,
+            "tenant_id": "acme-corp",
+            "roles": ["tier1"],
+            "iat": int(time.time()),
+            "nbf": int(time.time()),
+            "exp": int(time.time()) + 900,
+        },
         JWT_SECRET,
         algorithm="HS256",
     )
@@ -71,6 +79,22 @@ class TestSmoke:
         assert "choices" in body
         assert len(body["choices"]) > 0
         assert body["choices"][0]["message"]["content"]
+
+    async def test_responses_roundtrip(self):
+        async with httpx.AsyncClient(base_url=GATEWAY_URL, timeout=30.0) as client:
+            response = await client.post(
+                "/v1/responses",
+                headers={"Authorization": f"Bearer {_jwt()}"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "input": "Reply with gateway-ok only.",
+                },
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["object"] == "response"
+        assert body["output"]
+        assert body["output_text"]
 
     async def test_pii_redaction_headers(self):
         async with httpx.AsyncClient(base_url=GATEWAY_URL, timeout=30.0) as client:
