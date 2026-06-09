@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     from . import harm as harm_module
     from . import opa as opa_module
     from . import pii
-    await asyncio.to_thread(harm_module._scanners)  # warm up harm scanners at startup
+    await asyncio.to_thread(harm_module.warm_up_scanners)  # warm up harm scanners at startup
     await pii.initialize(settings.spacy_model)
     _ready = True
     yield

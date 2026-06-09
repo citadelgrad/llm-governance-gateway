@@ -148,7 +148,7 @@ def _is_valid_json_object(data: bytes) -> bool:
     try:
         parsed = json.loads(data)
         return isinstance(parsed, dict)
-    except json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return False
 
 

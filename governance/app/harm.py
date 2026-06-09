@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,13 @@ def _pipelines() -> tuple[Any, Any]:
                 _injection_pipe = hf_pipeline("text-classification", model=_INJECTION_MODEL, device="cpu")
                 _topics_pipe = hf_pipeline("zero-shot-classification", model=_ZERO_SHOT_MODEL, device="cpu")
     return _injection_pipe, _topics_pipe
+
+
+def warm_up_scanners() -> None:
+    try:
+        _pipelines()
+    except Exception as exc:
+        print(f"[harm] scanner warm-up skipped: {exc}", file=sys.stderr)
 
 
 def harm_scan(text: str) -> HarmResult:

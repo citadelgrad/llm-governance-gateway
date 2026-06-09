@@ -36,8 +36,8 @@ lint:
 	cd governance && uv --no-config run --extra dev ruff check app && uv --no-config run --extra dev ty check app
 
 test:
-	cd proxy && uv --no-config run pytest tests/
-	cd governance && uv --no-config run pytest tests/
+	cd proxy && uv --no-config run --extra dev python -m pytest tests/
+	cd governance && uv --no-config run --extra dev python -m pytest tests/
 
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
