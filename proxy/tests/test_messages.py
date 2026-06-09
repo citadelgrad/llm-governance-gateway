@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import bcrypt
-import pytest
 from proxy.app.governance_client import GovernanceError, InspectResponse
 from proxy.app.main import app
 from proxy.app.rate_limit import RateLimitResult
@@ -83,7 +82,7 @@ async def test_messages_streaming_returns_anthropic_sse(messages_client):
 # ---------------------------------------------------------------------------
 
 async def test_messages_auth_bearer_api_key(auth_messages_client):
-    """Claude Code sends ANTHROPIC_AUTH_TOKEN as Authorization: Bearer <api-key>."""
+    """Claude Code sends ANTHROPIC_AUTH_TOKEN as Authorization: Bearer ***."""
     client, pool = auth_messages_client
     conn = pool.acquire.return_value.__aenter__.return_value
     conn.fetchrow.side_effect = [
@@ -146,6 +145,34 @@ async def test_messages_unknown_model_returns_400(messages_client):
     response = await client.post("/v1/messages", json=body)
     assert response.status_code == 400
     assert response.json()["detail"]["error"]["type"] == "model_not_found"
+
+
+async def test_messages_rejects_unsupported_tool_definitions(messages_client):
+    client, _ = messages_client
+    body = {
+        **_BASE_BODY,
+        "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+    }
+    response = await client.post("/v1/messages", json=body)
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"]["type"] == "unsupported_message_shape"
+
+
+async def test_messages_rejects_non_text_content_blocks(messages_client):
+    client, _ = messages_client
+    body = {
+        "model": "claude-3-5-sonnet",
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "done"}],
+            }
+        ],
+        "max_tokens": 50,
+    }
+    response = await client.post("/v1/messages", json=body)
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"]["type"] == "unsupported_message_shape"
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +295,31 @@ async def test_count_tokens_unknown_model_returns_400(messages_client):
     response = await client.post("/v1/messages/count_tokens", json=body)
     assert response.status_code == 400
     assert response.json()["detail"]["error"]["type"] == "model_not_found"
+
+
+async def test_count_tokens_disallowed_model_returns_403(auth_messages_client):
+    client, pool = auth_messages_client
+    conn = pool.acquire.return_value.__aenter__.return_value
+    conn.fetchrow.side_effect = [
+        {"hash": _COMPAT_KEY_HASH, "user_id": "cc-user", "tenant_id": "test-tenant", "roles": ["user"]},
+        {
+            "default_provider": "anthropic",
+            "allowed_models": ["claude-3-5-sonnet"],
+            "pii_redaction_notification": "header",
+            "rate_limit_requests_per_minute": 100,
+        },
+    ]
+    body = {
+        "model": "claude-3-haiku",
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+    response = await client.post(
+        "/v1/messages/count_tokens",
+        json=body,
+        headers={"x-api-key": _COMPAT_KEY},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["type"] == "model_not_allowed"
 
 
 async def test_count_tokens_auth_missing_returns_401(auth_messages_client):

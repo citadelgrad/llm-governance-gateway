@@ -2,16 +2,25 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+
+class AnthropicCompatError(Exception):
+    """Raised when a request uses an unsupported Anthropic Messages shape."""
 
 
 class AnthropicMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     role: str
-    content: str | list[dict]
+    content: str | list[dict[str, Any]]
 
 
 class AnthropicMessagesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     model: str
     messages: list[AnthropicMessage]
     system: str | None = None
@@ -20,31 +29,52 @@ class AnthropicMessagesRequest(BaseModel):
     stream: bool = False
     top_p: float | None = None
     stop_sequences: list[str] | None = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: dict[str, Any] | str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class CountTokensRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     model: str
     messages: list[AnthropicMessage]
     system: str | None = None
 
 
-def _content_str(content: str | list[dict]) -> str:
+def _content_str(content: str | list[dict[str, Any]]) -> str:
     if isinstance(content, str):
         return content
-    return " ".join(
-        b.get("text", "")
-        for b in content
-        if isinstance(b, dict) and b.get("type") == "text"
-    )
+
+    fragments: list[str] = []
+    for index, block in enumerate(content):
+        if not isinstance(block, dict):
+            raise AnthropicCompatError(f"Unsupported content block at index {index}")
+        block_type = block.get("type")
+        if block_type != "text":
+            raise AnthropicCompatError(f"Unsupported content block type: {block_type}")
+        text = block.get("text")
+        if not isinstance(text, str):
+            raise AnthropicCompatError("Text content blocks must include string text")
+        fragments.append(text)
+    return "".join(fragments)
 
 
 def messages_to_chat_body(req: AnthropicMessagesRequest) -> dict:
     """Translate Anthropic Messages request to internal chat completion body."""
+    if req.tools:
+        raise AnthropicCompatError("Anthropic tool definitions are not supported yet")
+    if req.tool_choice is not None:
+        raise AnthropicCompatError("Anthropic tool_choice is not supported yet")
+
     msgs: list[dict] = []
     if req.system:
         msgs.append({"role": "system", "content": req.system})
-    for msg in req.messages:
-        msgs.append({"role": msg.role, "content": _content_str(msg.content)})
+    for index, msg in enumerate(req.messages):
+        role = msg.role.lower()
+        if role not in {"user", "assistant"}:
+            raise AnthropicCompatError(f"Unsupported message role at index {index}: {msg.role}")
+        msgs.append({"role": role, "content": _content_str(msg.content)})
 
     body: dict = {
         "model": req.model,
@@ -68,6 +98,28 @@ _FINISH_TO_STOP: dict[str, str] = {
 }
 
 
+def _tool_calls_to_blocks(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for call in tool_calls:
+        function = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(function, dict):
+            continue
+        raw_arguments = function.get("arguments") or "{}"
+        try:
+            arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
+        except json.JSONDecodeError:
+            arguments = {"arguments": raw_arguments}
+        blocks.append(
+            {
+                "type": "tool_use",
+                "id": call.get("id") or "toolu_compat",
+                "name": function.get("name") or "unknown_tool",
+                "input": arguments if isinstance(arguments, dict) else {"value": arguments},
+            }
+        )
+    return blocks
+
+
 def chat_response_to_anthropic(chat_json: dict, model: str) -> dict:
     """Translate OpenAI chat completion JSON to Anthropic Messages API response shape."""
     choices = chat_json.get("choices") or [{}]
@@ -76,11 +128,22 @@ def chat_response_to_anthropic(chat_json: dict, model: str) -> dict:
     finish_reason = choice.get("finish_reason", "stop")
     stop_reason = _FINISH_TO_STOP.get(finish_reason, "end_turn")
     usage = chat_json.get("usage", {})
+
+    content: list[dict[str, Any]] = []
+    text = message.get("content") or ""
+    if text:
+        content.append({"type": "text", "text": text})
+    tool_calls = message.get("tool_calls") or []
+    if isinstance(tool_calls, list):
+        content.extend(_tool_calls_to_blocks(tool_calls))
+    if not content:
+        content.append({"type": "text", "text": ""})
+
     return {
         "id": chat_json.get("id", "msg_compat"),
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "text", "text": message.get("content", "")}],
+        "content": content,
         "model": chat_json.get("model", model),
         "stop_reason": stop_reason,
         "stop_sequence": None,
@@ -92,7 +155,12 @@ def chat_response_to_anthropic(chat_json: dict, model: str) -> dict:
 
 
 async def openai_sse_to_anthropic_sse(body_iterator, model: str):
-    """Translate OpenAI SSE stream chunks to Anthropic Messages SSE events."""
+    """Translate OpenAI SSE stream chunks to Anthropic Messages SSE events.
+
+    Streaming support is text-only because requests with Anthropic tools are rejected
+    before provider dispatch. If an upstream still emits tool-call deltas, they are
+    ignored rather than converted into malformed Anthropic tool_use events.
+    """
     _start = {
         "type": "message_start",
         "message": {

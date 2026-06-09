@@ -13,6 +13,7 @@ from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from proxy.app.anthropic_compat import (
+    AnthropicCompatError,
     AnthropicMessagesRequest,
     CountTokensRequest,
     chat_response_to_anthropic,
@@ -385,13 +386,18 @@ async def messages(
 ):
     try:
         req = AnthropicMessagesRequest.model_validate(await request.json())
+        body = messages_to_chat_body(req)
+    except AnthropicCompatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("unsupported_message_shape", str(exc)),
+        ) from exc
     except Exception:
         raise HTTPException(
             status_code=400,
             detail=error_envelope("invalid_request", "Request body is not a valid Anthropic Messages request"),
         ) from None
 
-    body = messages_to_chat_body(req)
     response, extra_headers = await _run_gateway_pipeline(body, caller, request)
 
     if req.stream and isinstance(response, StreamingResponse):
@@ -408,11 +414,14 @@ async def messages(
             chat_json = json.loads(bytes(response.body))
         except (json.JSONDecodeError, ValueError):
             return response
+        response_headers = dict(response.headers)
+        response_headers.update(extra_headers)
+        response_headers.pop("content-length", None)
         return Response(
             content=json.dumps(chat_response_to_anthropic(chat_json, req.model)),
             status_code=200,
             media_type="application/json",
-            headers=extra_headers,
+            headers=response_headers,
         )
 
     # Error or unexpected: pass through as-is
@@ -433,6 +442,14 @@ async def count_tokens(
         ) from None
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
+    if tenant["allowed_models"] and req.model not in tenant["allowed_models"]:
+        raise HTTPException(
+            status_code=403,
+            detail=error_envelope(
+                "model_not_allowed",
+                f"Model {req.model} is not allowed for this tenant",
+            ),
+        )
     lower_headers = {k.lower(): v for k, v in request.headers.items()}
     _, routing_method = resolve_provider(
         req.model, lower_headers, caller.roles,
@@ -450,7 +467,7 @@ async def count_tokens(
 @app.get("/v1/models")
 async def list_models(
     request: Request,
-    caller: CallerContext = Depends(get_caller),
+    caller: CallerContext = Depends(get_caller_compat),
 ):
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
     allowed = set(tenant["allowed_models"])

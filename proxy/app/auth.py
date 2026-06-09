@@ -121,16 +121,20 @@ async def authenticate_compat(
 ) -> CallerContext:
     """Compat auth for Anthropic-compatible endpoints.
 
-    Treats Authorization: Bearer <key> as a gateway API key (not a JWT), since
-    Claude Code sends ANTHROPIC_AUTH_TOKEN with the Bearer prefix.
-    Also accepts the x-api-key header used by the Anthropic SDK.
+    Accepts x-api-key and API keys carried as Authorization: Bearer for Claude
+    Code/Anthropic SDK compatibility. Bearer JWTs still work, so shared routes
+    such as /v1/models do not regress existing clients.
     """
     if x_api_key:
         return await _validate_api_key(x_api_key, db_pool)
     if not authorization:
         raise AuthError("missing credentials")
     if authorization.startswith("Bearer "):
-        return await _validate_api_key(authorization[len("Bearer "):], db_pool)
+        token = authorization[len("Bearer "):]
+        try:
+            return _validate_jwt(token)
+        except AuthError:
+            return await _validate_api_key(token, db_pool)
     if authorization.startswith("ApiKey "):
         return await _validate_api_key(authorization[len("ApiKey "):], db_pool)
     if " " not in authorization:

@@ -48,8 +48,9 @@ def test_required_endpoints_documented():
 
 
 def test_client_env_vars_documented():
+    module_doc = __doc__ or ""
     for var in _CLIENT_ENV_VARS:
-        assert var in _CLIENT_ENV_VARS
+        assert var in module_doc
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,23 @@ async def test_smoke_models_discovery_returns_claude_models(messages_client):
     assert data["object"] == "list"
     for entry in data["data"]:
         assert entry["id"].startswith("claude-"), f"Unexpected non-Claude model: {entry['id']}"
+
+
+async def test_models_discovery_accepts_bearer_api_key(auth_messages_client):
+    """Claude Code model discovery uses ANTHROPIC_AUTH_TOKEN as a bearer API key."""
+    import bcrypt
+
+    key = "compat-fixture-token-for-claude-model-discovery"
+    key_hash = bcrypt.hashpw(key.encode(), bcrypt.gensalt(rounds=4)).decode()
+    client, pool = auth_messages_client
+    conn = pool.acquire.return_value.__aenter__.return_value
+    conn.fetchrow.side_effect = [
+        {"hash": key_hash, "user_id": "cc-user", "tenant_id": "test-tenant", "roles": ["user"]},
+        None,
+    ]
+    response = await client.get("/v1/models", headers={"Authorization": f"Bearer {key}"})
+    assert response.status_code == 200
+    assert response.json()["object"] == "list"
 
 
 async def test_smoke_streaming_messages(messages_client):
