@@ -28,6 +28,11 @@ from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
+from proxy.app.responses_compat import (
+    ResponsesCompatError,
+    translate_chat_response,
+    translate_responses_request,
+)
 from proxy.app.routing import load_models_yaml, resolve_provider
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -125,6 +130,22 @@ async def get_caller(
         ) from exc
 
 
+async def get_responses_caller(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> CallerContext:
+    try:
+        return await authenticate(
+            authorization,
+            request.app.state.db_pool,
+            allow_bearer_api_key_fallback=True,
+        )
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=401, detail=error_envelope("auth_error", "Invalid credentials")
+        ) from exc
+
+
 async def get_tenant_info(tenant_id: str, db_pool: asyncpg.Pool) -> dict:
     if tenant_id in _tenant_cache:
         return _tenant_cache[tenant_id]
@@ -189,18 +210,7 @@ def _attach_usage(
     return response
 
 
-@app.get("/health")
-async def health():
-    if not app.state.ready:
-        return Response(status_code=503)
-    return {"status": "ok"}
-
-
-@app.post("/v1/chat/completions")
-async def chat_completions(
-    request: Request,
-    caller: CallerContext = Depends(get_caller),
-):
+async def _parse_json_body(request: Request) -> dict:
     try:
         body = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -213,11 +223,31 @@ async def chat_completions(
             status_code=422,
             detail=error_envelope("invalid_request", "Request body must be a JSON object"),
         )
+    return body
+
+
+def _enforce_allowed_model(model_id: str, allowed_models: list[str]) -> None:
+    if allowed_models and model_id not in allowed_models:
+        raise HTTPException(
+            status_code=403,
+            detail=error_envelope(
+                "model_not_allowed",
+                f"Model {model_id} is not allowed for this tenant",
+            ),
+        )
+
+
+async def _dispatch_chat_completion(
+    request: Request,
+    caller: CallerContext,
+    body: dict,
+) -> Response | StreamingResponse:
     model_id = body.get("model", "")
     stream = body.get("stream", False)
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
+    _enforce_allowed_model(model_id, tenant["allowed_models"])
 
     lower_headers = {k.lower(): v for k, v in request.headers.items()}
     provider, routing_method = resolve_provider(
@@ -334,12 +364,79 @@ async def chat_completions(
                     detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
                 )
 
-    # Extract usage metrics from non-streaming successful responses and attach to state/headers.
-    # Streaming responses are excluded — usage extraction for streams is a future task.
-    if not stream and isinstance(response, Response) and not isinstance(response, StreamingResponse) and response.status_code < 400:
+    if (
+        not stream
+        and isinstance(response, Response)
+        and not isinstance(response, StreamingResponse)
+        and response.status_code < 400
+    ):
         _attach_usage(response, effective_provider, request)
 
     return response
+
+
+@app.get("/health")
+async def health():
+    if not app.state.ready:
+        return Response(status_code=503)
+    return {"status": "ok"}
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(
+    request: Request,
+    caller: CallerContext = Depends(get_caller),
+):
+    body = await _parse_json_body(request)
+    return await _dispatch_chat_completion(request, caller, body)
+
+
+@app.post("/v1/responses")
+async def responses(
+    request: Request,
+    caller: CallerContext = Depends(get_responses_caller),
+):
+    body = await _parse_json_body(request)
+    try:
+        translated_body = translate_responses_request(body)
+    except ResponsesCompatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("unsupported_response_shape", str(exc)),
+        ) from exc
+
+    response = await _dispatch_chat_completion(request, caller, translated_body)
+    if isinstance(response, StreamingResponse):
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope(
+                "unsupported_response_shape",
+                "Streaming responses are not supported on /v1/responses",
+            ),
+        )
+    if response.status_code >= 400:
+        return response
+
+    try:
+        chat_body = json.loads(bytes(response.body))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=error_envelope(
+                "invalid_upstream_response",
+                "Provider returned an unexpected response shape",
+            ),
+        ) from exc
+
+    response_headers = dict(response.headers)
+    response_headers.pop("content-length", None)
+    translated_response = Response(
+        content=json.dumps(translate_chat_response(chat_body)),
+        status_code=response.status_code,
+        media_type="application/json",
+        headers=response_headers,
+    )
+    return translated_response
 
 
 @app.get("/v1/models")

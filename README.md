@@ -4,7 +4,7 @@ Production-grade OpenAI-compatible LLM gateway with policy enforcement, PII reda
 
 ## What it does
 
-- Exposes an OpenAI-compatible `POST /v1/chat/completions` API.
+- Exposes OpenAI-compatible `POST /v1/chat/completions` and `POST /v1/responses` APIs.
 - Routes requests across OpenAI, Anthropic, Google Gemini, Ollama, mock providers, and generic OpenAI-compatible backends.
 - Authenticates callers with JWTs or provisioned API keys.
 - Enforces per-tenant model access, tier-based RBAC, and provider override rules.
@@ -58,7 +58,7 @@ flowchart TB
 
 Request path:
 
-1. Client calls the proxy with an OpenAI-compatible chat-completions request.
+1. Client calls the proxy with an OpenAI-compatible chat-completions or Responses request.
 2. Proxy authenticates the caller and resolves tenant/user context.
 3. Proxy checks the Redis sliding-window rate limit.
 4. Proxy asks governance to inspect the request text.

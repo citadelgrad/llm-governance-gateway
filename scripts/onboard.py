@@ -135,7 +135,7 @@ $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = \"1\"
 
 ### Codex config file
 # Add to ~/.codex/config.toml or %USERPROFILE%\\.codex\\config.toml.
-# Requires a Responses-compatible gateway/shim exposing /v1/responses.
+# Uses the gateway's /v1/responses compatibility endpoint.
 model = \"{model}\"
 model_provider = \"llm-governance-gateway\"
 

@@ -129,6 +129,11 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
     assert "gpt-4o-mini" in output
     assert "claude-3-5-sonnet" in output
     assert "GATEWAY_API_KEY" in output
+    assert 'wire_api = "responses"' in output
+    assert 'model_provider = "llm-governance-gateway"' in output
+    assert 'env_key = "GATEWAY_API_KEY"' in output
+    assert 'requires_openai_auth = false' in output
+    assert "[profiles.gateway]" in output
     assert "macOS/Linux" in output
     assert "Windows PowerShell" in output
     assert "$env:GATEWAY_API_KEY" in output

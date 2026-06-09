@@ -30,6 +30,7 @@ Current gateway API surface:
 | `GET /v1/me` | authenticated caller context | implemented |
 | `GET /v1/models` | tenant-scoped model list | implemented |
 | `POST /v1/chat/completions` | OpenAI-compatible chat completions | implemented |
+| `POST /v1/responses` | OpenAI Responses-compatible endpoint for Codex | implemented |
 | `POST /v1/keys` | tenant admin key creation | implemented |
 | `GET /v1/audit` | tenant admin audit view | implemented |
 | `DELETE /v1/users/{user_id}` | tenant admin user deletion workflow | implemented |
@@ -40,9 +41,8 @@ Agent compatibility today:
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
 | Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | not directly | Claude Code can be pointed at an LLM gateway with `ANTHROPIC_BASE_URL`, but this repo does not yet expose the Anthropic Messages endpoints. Add a compatibility endpoint or put an Anthropic-compatible shim in front. |
-| Codex CLI | OpenAI Responses API: `/v1/responses` | not directly | Current Codex builds have removed `wire_api = "chat"`; a custom provider must speak `wire_api = "responses"`. This repo currently exposes chat completions only. Add `/v1/responses` support or put a Responses-compatible shim in front. |
-
-That limitation is deliberate in this document. Pretending Claude Code and Codex can use a chat-only endpoint is how you get a pretty onboarding guide and a broken rollout.
+| Codex CLI | OpenAI Responses API: `/v1/responses` | yes | Use a custom provider with `wire_api = "responses"` and send the gateway API key via `GATEWAY_API_KEY`. |
+Claude Code still needs a separate Anthropic Messages-compatible surface. Codex no longer needs a shim for basic prompt traffic.
 
 ## Enrollment model
 
@@ -191,7 +191,7 @@ Notes:
 
 - `POST /v1/keys` requires the caller to have `admin` in `roles`.
 - Admins can create keys only inside their own tenant.
-- Use `ApiKey <key>` for API keys. `Bearer <token>` is treated as a JWT by the gateway.
+- Use `ApiKey <key>` for API keys on the native gateway endpoints. `POST /v1/responses` also accepts `Authorization: Bearer <key>` for Codex compatibility. Other bearer tokens are treated as JWTs.
 - API key authentication also works with a bare `Authorization: <key>` header, but `ApiKey` is clearer.
 
 ## Verify a user's credential
@@ -350,7 +350,7 @@ Current Codex CLI custom providers require the OpenAI Responses API wire protoco
 POST /v1/responses
 ```
 
-This repository does not currently expose `/v1/responses`, so the config below is for a future Responses-compatible gateway endpoint or a shim in front of this gateway.
+This repository exposes `/v1/responses` for Codex-compatible basic prompt traffic. The compatibility layer reuses the same auth, model allowlist, rate limit, governance, provider dispatch, and audit path as `/v1/chat/completions`.
 
 Create or edit `~/.codex/config.toml` on macOS/Linux, or `%USERPROFILE%\.codex\config.toml` on Windows:
 
@@ -384,7 +384,7 @@ $env:GATEWAY_API_KEY = "gw_user_key"
 codex -p gateway "Reply with gateway-ok only."
 ```
 
-Do not set `wire_api = "chat"`; recent Codex builds reject it. If Codex fails with a missing `/v1/responses` or unsupported wire API error, the endpoint is not Codex-compatible yet.
+Do not set `wire_api = "chat"`; recent Codex builds reject it. Codex should send the gateway key via `GATEWAY_API_KEY`, and the gateway accepts that key through the bearer-token compatibility path on `/v1/responses`.
 
 ## Make configuration persistent
 
@@ -423,7 +423,9 @@ For each onboarded user:
 3. User has exactly the roles needed: no accidental `admin` or `tier2`.
 4. API key or JWT was delivered once through a secure channel.
 5. `/v1/me` returns the expected user, tenant, roles, models, and rate limit.
-6. `/v1/chat/completions` works through the gateway.
+6. The intended inference path works through the gateway:
+   - `/v1/chat/completions` for OpenAI-compatible chat clients such as Hermes.
+   - `/v1/responses` for Codex CLI.
 7. Agent config points at the gateway endpoint.
 8. Direct provider keys are removed from the user's agent environment.
 9. Web/browser tools are disabled or network egress is firewalled if required.
@@ -453,16 +455,11 @@ curl -sS -X DELETE "$GATEWAY_URL/v1/users/scott-laptop" \
 
 ## Known follow-up work
 
-To make all three agents work directly without shims, add these gateway-compatible surfaces:
+To make all three agents work directly without shims, the remaining gateway-compatible follow-up is:
 
 - Anthropic Messages compatibility for Claude Code:
   - `POST /v1/messages`
   - `POST /v1/messages/count_tokens`
   - header preservation for `anthropic-beta` and `anthropic-version`
-- OpenAI Responses compatibility for Codex:
-  - `POST /v1/responses`
-  - streaming behavior compatible with Codex
-  - response shape and tool-call handling expected by Codex
 - Auth normalization:
-  - accept bearer-token API-key authentication for compatibility clients, or
   - translate `ANTHROPIC_AUTH_TOKEN`/`x-api-key` in compatibility endpoints before hitting existing auth.
