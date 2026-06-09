@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import cast
+from typing import Any
 
-from llm_guard.input_scanners import BanTopics, PromptInjection
+from transformers import pipeline as hf_pipeline
 
 
 @dataclass
@@ -13,32 +13,44 @@ class HarmResult:
     blocked: bool         # True if any scanner says is_valid=False
     reason: str           # "prompt_injection" | "banned_topic" | ""
 
-# Task 7: protect lazy-init against concurrent asyncio.to_thread races
-_lock = threading.Lock()
-_injection_scanner: PromptInjection | None = None
-_topics_scanner: BanTopics | None = None
 
-def _scanners() -> tuple[PromptInjection, BanTopics]:
-    global _injection_scanner, _topics_scanner
-    if _injection_scanner is None:
+_INJECTION_MODEL = "laiyer/deberta-v3-base-prompt-injection"
+_ZERO_SHOT_MODEL = "cross-encoder/nli-deberta-v3-small"
+_BANNED_TOPICS = ["violence", "hate", "illegal", "jailbreak"]
+_THRESHOLD = 0.5
+
+_lock = threading.Lock()
+_injection_pipe: Any | None = None
+_topics_pipe: Any | None = None
+
+
+def _pipelines() -> tuple[Any, Any]:
+    global _injection_pipe, _topics_pipe
+    if _injection_pipe is None:
         with _lock:
-            if _injection_scanner is None:  # double-checked locking
-                _injection_scanner = PromptInjection()
-                _topics_scanner = BanTopics(topics=["violence", "hate", "illegal", "jailbreak"])
-    return _injection_scanner, cast(BanTopics, _topics_scanner)
+            if _injection_pipe is None:  # double-checked locking
+                _injection_pipe = hf_pipeline("text-classification", model=_INJECTION_MODEL, device="cpu")
+                _topics_pipe = hf_pipeline("zero-shot-classification", model=_ZERO_SHOT_MODEL, device="cpu")
+    return _injection_pipe, _topics_pipe
+
 
 def harm_scan(text: str) -> HarmResult:
-    injection, topics = _scanners()
+    injection_pipe, topics_pipe = _pipelines()
 
-    _, inj_valid, inj_score = injection.scan(prompt=text)
-    _, top_valid, top_score = topics.scan(prompt=text)
+    inj_out = injection_pipe(text)[0]
+    inj_score = inj_out["score"] if inj_out["label"].upper() == "INJECTION" else 1.0 - inj_out["score"]
+    inj_blocked = inj_score >= _THRESHOLD
+
+    topics_out = topics_pipe(text, candidate_labels=_BANNED_TOPICS, multi_label=True)
+    top_score = max(topics_out["scores"])
+    top_blocked = top_score >= _THRESHOLD
 
     score = max(inj_score, top_score)
-    blocked = not (inj_valid and top_valid)
+    blocked = inj_blocked or top_blocked
     reason = ""
-    if not inj_valid:
+    if inj_blocked:
         reason = "prompt_injection"
-    elif not top_valid:
+    elif top_blocked:
         reason = "banned_topic"
 
     return HarmResult(score=score, blocked=blocked, reason=reason)
