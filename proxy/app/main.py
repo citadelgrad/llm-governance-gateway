@@ -12,7 +12,16 @@ import httpx
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from proxy.app.auth import AuthError, CallerContext, authenticate
+from proxy.app.anthropic_compat import (
+    AnthropicCompatError,
+    AnthropicMessagesRequest,
+    CountTokensRequest,
+    chat_response_to_anthropic,
+    count_tokens_approximate,
+    messages_to_chat_body,
+    openai_sse_to_anthropic_sse,
+)
+from proxy.app.auth import AuthError, CallerContext, authenticate, authenticate_compat
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
 from proxy.app.db import jsonb_list as _jsonb_list
@@ -110,7 +119,14 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Request-ID",
+        "x-api-key",
+        "anthropic-version",
+        "anthropic-beta",
+    ],
 )
 
 
@@ -140,6 +156,20 @@ async def get_responses_caller(
             request.app.state.db_pool,
             allow_bearer_api_key_fallback=True,
         )
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=401, detail=error_envelope("auth_error", "Invalid credentials")
+        ) from exc
+
+
+async def get_caller_compat(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> CallerContext:
+    """Auth dependency for compatibility endpoints and shared model discovery."""
+    try:
+        return await authenticate_compat(authorization, x_api_key, request.app.state.db_pool)
     except AuthError as exc:
         raise HTTPException(
             status_code=401, detail=error_envelope("auth_error", "Invalid credentials")
@@ -237,11 +267,11 @@ def _enforce_allowed_model(model_id: str, allowed_models: list[str]) -> None:
         )
 
 
-async def _dispatch_chat_completion(
+async def _run_gateway_pipeline(
     request: Request,
     caller: CallerContext,
     body: dict,
-) -> Response | StreamingResponse:
+) -> tuple[Response | StreamingResponse, dict[str, str]]:
     model_id = body.get("model", "")
     stream = body.get("stream", False)
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
@@ -372,7 +402,7 @@ async def _dispatch_chat_completion(
     ):
         _attach_usage(response, effective_provider, request)
 
-    return response
+    return response, extra_headers
 
 
 @app.get("/health")
@@ -388,7 +418,8 @@ async def chat_completions(
     caller: CallerContext = Depends(get_caller),
 ):
     body = await _parse_json_body(request)
-    return await _dispatch_chat_completion(request, caller, body)
+    response, _ = await _run_gateway_pipeline(request, caller, body)
+    return response
 
 
 @app.post("/v1/responses")
@@ -405,7 +436,7 @@ async def responses(
             detail=error_envelope("unsupported_response_shape", str(exc)),
         ) from exc
 
-    response = await _dispatch_chat_completion(request, caller, translated_body)
+    response, _ = await _run_gateway_pipeline(request, caller, translated_body)
     if isinstance(response, StreamingResponse):
         raise HTTPException(
             status_code=422,
@@ -439,10 +470,90 @@ async def responses(
     return translated_response
 
 
+@app.post("/v1/messages")
+async def messages(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_compat),
+):
+    try:
+        req = AnthropicMessagesRequest.model_validate(await request.json())
+        body = messages_to_chat_body(req)
+    except AnthropicCompatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("unsupported_message_shape", str(exc)),
+        ) from exc
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not a valid Anthropic Messages request"),
+        ) from None
+
+    response, extra_headers = await _run_gateway_pipeline(request, caller, body)
+
+    if req.stream and isinstance(response, StreamingResponse):
+        translated = openai_sse_to_anthropic_sse(response.body_iterator, req.model)
+        return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
+
+    if (
+        not req.stream
+        and isinstance(response, Response)
+        and not isinstance(response, StreamingResponse)
+        and response.status_code == 200
+    ):
+        try:
+            chat_json = json.loads(bytes(response.body))
+        except (json.JSONDecodeError, ValueError):
+            return response
+        response_headers = dict(response.headers)
+        response_headers.update(extra_headers)
+        response_headers.pop("content-length", None)
+        return Response(
+            content=json.dumps(chat_response_to_anthropic(chat_json, req.model)),
+            status_code=200,
+            media_type="application/json",
+            headers=response_headers,
+        )
+
+    return response
+
+
+@app.post("/v1/messages/count_tokens")
+async def count_tokens(
+    request: Request,
+    caller: CallerContext = Depends(get_caller_compat),
+):
+    try:
+        req = CountTokensRequest.model_validate(await request.json())
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body is not valid"),
+        ) from None
+
+    tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
+    _enforce_allowed_model(req.model, tenant["allowed_models"])
+    lower_headers = {k.lower(): v for k, v in request.headers.items()}
+    _, routing_method = resolve_provider(
+        req.model,
+        lower_headers,
+        caller.roles,
+        tenant["default_provider"],
+        request.app.state.models_config,
+    )
+    if routing_method in ("model_not_found", "override_denied"):
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope(routing_method, f"Cannot route model: {req.model}"),
+        )
+
+    return {"input_tokens": count_tokens_approximate(req.messages, req.system)}
+
+
 @app.get("/v1/models")
 async def list_models(
     request: Request,
-    caller: CallerContext = Depends(get_caller),
+    caller: CallerContext = Depends(get_caller_compat),
 ):
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
     allowed = set(tenant["allowed_models"])
