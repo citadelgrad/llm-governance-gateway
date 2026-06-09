@@ -1,0 +1,25 @@
+governance/tests/test_harm.py
+  s_afabf73350e848::t_f244bb88122ebf 1-83
+governance/app/harm.py
+  s_afabf73350e848::t_d46d98ca50f16d 5,7,16-21,23-25,27-29,31-35,38-42,44-46,49,51,53
+governance/uv.lock
+  s_afabf73350e848::t_6e2b2033d68623 10-13,818,850
+governance/pyproject.toml
+  s_afabf73350e848::t_800ebcaf3b26cb 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "208d2b77dcd76b218d4b0f715fb57b112bd595c0",
+  "prompts": {},
+  "sessions": {
+    "s_afabf73350e848": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8a1c25b5-bb38-49f8-924e-87514b3043d7",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
