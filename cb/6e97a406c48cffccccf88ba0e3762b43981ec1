@@ -1,0 +1,38 @@
+proxy/tests/conftest.py
+  s_6d66f912746741::t_8a193ead10a24f 33-37
+  s_6d66f912746741::t_f434bcfeb2beb0 104,106,113-115
+  s_504c60102ee58f::t_920385ce3660c6 12-16,18
+  s_6d66f912746741::t_2048099ed9e40c 176-203
+  s_6d66f912746741::t_b03c65abfa18ae 17
+proxy/app/auth.py
+  s_6d66f912746741::t_5ea33a3be27e9e 122-149
+proxy/tests/test_claude_code_config.py
+  s_6d66f912746741::t_a17f39ad5454be 1-134
+proxy/app/main.py
+  s_6d66f912746741::t_451c782c9eed88 15-24,122-129,165-172,405,473-550
+  s_504c60102ee58f::t_d01f6bf7548255 173-178,270,274,421-422,439
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "cb6e97a406c48cffccccf88ba0e3762b43981ec1",
+  "prompts": {},
+  "sessions": {
+    "s_504c60102ee58f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ea8e2-fc31-7d22-afd5-8c03e1f40ccc",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_6d66f912746741": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "64a856be-fef7-4e82-8888-4daa34cd2e66",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
