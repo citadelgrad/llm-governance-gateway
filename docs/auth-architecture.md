@@ -20,9 +20,12 @@ flowchart TB
         as[Authorization Server<br/>Zitadel]
         proxy[Gateway Proxy<br/>public ingress]
         gov[Governance Service<br/>PII / harm / audit]
-        opa[OPA Policy Engine]
+        opa[OPA Policy Engine<br/>ingress, shared]
         ghbroker[GitHub Token Broker]
-        mcpproxy[MCP Reverse Proxy]
+        subgraph mcpreplica[MCP Reverse Proxy replica]
+            mcpproxy[MCP Reverse Proxy]
+            opasidecar[OPA Sidecar<br/>tool-call boundary, per replica]
+        end
         cloudbroker[Cloud Credential Broker]
         pg[(Postgres<br/>audit, all legs)]
         redis[(Redis<br/>rate limits)]
@@ -48,7 +51,7 @@ flowchart TB
     ghbroker -->|short-lived installation token| ghapi
     ghbroker -->|audit event| gov
     proxy -->|route: mcp:server:invoke| mcpproxy
-    mcpproxy -->|tool-call boundary check| opa
+    mcpproxy -->|tool-call boundary check, loopback/UDS| opasidecar
     mcpproxy -.->|DLP on tool response| gov
     mcpproxy --> mcpservers
     mcpproxy -->|audit event| gov
@@ -66,7 +69,7 @@ flowchart TB
     class dev person
     class google,llm,ghapi,mcpservers,clouds external
     class proxy,gov,opa existing
-    class as,ghbroker,mcpproxy,cloudbroker new
+    class as,ghbroker,mcpproxy,cloudbroker,opasidecar new
     class pg,redis store
 ```
 
@@ -77,9 +80,10 @@ flowchart TB
 | Authorization Server | New | Device/PKCE flows, token issuance+refresh+revocation, multi-scope tokens, RFC 8693 token exchange |
 | Gateway Proxy | Existing, extended | Public ingress, now validates AS tokens, routes by scope |
 | Governance Service | Existing, extended | PII, harm, audit; sole writer to the audit table — the other three new components and the proxy send it audit events rather than writing Postgres directly; also the DLP checkpoint MCP Reverse Proxy calls on tool responses (reuses its existing Presidio endpoint — no second copy embedded) |
-| OPA | Existing, extended | Policy decisions at ingress, and now also at the tool-call boundary inside MCP Reverse Proxy (tool + arguments + context, evaluated fresh every call) |
+| OPA (ingress) | Existing, extended | Policy decisions at ingress — can this token use this route/scope — unchanged shared instance, one failure domain |
+| OPA Sidecar (tool-call boundary) | New | Separate OPA process, one per MCP Reverse Proxy replica, colocated on the same pod/host, reached over loopback/UDS — not the ingress instance, not a remote hop; evaluates tool + arguments + context fresh on every call, own failure domain |
 | GitHub Token Broker | New | Holds GitHub App key, mints 1hr installation tokens |
-| MCP Reverse Proxy | New | Validates per-server/per-tool scope via OPA, terminates MCP JSON-RPC/SSE transport, buffers and DLP-scans each tool response before forwarding |
+| MCP Reverse Proxy | New | Validates per-server/per-tool scope via its colocated OPA sidecar, terminates MCP JSON-RPC/SSE transport, buffers and DLP-scans each tool response before forwarding |
 | Cloud Credential Broker | New | Server-side RFC 8693 exchange of the caller's token for short-lived AWS STS / GCP WIF credentials — proxy-mediated so the mint stays on the one audited path |
 | Postgres | Existing, extended | Audit sink for all four legs; only Governance holds a DB edge and writes to it, six-dimension schema (see below) |
 | Redis | Existing | Rate limiting — unchanged |
@@ -132,8 +136,8 @@ sequenceDiagram
 
 ## What's new vs. what's reused
 
-- **New:** Authorization Server (Zitadel instance in docker-compose), GitHub Token Broker, MCP Reverse Proxy, Cloud Credential Broker.
-- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. OPA gains a second evaluation point at the tool-call boundary. Audit schema gains delegation-chain/approval-status columns (six-dimension schema below).
+- **New:** Authorization Server (Zitadel instance in docker-compose), GitHub Token Broker, MCP Reverse Proxy, Cloud Credential Broker, OPA Sidecar (a second, separate OPA process colocated per MCP Reverse Proxy replica for the tool-call boundary check — not an extension of the shared ingress OPA instance).
+- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains delegation-chain/approval-status columns (six-dimension schema below).
 - **Unchanged:** Rate limiting, provider dispatch.
 
 ---
@@ -146,11 +150,20 @@ Two research passes — competitor/reference gap analysis, then deep dives on th
 
 Zitadel RBAC (project roles + org grants) is built for a small, human-managed role list, not N-servers × M-tools of scopes — minting one scope per server×tool doesn't fit the product and doesn't scale past a handful of MCP servers. Decision: Zitadel issues one coarse `mcp:invoke` scope plus a handful of project roles (`mcp-role:read-only`, `mcp-role:github-write`, ...) — small enough to satisfy the SOC2 access-review control below. The actual `mcp:<server>:<tool>` entitlement matrix lives **outside** Zitadel, as an OPA data document keyed by role, resolved at the MCP Reverse Proxy/OPA layer per call. Entitlement changes take effect within a bounded staleness window of ≤10 seconds, no token reissuance — see the OPA bundle-polling mechanism below. (Kong AI Gateway uses the same consumer-group-ACL shape; its own propagation timing is a separate implementation detail, not assumed to match this bound.)
 
-### Policy enforcement: two evaluation points, one of them new
+### Policy enforcement: two evaluation points, two separate OPA processes
 
-OPA now runs at two points: ingress (existing — can this token use this route/scope) and the **tool-call boundary**, newly added inside the MCP Reverse Proxy (tool + arguments + context, evaluated fresh on every call, no decision caching). Run it colocated (sidecar or in-process/WASM) in the MCP Reverse Proxy, not a remote hop — keeps overhead sub-millisecond to low-single-digit-ms. What's cacheable is the entitlement *data*, not the *decision*.
+OPA runs at two points, as two entirely separate processes with no shared runtime or data plane between them — not one shared service serving both:
 
-**Decision: short global bundle-poll interval, not a per-session cache.** OPA's native bundle service (`polling.min_delay_seconds: 5`, `max_delay_seconds: 10`) polls Governance's entitlement-data endpoint on a fixed schedule, global to the OPA instance/sidecar — not keyed by session. This bounds worst-case staleness at **≤10 seconds** from a role/entitlement change to it taking effect on every open session's next tool call: decisions are already evaluated fresh per call (no decision caching, above), so the instant the bundle refreshes, the very next call anywhere picks it up, with no further per-session lag stacked on top of the poll interval. This replaces the per-session bundle cache this design previously described, which had no native OPA equivalent and no invalidation path of its own — bundle polling is a real, built-in OPA capability, not bespoke plumbing. Two other real options were considered and not chosen pre-POC: push-based invalidation via OPA's Data API (`PUT /v1/data/{path}`) would cut staleness closer to zero but needs a revocation-event → OPA-PUT pipeline wired up, more moving parts than a POC needs; per-request data lookup (`http.send` from Rego) would reintroduce a network hop into the hot path, contradicting the colocated low-latency goal above.
+1. **Ingress OPA** (existing, unchanged) — one shared instance, called by the Governance Service, decides whether a token can use a given route/scope from token claims alone. It does not consume the entitlement-matrix data document below.
+2. **Tool-call-boundary OPA sidecar** (new) — a distinct OPA server process, one per MCP Reverse Proxy replica, colocated on the same pod/host and reached over loopback/Unix domain socket, never a cross-service network hop. It evaluates tool + arguments + context fresh on every call (no decision caching).
+
+**Decision: colocated sidecar, not in-process/WASM.** A full OPA server process running as a sidecar was chosen over embedding OPA in WASM mode inside the MCP Reverse Proxy. Reasons against WASM: it exposes a restricted builtin set, and it has no native hot-data-reload — updating the entitlement-matrix data document a WASM module holds requires recompiling and redeploying the module, not just refreshing a bundle. The sidecar approach gets the bundle-polling mechanism below (and its ≤10s staleness bound) natively, with the full OPA builtin set, at the cost of a loopback/UDS call instead of a true in-process function call — still sub-millisecond to low-single-digit-ms overhead, consistent with the latency goal, without the WASM data-reload gap. Choosing WASM would mean building bespoke data-injection plumbing to hit the same ≤10s bound the sidecar gets for free.
+
+**Blast radius: the two OPA processes fail independently.** Because ingress OPA and the tool-call-boundary sidecar are separate processes in separate failure domains, an ingress OPA outage does not disable MCP tool-call enforcement, and a sidecar crash on one MCP Reverse Proxy replica does not affect ingress routing decisions or other replicas' sidecars. Each leg's break-glass path (below) triggers independently on its own OPA's unreachability.
+
+What's cacheable is the entitlement *data*, not the *decision*.
+
+**Decision: short global bundle-poll interval on the sidecar, not a per-session cache.** The tool-call-boundary OPA sidecar's native bundle service (`polling.min_delay_seconds: 5`, `max_delay_seconds: 10`) polls Governance's entitlement-data endpoint on a fixed schedule, global to that sidecar — not keyed by session, and not something the ingress OPA instance participates in at all, since ingress OPA never loads this data document. This bounds worst-case staleness at **≤10 seconds** from a role/entitlement change to it taking effect on every open session's next tool call: decisions are already evaluated fresh per call (no decision caching, above), so the instant a given replica's sidecar refreshes its bundle, the very next call through that replica picks it up, with no further per-session lag stacked on top of the poll interval. This replaces the per-session bundle cache this design previously described, which had no native OPA equivalent and no invalidation path of its own — bundle polling is a real, built-in OPA capability, not bespoke plumbing. Two other real options were considered and not chosen pre-POC: push-based invalidation via OPA's Data API (`PUT /v1/data/{path}`) would cut staleness closer to zero but needs a revocation-event → OPA-PUT pipeline wired up, more moving parts than a POC needs; per-request data lookup (`http.send` from Rego) would reintroduce a network hop into the hot path, contradicting the colocated low-latency goal above.
 
 Input shape:
 
