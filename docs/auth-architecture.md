@@ -289,9 +289,19 @@ Checkpoint sits after the downstream MCP server's response is received and befor
 
 ### Break-glass path for when OPA is down
 
-1. **Bypass only the OPA call, never the auth stack.** Zitadel is a different failure domain and stays the trust anchor — never fall back to "no auth" because OPA is unreachable.
+1. **Narrow, per-leg allow-list — never a scope-gated bypass.** Skipping the OPA call must not fall back to the coarse token scope (`mcp:invoke`, `llm:invoke`, `github:*`, `cloud:*`) as the de facto authorization boundary — those scopes are deliberately coarse (see "Scope & entitlement model"), so treating them as sufficient once OPA is skipped is a full policy-engine bypass in practice, not a narrowed one. Instead, each leg falls back to an explicit, OPA-independent, statically-declared capability set:
+   - **LLM dispatch:** allowed. PII/harm scanning runs independently of the OPA call (`governance/app/pipeline.py`) and stays on; only the OPA policy decision itself is skipped.
+   - **MCP tool calls:** allowed only for a static, pre-named read-only tool allow-list shipped in Gateway Proxy config — never sourced from the entitlement-matrix data document, since that document is only reachable through the very OPA sidecar that's down.
+   - **GitHub PR creation:** denied outright. No safe static subset of an argument-aware, mutating action exists.
+   - **Cloud credential minting:** denied outright — highest blast radius of any leg.
+
+   Zitadel is a different failure domain and stays the trust anchor throughout — never fall back to "no auth" because OPA is unreachable.
 2. **Pre-provisioned, not self-service:** a small named set of admin identities carry a distinct `breakglass:emergency-access` scope, granted out-of-band in advance — never mintable at request time.
-3. **Triggers on unreachability, never on DENY.** The fail-closed branch keys off a circuit-breaker/health-check failure to OPA (timeout/connection refused), never off OPA returning a policy deny — conflating those two signals turns break-glass into a policy bypass.
+3. **Triggers on unreachability, never on DENY — with explicit numeric thresholds.** The fail-closed branch keys off a circuit-breaker/health-check failure to OPA (timeout/connection refused/5xx), never off OPA returning a policy deny — conflating those two signals turns break-glass into a policy bypass.
+   - **Timeout:** reuses the existing 5.0s OPA client timeout (`governance/app/opa.py`) — no second value is introduced.
+   - **Trip threshold:** 5 consecutive failed calls (timeout, connection refused, or 5xx; a DENY response never counts toward this).
+   - **State scope:** the failure counter is shared across requests, not re-evaluated per request — held in-process per replica. Each Governance replica keeps its own counter for ingress OPA, and each MCP Reverse Proxy replica keeps its own counter for its colocated sidecar, consistent with the "two OPA processes fail independently" principle above.
+   - **Reset:** open → half-open → closed. While open, the breaker stays tripped for a 30s cooldown, then issues a single half-open probe call. A successful probe closes the breaker and resumes normal per-request OPA enforcement immediately; a failed probe reopens the breaker and restarts the 30s cooldown. No manual reset is required for OPA recovery itself.
 4. **Compensating controls:** mandatory step-up MFA re-auth at time of use, short automatic TTL (single request or ~15 min), synchronous alert fired the instant the path is invoked, a distinct `is_breakglass=true` audit event type, forced automatic expiry. The synchronous alert's delivery is independent of the `audit_log` write — see the deliberate carve-out in the audit-table section below — so a database outage (plausibly the same failure that triggered break-glass) cannot silently take out both the audit row and the only signal that break-glass was invoked.
 5. Second-admin approval (the gap between "acceptable POC" and "production-grade") is deferred — see open questions below.
 
