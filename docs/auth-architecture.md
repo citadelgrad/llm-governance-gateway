@@ -218,7 +218,7 @@ sequenceDiagram
 ## What's new vs. what's reused
 
 - **New:** Authorization Server (Zitadel instance in docker-compose), GitHub Token Broker, MCP Reverse Proxy, Cloud Credential Broker, OPA Sidecar (a second, separate OPA process colocated per MCP Reverse Proxy replica for the tool-call boundary check — not an extension of the shared ingress OPA instance).
-- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains delegation-chain/approval-status columns (six-dimension schema below).
+- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains six new columns for the six-dimension schema (see "Physical schema migration" below), not just delegation-chain/approval-status.
 - **Unchanged:** Rate limiting, provider dispatch.
 
 ---
@@ -335,6 +335,27 @@ Also cheap now / expensive later: restrict UPDATE/DELETE grants on the audit tab
 Because this internal write endpoint is already the one structurally unavoidable chokepoint all four writers pass through, it also carries the enum-consistency job: the endpoint validates every inbound audit-fact payload against one shared Pydantic schema, `AuditEventRequest`, following the existing `Literal[...]`-enum convention already used for closed-set fields in `proxy/app/responses_compat.py` (e.g. `type: Literal["output_text"]`). `event_type` and `approval_status` are typed as closed `Literal` sets covering every value named in this document (`event_type`: `tool_invoked`, `policy_denied`, `model_refused`, `dlp_blocked`, `is_breakglass`, `credential_mint`; `approval_status`: `granted`, `denied`, `pending`) — a writer sending a value outside the shared vocabulary is rejected with a 422 before it ever reaches the `INSERT`, so GitHub Broker, Cloud Broker, MCP Proxy, and LLM dispatch cannot drift into different spellings for the same event.
 
 **Break-glass and cloud-credential mints are a deliberate carve-out from fire-and-forget.** Every other audit write (LLM inspect, GitHub Broker, MCP Reverse Proxy, and ordinary Cloud Credential Broker traffic) keeps today's existing behavior unchanged: `governance/app/audit.py`'s `write_audit` catches the exception, logs one line to stderr, and rolls back without propagating, and `/inspect`'s use of `background_tasks.add_task` in `governance/app/main.py` means this happens after the response is already sent — the caller never learns the write failed. That's an acceptable tradeoff for routine telemetry and is retained as-is; it is not an unstated default that automatically covers the two event types below. For `is_breakglass=true` events and Cloud Credential Broker mints specifically, a swallowed failure can hide either an unaudited emergency-access use or a live unaudited cloud credential, possibly during the very outage that caused it, so these two get additional treatment: Governance increments an in-process failure counter in the same exception path, independent of whatever caused the `INSERT` to fail, and exposes it the same way `/health` (`governance/app/main.py:69-81`) already surfaces a DB-adjacent problem without itself depending on a database write succeeding (`{"status": "degraded", "reason": "..."}` from a stuck-partition count) — no new metrics stack is introduced pre-POC; this reuses the existing pattern. For Cloud Credential Broker mints, the same failure also gates the response, per the delegation-flow note above: the credential is withheld, not just logged.
+
+### Physical schema migration: flat columns, not a JSON blob
+
+The six-dimension JSON above (`session_id`/`user`/`agent`/`authorization`/`action`/`delegation_chain`/`approval_status`/`event_type`) is the logical/API shape, not the physical row shape. `audit_log` (`governance/migrations/versions/001_initial_schema.py`) is a flat-column, monthly-range-partitioned table (`audit_id, created_at, written_at, user_id, tenant_id, model_id, routing_method, decision, pii_findings, harm_score, violations, phase`) — it already keeps `pii_findings`/`violations` as separate typed JSONB columns rather than one document, and the new dimensions follow that same flat-column convention instead of introducing a blob column:
+
+| Dimension / field | Disposition |
+|---|---|
+| user identity | Already covered — existing `user_id` column |
+| agent identity | **New** `agent_id TEXT`, nullable (NULL for non-delegated/human-only calls) |
+| authorization scope | **New** `authorization_scopes JSONB NOT NULL DEFAULT '[]'` |
+| action (tool + arguments + result) | **New** `action JSONB`, nullable — generic shape for the GitHub/MCP/Cloud legs; the LLM leg keeps using its existing `model_id`/`routing_method`/`decision`/`pii_findings`/`harm_score`/`violations`/`phase` columns as its action-equivalent detail, so `action` stays NULL there rather than duplicating data |
+| delegation chain | **New** `delegation_chain JSONB NOT NULL DEFAULT '[]'` |
+| approval status | **New** `approval_status TEXT`, nullable |
+| `session_id` (correlation key, not one of the six) | **New** `session_id TEXT`, nullable |
+| `event_type` (classification tag, not one of the six) | **New** `event_type TEXT`, nullable |
+
+That's 6 new columns.
+
+**Migration mechanics and partition compatibility.** A single new Alembic migration (`003_...`) runs `ALTER TABLE audit_log ADD COLUMN ...` against the partitioned parent. Postgres recurses `ADD COLUMN` to every existing and future partition of a declaratively partitioned table automatically; for nullable columns and for `NOT NULL ... DEFAULT <constant>` columns (Postgres ≥11's fast-default path) this is metadata-only, no table rewrite, safe to run against the live table. **No backfill is needed:** rows already in `audit_log_2026_05/06/07` predate the delegation/agent-identity feature entirely, so NULL (scalar columns) / `[]` (JSONB columns) is the historically accurate value, not missing data. Future partitions need no extra work either — `retention.py`'s `create_next_partition()` uses `CREATE TABLE ... PARTITION OF audit_log`, which inherits the parent's full column set, new columns included, at creation time. No new `GRANT`s are needed: `gateway_app`'s existing `GRANT INSERT, SELECT ON audit_log` is table-level and already covers the new columns.
+
+**`GET /v1/audit/export` impact.** The keyset pagination mechanism itself (`governance/app/main.py:152-237`) is unaffected and keeps working unmodified — it keys off `(created_at, audit_id)`, unchanged by this migration, and the dedicated `ix_audit_log_export_keyset` index is untouched by adding unrelated columns. What does need a change: the endpoint's two hand-written `SELECT` column lists and the `record = {...}` dict built in `generate()` enumerate columns by name rather than using `SELECT *`. Left as-is, the six new columns would silently never appear in exported rows even once the table holds the data — add them to both column lists and to the output-record mapping. This is a column-list/serialization addition, not a pagination-logic change.
 
 ### Package registry publishing: not directly brokerable
 
