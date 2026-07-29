@@ -99,39 +99,96 @@ sequenceDiagram
     participant GH as GitHub Broker
     participant GHAPI as GitHub API
     participant MCP as MCP Reverse Proxy
+    participant OPASC as OPA Sidecar
     participant MCPS as MCP Servers
+    participant CB as Cloud Credential Broker
+    participant Cloud as AWS STS / GCP WIF
     participant Gov as Governance Service
+    participant OPA as OPA (ingress)
     participant DB as Postgres (audit)
 
     Dev->>AS: Device code login (once)
-    AS->>Dev: access_token + refresh_token (scopes: llm, github, mcp:*)
+    AS->>Dev: access_token + refresh_token (scopes: llm, github, mcp:*, cloud:*)
 
     Dev->>GW: POST /v1/chat/completions (Bearer token)
     GW->>GW: validate token via cached JWKS, check scope llm:invoke
-    GW->>LLM: forward request
-    LLM->>GW: response
-    GW->>Gov: audit event (LLM call)
-    Gov->>DB: write audit row
-    GW->>Dev: LLM response
+    GW->>Gov: POST /inspect (text, tenant, roles)
+    Gov->>OPA: authz check (route/scope) — concurrent with PII/harm scan
+    OPA->>Gov: decision
+    Gov->>Gov: mint audit_id, schedule audit write (background)
+    Gov->>GW: decision + audit_id
+    alt decision == block
+        GW--xDev: 400/403 policy_violation (X-Audit-ID)
+    else decision == allow
+        GW->>LLM: forward request (X-Audit-ID)
+        LLM->>GW: response
+        GW->>Dev: LLM response
+    end
+    Note over Gov,DB: Audit row committed asynchronously after the response<br/>(background_tasks.add_task) — fire-and-forget, not on this critical path.
+    Gov--)DB: write audit row (async)
 
     Dev->>GW: POST /v1/github/pr (same Bearer token)
     GW->>GH: check scope github:pr:write
-    GH->>GH: mint installation token from GitHub App key
-    GH->>GHAPI: create PR (installation token)
-    GHAPI->>GH: result
-    GH->>Gov: audit event (GitHub call)
-    Gov->>DB: write audit row
-    GH->>Dev: result
+    GH->>Gov: policy check request (action=create_pr, repo, base, actor)
+    Gov->>OPA: per-action check (github/authz)
+    OPA->>Gov: decision
+    Gov->>Gov: mint audit_id, schedule audit write (background)
+    Gov->>GH: decision + audit_id
+    alt decision == deny
+        GH--xDev: 403 policy_violation (X-Audit-ID)
+    else decision == allow
+        GH->>GH: mint installation token from GitHub App key
+        GH->>GHAPI: create PR (installation token)
+        GHAPI->>GH: result
+        GH->>Dev: result
+    end
+    Gov--)DB: write audit row (async)
 
     Dev->>GW: POST /v1/mcp/{server}/call (same Bearer token)
     GW->>MCP: check scope mcp:{server}:invoke
-    MCP->>MCPS: forward tool call
-    MCPS->>MCP: tool response
-    MCP->>Gov: audit event (MCP tool call)
-    Gov->>DB: write audit row
-    MCP->>Dev: MCP result
+    MCP->>OPASC: tool-call boundary check (tool, arguments, context — loopback/UDS)
+    OPASC->>MCP: decision
+    alt decision == deny
+        MCP->>Gov: audit event (policy_denied)
+        MCP--xDev: policy_violation
+    else decision == allow
+        MCP->>MCPS: forward tool call
+        MCPS->>MCP: tool response
+        MCP->>MCP: buffer response, DLP scan via Governance's Presidio-backed check
+        alt DLP fails closed (scan error, timeout, or size cap breached)
+            MCP->>Gov: audit event (dlp_blocked)
+            MCP--xDev: response blocked
+        else DLP scan passes
+            MCP->>Gov: audit event (MCP tool call)
+            MCP->>Dev: MCP result
+        end
+    end
+    Gov--)DB: write audit row (async)
 
-    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, three resource types, one audit trail — Governance is the sole writer.
+    Dev->>GW: POST /v1/cloud/{provider}/credential (same Bearer token)
+    GW->>CB: check scope cloud:{provider}:*
+    CB->>Gov: policy check request (role/account, resource, environment)
+    Gov->>OPA: per-action check (cloud/authz)
+    OPA->>Gov: decision
+    Gov->>Gov: mint audit_id
+    Gov->>CB: decision + audit_id
+    alt decision == deny
+        CB--xDev: 403 policy_violation (X-Audit-ID)
+    else decision == allow
+        CB->>AS: RFC 8693 token exchange
+        AS->>CB: audience-bound token
+        CB->>Cloud: AssumeRoleWithWebIdentity / WIF exchange
+        Cloud->>CB: short-lived STS/WIF credential
+        CB->>Gov: audit event (credential mint)
+        Gov->>DB: write audit row (synchronous — credential delivery gated on commit)
+        alt audit row committed
+            CB->>Dev: short-lived credential
+        else audit write failed
+            CB--xDev: credential withheld, independent alert fired
+        end
+    end
+
+    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, four resource types, one audit trail — Governance is the sole writer.<br/>Every leg's OPA decision (and its audit_id) is minted before any external system is called.<br/>Routine audit-row commits are async (fire-and-forget), except cloud-credential mints, which gate delivery on the commit.
 ```
 
 ## What's new vs. what's reused
@@ -156,6 +213,8 @@ OPA runs at two points, as two entirely separate processes with no shared runtim
 
 1. **Ingress OPA** (existing, unchanged) — one shared instance, called by the Governance Service, decides whether a token can use a given route/scope from token claims alone. It does not consume the entitlement-matrix data document below.
 2. **Tool-call-boundary OPA sidecar** (new) — a distinct OPA server process, one per MCP Reverse Proxy replica, colocated on the same pod/host and reached over loopback/Unix domain socket, never a cross-service network hop. It evaluates tool + arguments + context fresh on every call (no decision caching).
+
+**GitHub PR creation and Cloud Credential minting each get an argument-aware, fail-closed per-action check too — equivalent in kind to the MCP tool-argument check, not scope-check-only.** Both evaluate against the shared ingress OPA instance (item 1 above), not the sidecar — neither leg is on the sub-millisecond hot path the sidecar exists for, so the extra network hop to ingress OPA is a non-issue. Each gets its own Rego package, distinct from `llm/authz` and from the MCP entitlement-matrix data document: `github/authz` takes `{action: "create_pr", repo, base, actor}`, `cloud/authz` takes `{role or account requested, resource, environment}`. This is a per-action decision, not a new entitlement-matrix/data-document scheme — no data-document design is introduced here.
 
 **Decision: colocated sidecar, not in-process/WASM.** A full OPA server process running as a sidecar was chosen over embedding OPA in WASM mode inside the MCP Reverse Proxy. Reasons against WASM: it exposes a restricted builtin set, and it has no native hot-data-reload — updating the entitlement-matrix data document a WASM module holds requires recompiling and redeploying the module, not just refreshing a bundle. The sidecar approach gets the bundle-polling mechanism below (and its ≤10s staleness bound) natively, with the full OPA builtin set, at the cost of a loopback/UDS call instead of a true in-process function call — still sub-millisecond to low-single-digit-ms overhead, consistent with the latency goal, without the WASM data-reload gap. Choosing WASM would mean building bespoke data-injection plumbing to hit the same ≤10s bound the sidecar gets for free.
 
