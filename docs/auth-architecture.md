@@ -169,6 +169,8 @@ Zitadel's native OAuth token exchange (RFC 8693) supports the `act` claim for re
 
 The same RFC 8693 mechanism generalizes into the Cloud Credential Broker: exchange the Zitadel token server-side for AWS STS (`AssumeRoleWithWebIdentity`, IAM OIDC provider trusts Zitadel's issuer) or GCP Workload Identity Federation (no issuer allowlist — a self-hosted Zitadel is directly usable) credentials. **Proxy-mediated, not client-direct** — a client-direct path (client calls Zitadel then AWS/GCP itself) would create a second, unaudited credential-mint path and break the one-audit-table goal. One audit row per mint carries the full chain: human → agent → cloud role.
 
+**Credential delivery is gated on that row committing.** The Cloud Credential Broker holds the minted STS/WIF credential until Governance confirms the audit `INSERT` succeeded, and only then returns it to the caller — an audit-write failure here must not release the credential regardless of cause. This is a deliberate departure from the fire-and-forget default described in the audit-table section below: the withheld credential is inert until its short TTL naturally expires, so "don't deliver" gives the same practical guarantee as "don't mint," without needing a mid-flight revoke call most STS/WIF token types don't cleanly support.
+
 ### DLP on MCP tool responses
 
 Checkpoint sits after the downstream MCP server's response is received and before it's forwarded to the client — same hop as the spec-mandated audience/schema checks. Call the Governance service's **existing** Presidio HTTP endpoint on the serialized response body (don't re-embed the library or load a second copy of the NLP models in the MCP Reverse Proxy), then block/alert or anonymize before forwarding. Presidio has no streaming API, so buffer the full response body — same approach the reference implementation (Strac) uses. **Gap flagged, not solved:** Presidio is text-only; binary/OCR tool responses (images, attachments) have no coverage without a separate OCR pre-pass. Scoped out of the POC unless a specific target MCP server is known to return binary payloads.
@@ -178,7 +180,7 @@ Checkpoint sits after the downstream MCP server's response is received and befor
 1. **Bypass only the OPA call, never the auth stack.** Zitadel is a different failure domain and stays the trust anchor — never fall back to "no auth" because OPA is unreachable.
 2. **Pre-provisioned, not self-service:** a small named set of admin identities carry a distinct `breakglass:emergency-access` scope, granted out-of-band in advance — never mintable at request time.
 3. **Triggers on unreachability, never on DENY.** The fail-closed branch keys off a circuit-breaker/health-check failure to OPA (timeout/connection refused), never off OPA returning a policy deny — conflating those two signals turns break-glass into a policy bypass.
-4. **Compensating controls:** mandatory step-up MFA re-auth at time of use, short automatic TTL (single request or ~15 min), synchronous alert fired the instant the path is invoked, a distinct `is_breakglass=true` audit event type, forced automatic expiry.
+4. **Compensating controls:** mandatory step-up MFA re-auth at time of use, short automatic TTL (single request or ~15 min), synchronous alert fired the instant the path is invoked, a distinct `is_breakglass=true` audit event type, forced automatic expiry. The synchronous alert's delivery is independent of the `audit_log` write — see the deliberate carve-out in the audit-table section below — so a database outage (plausibly the same failure that triggered break-glass) cannot silently take out both the audit row and the only signal that break-glass was invoked.
 5. Second-admin approval (the gap between "acceptable POC" and "production-grade") is deferred — see open questions below.
 
 ### Audit table: adopt the six-dimension schema now
@@ -201,6 +203,8 @@ Postgres audit is the one piece of infrastructure that's a gap-multiplier across
 Also cheap now / expensive later: restrict UPDATE/DELETE grants on the audit table (SOC2 tamper-evidence, one GRANT statement); log denials as well as grants; `is_breakglass` and `policy_denied` vs `model_refused` as distinct `event_type` values; adopt OTel GenAI span naming (`gen_ai.operation.name`, `execute_tool`) for field vocabulary instead of inventing bespoke names; decide retention/hot-cold tiering now even before a cold tier exists (12-month minimum baseline, 90-day-hot is typical).
 
 **Write-access model: Governance only, no exceptions.** Only the Governance Service holds a database credential and issues `INSERT`s against `audit_log`; this matches what's already built — `governance/app/audit.py` is the only code that writes the table today, the proxy's existing audit routes are read-only proxies to Governance over HTTP, and every service currently shares one Postgres role with no per-service credential story to draw on. The GitHub Token Broker, MCP Reverse Proxy, and Cloud Credential Broker do not get a `pg` edge or a database credential of their own — each sends its audit facts to Governance (an internal, `X-Internal-Token`-authenticated write endpoint, same auth pattern the proxy's existing read routes use) and Governance performs the insert. This is a deliberate choice, not an oversight: adding three more network-reachable principals with direct write access to a tamper-evidence-relevant table would multiply risk for no stated benefit, and it reuses the append-only enforcement already migrated in `001_initial_schema.py` — the `gateway_app` role's `INSERT`-only grant (`UPDATE`/`DELETE`/`TRUNCATE` revoked), forced RLS, and the `deny_audit_mutation` trigger — instead of designing new per-broker credential scoping from scratch. If a future requirement (e.g. audit writes must survive a Governance outage) forces brokers to write independently, that needs its own credential-provisioning design as a separate follow-up, not a quiet exception carved into this model.
+
+**Break-glass and cloud-credential mints are a deliberate carve-out from fire-and-forget.** Every other audit write (LLM inspect, GitHub Broker, MCP Reverse Proxy, and ordinary Cloud Credential Broker traffic) keeps today's existing behavior unchanged: `governance/app/audit.py`'s `write_audit` catches the exception, logs one line to stderr, and rolls back without propagating, and `/inspect`'s use of `background_tasks.add_task` in `governance/app/main.py` means this happens after the response is already sent — the caller never learns the write failed. That's an acceptable tradeoff for routine telemetry and is retained as-is; it is not an unstated default that automatically covers the two event types below. For `is_breakglass=true` events and Cloud Credential Broker mints specifically, a swallowed failure can hide either an unaudited emergency-access use or a live unaudited cloud credential, possibly during the very outage that caused it, so these two get additional treatment: Governance increments an in-process failure counter in the same exception path, independent of whatever caused the `INSERT` to fail, and exposes it the same way `/health` (`governance/app/main.py:69-81`) already surfaces a DB-adjacent problem without itself depending on a database write succeeding (`{"status": "degraded", "reason": "..."}` from a stuck-partition count) — no new metrics stack is introduced pre-POC; this reuses the existing pattern. For Cloud Credential Broker mints, the same failure also gates the response, per the delegation-flow note above: the credential is withheld, not just logged.
 
 ### Package registry publishing: not directly brokerable
 
@@ -236,9 +240,13 @@ sequenceDiagram
     AWS->>CB: short-lived STS/WIF credential
     CB->>Gov: audit event (delegation_chain: human -> agent -> cloud role)
     Gov->>DB: write audit row
-    CB->>Agent: short-lived credential
+    alt audit row committed
+        CB->>Agent: short-lived credential
+    else audit write failed
+        CB--xAgent: credential withheld, independent alert fired
+    end
 
-    Note over Dev,DB: One audit row per mint carries the full chain.<br/>Client never sees a long-lived cloud secret.<br/>Governance is the sole writer.
+    Note over Dev,DB: One audit row per mint carries the full chain.<br/>Client never sees a long-lived cloud secret.<br/>Governance is the sole writer.<br/>Credential delivery is gated on that row committing.
 ```
 
 ## Open questions / deferred past POC
