@@ -1,0 +1,57 @@
+docs/auth-architecture.md
+  s_cbcc7d86c8b066::t_6613565b605fed 143
+  s_ef980635b2d0d4::t_82c862f836a66d 5
+  s_ef980635b2d0d4::t_f057dc377cae67 186
+  s_ef980635b2d0d4::t_7fd7aa263bbd4f 79
+  s_a53ea1d4e5ee22::t_5f777e1b106cb9 1-4,6,8-19,21-25,27-34,36-48,50,53,59-66,68,70-76,78,81,85-93,95,97,100-106,111-115,120-123,128-129,131-134
+  s_ef980635b2d0d4::t_48d7165231a7c4 203-204
+  s_ef980635b2d0d4::t_7e76d3bd3ff116 49,54,58
+  s_cbcc7d86c8b066::t_b147772fd476fe 94,96,98,107-108,116-117,124-125
+  s_cbcc7d86c8b066::t_d83c28fb829f29 7
+  s_038ae6c2ea1f7a::t_9bc6d077d696c5 135-142,144-185,187-202,205-218,220-228,231-236,239-240,242-253
+  s_038ae6c2ea1f7a::t_6c8702236e0e01 26,35,51-52,55-57,67,69,77,80,82-83
+  s_ef980635b2d0d4::t_0747ab4713cde8 99,109-110,118-119,126-127,130
+  s_ef980635b2d0d4::t_d3397cc9d892aa 219,229-230,237-238,241
+  s_ef980635b2d0d4::t_dae58162454ad9 84
+  s_038ae6c2ea1f7a::t_3f9f8b8c4bf78e 20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "a94d2920d38a77cb144417aa6067d0e0b011408a",
+  "prompts": {},
+  "sessions": {
+    "s_038ae6c2ea1f7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d1f9a51-2327-46ea-a0b1-66e6828b88f7",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_a53ea1d4e5ee22": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "74dbc484-978b-4d8c-9948-ed7dd7825911",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_cbcc7d86c8b066": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e36c8b97-2c7e-4c1e-a171-12982b4024d3",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_ef980635b2d0d4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b37af63e-2c47-4680-b744-d944d0920943",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
