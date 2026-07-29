@@ -112,83 +112,107 @@ sequenceDiagram
 
     Dev->>GW: POST /v1/chat/completions (Bearer token)
     GW->>GW: validate token via cached JWKS, check scope llm:invoke
-    GW->>Gov: POST /inspect (text, tenant, roles)
-    Gov->>OPA: authz check (route/scope) — concurrent with PII/harm scan
-    OPA->>Gov: decision
-    Gov->>Gov: mint audit_id, schedule audit write (background)
-    Gov->>GW: decision + audit_id
-    alt decision == block
-        GW--xDev: 400/403 policy_violation (X-Audit-ID)
-    else decision == allow
-        GW->>LLM: forward request (X-Audit-ID)
-        LLM->>GW: response
-        GW->>Dev: LLM response
+    alt caller is known agent-runtime client without a valid act claim
+        GW->>Gov: audit event (policy_denied: missing_act_claim)
+        Gov--)DB: write audit row (async)
+        GW--xDev: 401 missing_act_claim
+    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+        GW->>Gov: POST /inspect (text, tenant, roles, sub, act.sub if present)
+        Gov->>OPA: authz check (route/scope) — concurrent with PII/harm scan
+        OPA->>Gov: decision
+        Gov->>Gov: mint audit_id, schedule audit write (background)
+        Gov->>GW: decision + audit_id
+        alt decision == block
+            GW--xDev: 400/403 policy_violation (X-Audit-ID)
+        else decision == allow
+            GW->>LLM: forward request (X-Audit-ID)
+            LLM->>GW: response
+            GW->>Dev: LLM response
+        end
+        Note over Gov,DB: Audit row committed asynchronously after the response<br/>(background_tasks.add_task) — fire-and-forget, not on this critical path.
+        Gov--)DB: write audit row (async)
     end
-    Note over Gov,DB: Audit row committed asynchronously after the response<br/>(background_tasks.add_task) — fire-and-forget, not on this critical path.
-    Gov--)DB: write audit row (async)
 
     Dev->>GW: POST /v1/github/pr (same Bearer token)
     GW->>GH: check scope github:pr:write
-    GH->>Gov: policy check request (action=create_pr, repo, base, actor)
-    Gov->>OPA: per-action check (github/authz)
-    OPA->>Gov: decision
-    Gov->>Gov: mint audit_id, schedule audit write (background)
-    Gov->>GH: decision + audit_id
-    alt decision == deny
-        GH--xDev: 403 policy_violation (X-Audit-ID)
-    else decision == allow
-        GH->>GH: mint installation token from GitHub App key
-        GH->>GHAPI: create PR (installation token)
-        GHAPI->>GH: result
-        GH->>Dev: result
+    alt caller is known agent-runtime client without a valid act claim
+        GH->>Gov: audit event (policy_denied: missing_act_claim)
+        Gov--)DB: write audit row (async)
+        GH--xDev: 401 missing_act_claim
+    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+        GH->>Gov: policy check request (action=create_pr, repo, base, actor, sub, act.sub if present)
+        Gov->>OPA: per-action check (github/authz)
+        OPA->>Gov: decision
+        Gov->>Gov: mint audit_id, schedule audit write (background)
+        Gov->>GH: decision + audit_id
+        alt decision == deny
+            GH--xDev: 403 policy_violation (X-Audit-ID)
+        else decision == allow
+            GH->>GH: mint installation token from GitHub App key
+            GH->>GHAPI: create PR (installation token)
+            GHAPI->>GH: result
+            GH->>Dev: result
+        end
+        Gov--)DB: write audit row (async)
     end
-    Gov--)DB: write audit row (async)
 
     Dev->>GW: POST /v1/mcp/{server}/call (same Bearer token)
     GW->>MCP: check scope mcp:{server}:invoke
-    MCP->>OPASC: tool-call boundary check (tool, arguments, context — loopback/UDS)
-    OPASC->>MCP: decision
-    alt decision == deny
-        MCP->>Gov: audit event (policy_denied)
-        MCP--xDev: policy_violation
-    else decision == allow
-        MCP->>MCPS: forward tool call
-        MCPS->>MCP: tool response
-        MCP->>MCP: buffer response, DLP scan via Governance's Presidio-backed check
-        alt DLP fails closed (scan error, timeout, or size cap breached)
-            MCP->>Gov: audit event (dlp_blocked)
-            MCP--xDev: response blocked
-        else DLP scan passes
-            MCP->>Gov: audit event (MCP tool call)
-            MCP->>Dev: MCP result
+    alt caller is known agent-runtime client without a valid act claim
+        MCP->>Gov: audit event (policy_denied: missing_act_claim)
+        Gov--)DB: write audit row (async)
+        MCP--xDev: 401 missing_act_claim
+    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+        MCP->>OPASC: tool-call boundary check (tool, arguments, context, sub, act.sub if present — loopback/UDS)
+        OPASC->>MCP: decision
+        alt decision == deny
+            MCP->>Gov: audit event (policy_denied)
+            MCP--xDev: policy_violation
+        else decision == allow
+            MCP->>MCPS: forward tool call
+            MCPS->>MCP: tool response
+            MCP->>MCP: buffer response, DLP scan via Governance's Presidio-backed check
+            alt DLP fails closed (scan error, timeout, or size cap breached)
+                MCP->>Gov: audit event (dlp_blocked)
+                MCP--xDev: response blocked
+            else DLP scan passes
+                MCP->>Gov: audit event (MCP tool call)
+                MCP->>Dev: MCP result
+            end
         end
+        Gov--)DB: write audit row (async)
     end
-    Gov--)DB: write audit row (async)
 
     Dev->>GW: POST /v1/cloud/{provider}/credential (same Bearer token)
     GW->>CB: check scope cloud:{provider}:*
-    CB->>Gov: policy check request (role/account, resource, environment)
-    Gov->>OPA: per-action check (cloud/authz)
-    OPA->>Gov: decision
-    Gov->>Gov: mint audit_id
-    Gov->>CB: decision + audit_id
-    alt decision == deny
-        CB--xDev: 403 policy_violation (X-Audit-ID)
-    else decision == allow
-        CB->>AS: RFC 8693 token exchange
-        AS->>CB: audience-bound token
-        CB->>Cloud: AssumeRoleWithWebIdentity / WIF exchange
-        Cloud->>CB: short-lived STS/WIF credential
-        CB->>Gov: audit event (credential mint)
-        Gov->>DB: write audit row (synchronous — credential delivery gated on commit)
-        alt audit row committed
-            CB->>Dev: short-lived credential
-        else audit write failed
-            CB--xDev: credential withheld, independent alert fired
+    alt caller is known agent-runtime client without a valid act claim
+        CB->>Gov: audit event (policy_denied: missing_act_claim)
+        Gov--)DB: write audit row (async)
+        CB--xDev: 401 missing_act_claim
+    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+        CB->>Gov: policy check request (role/account, resource, environment, actor, sub, act.sub if present)
+        Gov->>OPA: per-action check (cloud/authz)
+        OPA->>Gov: decision
+        Gov->>Gov: mint audit_id
+        Gov->>CB: decision + audit_id
+        alt decision == deny
+            CB--xDev: 403 policy_violation (X-Audit-ID)
+        else decision == allow
+            CB->>AS: RFC 8693 token exchange
+            AS->>CB: audience-bound token
+            CB->>Cloud: AssumeRoleWithWebIdentity / WIF exchange
+            Cloud->>CB: short-lived STS/WIF credential
+            CB->>Gov: audit event (credential mint)
+            Gov->>DB: write audit row (synchronous — credential delivery gated on commit)
+            alt audit row committed
+                CB->>Dev: short-lived credential
+            else audit write failed
+                CB--xDev: credential withheld, independent alert fired
+            end
         end
     end
 
-    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, four resource types, one audit trail — Governance is the sole writer.<br/>Every leg's OPA decision (and its audit_id) is minted before any external system is called.<br/>Routine audit-row commits are async (fire-and-forget), except cloud-credential mints, which gate delivery on the commit.
+    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, four resource types, one audit trail — Governance is the sole writer.<br/>Every leg's act-claim check runs immediately after its scope check and before any Gov/OPA policy decision — an ingress-level authentication gate, not a policy decision itself.<br/>Every leg's OPA decision (and its audit_id) is minted before any external system is called.<br/>Routine audit-row commits are async (fire-and-forget), except cloud-credential mints, which gate delivery on the commit.
 ```
 
 ## What's new vs. what's reused
@@ -246,6 +270,8 @@ Zitadel's native OAuth token exchange (RFC 8693) supports the `act` claim for re
 The same RFC 8693 mechanism generalizes into the Cloud Credential Broker: exchange the Zitadel token server-side for AWS STS (`AssumeRoleWithWebIdentity`, IAM OIDC provider trusts Zitadel's issuer) or GCP Workload Identity Federation (no issuer allowlist — a self-hosted Zitadel is directly usable) credentials. **Proxy-mediated, not client-direct** — a client-direct path (client calls Zitadel then AWS/GCP itself) would create a second, unaudited credential-mint path and break the one-audit-table goal. One audit row per mint carries the full chain: human → agent → cloud role.
 
 **Credential delivery is gated on that row committing.** The Cloud Credential Broker holds the minted STS/WIF credential until Governance confirms the audit `INSERT` succeeded, and only then returns it to the caller — an audit-write failure here must not release the credential regardless of cause. This is a deliberate departure from the fire-and-forget default described in the audit-table section below: the withheld credential is inert until its short TTL naturally expires, so "don't deliver" gives the same practical guarantee as "don't mint," without needing a mid-flight revoke call most STS/WIF token types don't cleanly support.
+
+**Ingress requires the act claim uniformly — chat, github, mcp, and cloud, not just MCP.** A request from a known agent-runtime client ID is rejected at the Gateway Proxy with `401 missing_act_claim` unless it carries a valid `act` claim whose `act.sub` is distinct from `sub` — checked immediately after the leg's scope check and before any Gov/OPA policy decision or external call. A bare human bearer token replayed from an agent-runtime client ID hits this same rejection rather than being silently treated as a human-originated call: the check keys off the caller's registered client ID, not off whichever token shape happens to be presented. This is an authentication-shape gate at the ingress boundary, distinct from the RFC 8693 exchange mechanism above (which mints the act claim in the first place) and from the per-action OPA decisions each leg makes afterward. Both the human `sub` and the agent `act.sub` flow through to each leg's policy-check payload so a valid delegated call is recorded with both identities in the audit row, not just the human's.
 
 ### DLP on MCP tool responses
 
