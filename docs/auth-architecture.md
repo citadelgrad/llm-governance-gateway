@@ -79,7 +79,7 @@ flowchart TB
 | Governance Service | Existing, extended | PII, harm, audit; sole writer to the audit table — the other three new components and the proxy send it audit events rather than writing Postgres directly; also the DLP checkpoint MCP Reverse Proxy calls on tool responses (reuses its existing Presidio endpoint — no second copy embedded) |
 | OPA | Existing, extended | Policy decisions at ingress, and now also at the tool-call boundary inside MCP Reverse Proxy (tool + arguments + context, evaluated fresh every call) |
 | GitHub Token Broker | New | Holds GitHub App key, mints 1hr installation tokens |
-| MCP Reverse Proxy | New | Validates per-server/per-tool scope via OPA, forwards MCP JSON-RPC/SSE, DLP checkpoint on responses |
+| MCP Reverse Proxy | New | Validates per-server/per-tool scope via OPA, terminates MCP JSON-RPC/SSE transport, buffers and DLP-scans each tool response before forwarding |
 | Cloud Credential Broker | New | Server-side RFC 8693 exchange of the caller's token for short-lived AWS STS / GCP WIF credentials — proxy-mediated so the mint stays on the one audited path |
 | Postgres | Existing, extended | Audit sink for all four legs; only Governance holds a DB edge and writes to it, six-dimension schema (see below) |
 | Redis | Existing | Rate limiting — unchanged |
@@ -173,7 +173,17 @@ The same RFC 8693 mechanism generalizes into the Cloud Credential Broker: exchan
 
 ### DLP on MCP tool responses
 
-Checkpoint sits after the downstream MCP server's response is received and before it's forwarded to the client — same hop as the spec-mandated audience/schema checks. Call the Governance service's **existing** Presidio HTTP endpoint on the serialized response body (don't re-embed the library or load a second copy of the NLP models in the MCP Reverse Proxy), then block/alert or anonymize before forwarding. Presidio has no streaming API, so buffer the full response body — same approach the reference implementation (Strac) uses. **Gap flagged, not solved:** Presidio is text-only; binary/OCR tool responses (images, attachments) have no coverage without a separate OCR pre-pass. Scoped out of the POC unless a specific target MCP server is known to return binary payloads.
+Checkpoint sits after the downstream MCP server's response is received and before it's forwarded to the client — same hop as the spec-mandated audience/schema checks. Call the Governance service's **existing** Presidio HTTP endpoint on the serialized response body (don't re-embed the library or load a second copy of the NLP models in the MCP Reverse Proxy), then block/alert or anonymize before forwarding.
+
+**Always buffer, never stream tool responses through this checkpoint.** Presidio has no streaming API — same approach the reference implementation (Strac) uses — so the MCP Reverse Proxy always fully buffers a tool response server-side before it does anything else with it, regardless of whether the downstream MCP server sent it as a single JSON-RPC message or as SSE chunks. It does not pass incremental SSE chunks through to the client for tool-call responses; true end-to-end streaming is not offered on this path pre-POC (see open questions below). Forwarding not-yet-scanned chunks to preserve streaming UX would create an unscanned pass-through gap, which the project's fail-closed posture (`docs/architecture.md:39`) rules out.
+
+**Bounded, and enforced while receiving, not after.** The buffer is capped at 1 MiB, matching the existing `MAX_BODY_SIZE` convention (`proxy/app/middleware.py:7`, `governance/app/main.py:52`): the running total is checked per chunk as bytes arrive from the MCP server, and the transfer is aborted the moment the cap is breached, the same enforcement style as `BodySizeLimitMiddleware` rather than a post-hoc check after full receipt. Two timeouts bound the checkpoint as a whole, covering "too big" and "too slow" as distinct failure modes: a ~10s wall-clock cap on receiving the buffered body, and a 5s cap on the Presidio scan call itself, reusing the existing per-hop timeout convention (`governance/app/opa.py:33`).
+
+**Fails closed — a deliberate divergence from the harm-scan precedent.** If the Presidio scan errors, times out, or the response exceeds the size cap, the MCP Reverse Proxy blocks the tool response outright rather than forwarding it unscanned or degrading silently. This differs from the existing harm-scan path (`governance/app/pipeline.py:45-46`), which fails open on scanner error — that precedent is not silently inherited here, consistent with the project's stated fail-closed default (`docs/architecture.md:39`).
+
+**Shares the Governance Presidio pool with ingress LLM PII scans — bounded so MCP traffic can't starve ingress traffic.** Both paths route through the same process-wide analyzer/anonymizer pair via bare `asyncio.to_thread` (`governance/app/pii.py:17-19,66-68`), which has no concurrency limit today. Decision: bound total concurrent Presidio invocations behind a single shared semaphore inside Governance, sized to the executor's worker count, so MCP DLP calls queue instead of competing unboundedly with ingress calls; combined with the 5s scan timeout above, this caps the worst-case queuing delay an MCP-heavy workload can impose on ingress traffic. Flagged as a POC-build implementation detail — the component doesn't exist yet — a dedicated/split pool per traffic type is a possible future refinement, out of scope pre-POC.
+
+**Gap flagged, not solved:** Presidio is text-only; binary/OCR tool responses (images, attachments) have no coverage without a separate OCR pre-pass. Scoped out of the POC unless a specific target MCP server is known to return binary payloads.
 
 ### Break-glass path for when OPA is down
 
@@ -253,6 +263,7 @@ sequenceDiagram
 
 - **Second-admin approval for break-glass access** — real gap between acceptable-for-POC and production-grade; flagged explicitly rather than silently skipped.
 - **Binary/OCR coverage for DLP on MCP tool responses** — Presidio is text-only; no coverage plan yet for image/attachment-returning tools.
+- **True SSE passthrough for MCP tool responses** — the DLP checkpoint requires full server-side buffering before scanning (see DLP section above), so incremental streaming of tool-call results to the client is not offered pre-POC; deferred as a deliberate scope decision, not an oversight.
 - **Newly-provisioned agent → human binding** — this design assumes the human already holds a token; no flow yet for how a *new* agent proves it's acting for a specific human (WorkOS's agent-verified vs. user-claimed pattern is the reference).
 - **Budget/spend caps as a distinct mechanism from Redis rate limiting** — nested org→team→user→key hierarchy (LiteLLM/Portkey pattern); not designed yet.
 - **Live session/token revocation (kill-switch)** — current design relies on TTL expiry; no instant-kill path for a compromised or misbehaving session.
