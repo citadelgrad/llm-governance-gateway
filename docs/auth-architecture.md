@@ -265,7 +265,7 @@ Input shape:
 
 ```json
 {
-  "principal": {"user_id": "user_01HXKP2M", "roles": ["mcp-role:github-write"]},
+  "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
   "actor": {"agent_id": "agent_client_7f3n", "session_id": "sess_9xk2m7"},
   "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "...", "base": "main"}},
   "context": {"environment": "prod", "resource": "repo:org/name", "prior_calls_this_session": 4}
@@ -297,6 +297,20 @@ The same RFC 8693 mechanism generalizes into the Cloud Credential Broker: exchan
 **Credential delivery is gated on that row committing.** The Cloud Credential Broker holds the minted STS/WIF credential until Governance confirms the audit `INSERT` succeeded, and only then returns it to the caller — an audit-write failure here must not release the credential regardless of cause. This is a deliberate departure from the fire-and-forget default described in the audit-table section below: the withheld credential is inert until its short TTL naturally expires, so "don't deliver" gives the same practical guarantee as "don't mint," without needing a mid-flight revoke call most STS/WIF token types don't cleanly support.
 
 **Ingress requires the act claim uniformly — chat, github, mcp, and cloud, not just MCP.** A request from a known agent-runtime client ID is rejected at the Gateway Proxy with `401 missing_act_claim` unless it carries a valid `act` claim whose `act.sub` is distinct from `sub` — checked immediately after the leg's scope check and before any Gov/OPA policy decision or external call. A bare human bearer token replayed from an agent-runtime client ID hits this same rejection rather than being silently treated as a human-originated call: the check keys off the caller's registered client ID, not off whichever token shape happens to be presented. This is an authentication-shape gate at the ingress boundary, distinct from the RFC 8693 exchange mechanism above (which mints the act claim in the first place) and from the per-action OPA decisions each leg makes afterward. Both the human `sub` and the agent `act.sub` flow through to each leg's policy-check payload so a valid delegated call is recorded with both identities in the audit row, not just the human's.
+
+### tenant_id origin and propagation
+
+`tenant_id` is already structurally load-bearing today — `proxy/app/auth.py`'s `CallerContext.tenant_id` is a required field, gating model selection (`get_tenant_info`), the per-tenant rate-limit key (see "Rate limiting" above), and API-key tenant isolation on creation — so every new component and example in this design carries it too, not as new plumbing but as the same value flowing through.
+
+**AS-authenticated (non-delegated) callers.** `tenant_id` originates as a claim on the Zitadel-issued access token, mapped from the caller's Zitadel org membership. This is the same shape as today's local-JWT path (`claims.get("tenant_id")`, `proxy/app/auth.py:85`), just backed by Zitadel org membership instead of the local HS256 secret — a missing claim is rejected the same way today's local-JWT path already rejects one (`auth.py:88`, `token missing required claims`).
+
+**Delegated callers.** The RFC 8693 token exchange above does not renegotiate `tenant_id`. Only `act.sub` is added to the exchanged token; `sub` stays the human's own subject, so `tenant_id` flows through unchanged from the human's subject token. The agent machine-user contributes no `tenant_id` of its own — it's shared across all tenants for a given agent type (see "Per agent type, not per instance" above), so it isn't tenant-scoped and can't be. For a delegated call, `CallerContext.tenant_id` is always the human's tenant, never the agent runtime's.
+
+**Flow into RLS: no new plumbing needed.** The only Postgres RLS policy on `audit_log` is `audit_read`, `FOR SELECT` (`governance/migrations/versions/001_initial_schema.py`) — there is no `INSERT`/`ALL` policy. RLS session variables (`app.current_tenant_id`, `app.current_scope`, reset on pooled-connection checkout in `governance/app/db.py:21-29`, `SET LOCAL` per request) govern *reads*, scoping which rows a caller can see; they do not gate *writes*. Every new leg's writer needs only to submit `tenant_id` as a plain column value in its audit-fact payload to Governance's existing internal write endpoint (see "Write-access model" below) — the same way `user_id` and every other existing column is supplied today. The existing SELECT-time RLS scoping then applies uniformly to that row, regardless of which leg wrote it, with no new RLS design required.
+
+**Flow into rate-limit keys.** Already covered by the "Rate limiting" design decision above — the GitHub Token Broker and Cloud Credential Broker legs key their Redis checks on `f"{tenant_id}:{user_id}:github"` / `f"{tenant_id}:{user_id}:cloud"`, using the same `tenant_id` sourced as described above. Not restated here.
+
+**Out of scope for this section.** The `github/authz` and `cloud/authz` per-action check payloads (inline prose shapes above) and the runtime-flow diagram's policy-check payloads don't spell out `tenant_id` field-by-field; that's a diagram/prose economy choice, not an omission of the value itself, since `tenant_id` is already carried on `CallerContext` for every leg by the time it reaches those checks.
 
 ### DLP on MCP tool responses
 
@@ -332,11 +346,12 @@ Checkpoint sits after the downstream MCP server's response is received and befor
 
 ### Audit table: adopt the six-dimension schema now
 
-Postgres audit is the one piece of infrastructure that's a gap-multiplier across every leg above — decisions made here are cheap now, before four independent legs (LLM dispatch, GitHub Broker, MCP Reverse Proxy, Cloud Credential Broker) are all generating audit events, and expensive after. Adopt the schema now. The six dimensions: user identity, agent identity, authorization scope, action (tool + arguments + result), delegation chain, approval status — `session_id` is a correlation key and `event_type` a classification tag, not one of the six:
+Postgres audit is the one piece of infrastructure that's a gap-multiplier across every leg above — decisions made here are cheap now, before four independent legs (LLM dispatch, GitHub Broker, MCP Reverse Proxy, Cloud Credential Broker) are all generating audit events, and expensive after. Adopt the schema now. The six dimensions: user identity, agent identity, authorization scope, action (tool + arguments + result), delegation chain, approval status — `session_id` is a correlation key and `event_type` a classification tag, not one of the six; `tenant_id` is carried on every event too, but it's the existing `audit_log.tenant_id` column (`governance/migrations/versions/001_initial_schema.py`), not a new one — see "tenant_id origin and propagation" below:
 
 ```json
 {
   "session_id": "sess_9xk2m7",
+  "tenant_id": "tenant_acme",
   "user": {"id": "user_01HXKP2M"},
   "agent": {"id": "agent_client_7f3n"},
   "authorization": {"scopes": ["documents:read"]},
