@@ -111,7 +111,7 @@ sequenceDiagram
     participant DB as Postgres (audit)
 
     Dev->>AS: Device code login (once)
-    AS->>Dev: access_token + refresh_token (scopes: llm, github, mcp:*, cloud:*)
+    AS->>Dev: access_token + refresh_token (scopes: llm, github, mcp:*, cloud:*) — rotation/reuse behavior below ("Refresh-token rotation and reuse detection")
 
     Dev->>GW: POST /v1/chat/completions (Bearer token)
     GW->>GW: validate token via cached JWKS (RS256 only), check scope llm:invoke
@@ -255,6 +255,18 @@ This is a distinct decision from the mTLS/workload-identity deferral in "Per age
 **Compensating control.** No single new mechanism replaces token-binding; the residual risk is bounded by controls this doc already commits to elsewhere: short-lived, background-refreshed access tokens (line 228) bound the theft window; every enforcement point — ingress OPA scope check, per-action `github/authz`/`cloud/authz` checks, and the tool-call-boundary sidecar's fresh-per-call evaluation with no decision caching (lines 289, 290) — re-checks authorization on every call, so a stolen token buys no standing access beyond what's re-evaluated each time it's used; and entitlement revocation propagates within the existing ≤10-second bundle-staleness bound (line 271), independent of the token's own remaining TTL. The honest ceiling on this: there is no instant-kill path for a compromised token today (see "Live session/token revocation" in Open Questions below, line 497) — TTL expiry remains the outer bound on a stolen access token's useful life.
 
 Separately, whether the MCP Reverse Proxy forwards the caller's original bearer token to a downstream MCP server, or issues it something else, is not specified anywhere in this doc — flagged here as an adjacent open gap, not resolved.
+
+### Refresh-token rotation and reuse detection: native rotation, no automatic reuse-triggered revocation
+
+The refresh token issued at login (line 114) is a Zitadel-issued credential, so its rotation and reuse behavior is Zitadel's, not something this gateway builds — same framing as the RS256/JWKS and RFC 8693 `act`-claim sections above.
+
+**Rotation on use: yes, native.** Zitadel issues single-use, rotating refresh tokens: every `refresh_token` grant returns a new refresh token and invalidates the one just used. This is default Zitadel behavior, confirmed, not a gateway-side mechanism.
+
+**Reuse detection triggering automatic session revocation: no — open upstream gap.** Zitadel rejects a second redemption of an already-rotated refresh token (single-use is enforced), but it does not automatically treat that reuse attempt as a theft signal and revoke the rest of the token family or session. This is tracked upstream as an open, unassigned issue, `zitadel/zitadel#7321` ("Token invalidation after grant reuse"), status "Gathering community feedback" — not something Zitadel has declined to build, but not something it does today either.
+
+**Compensating control.** Zitadel exposes `RevokeAllMyRefreshTokens` (all refresh tokens for a user) and `RevokeMyRefreshToken` (a single token by ID) as explicit, caller-initiated APIs. Neither is wired to a reuse event automatically; using either as a reuse response requires this gateway to detect the reuse and call the API itself, which is not built. These APIs are not presented here as equivalent to automatic reuse-triggered revocation.
+
+This is distinct from the "Live session/token revocation (kill-switch)" Open Question below (line 511), which is scoped to the AS-issued **access token** having no instant-kill path. This section is the **refresh token's** reuse response specifically — a related but separate gap.
 
 ### Device flow: phishing mitigation
 
