@@ -1,0 +1,19 @@
+.beads/config.yaml
+  s_591dd96e83c278::t_0b7f59bae664d6 55-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "205b7aec04acde0665409b937a7d3354e1d411ed",
+  "prompts": {},
+  "sessions": {
+    "s_591dd96e83c278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d7e3586e-de47-49d3-af36-4f7b7dc933b1",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
