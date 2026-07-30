@@ -38,5 +38,14 @@ allow if {
     e.server == input.tool.server
     e.tool == input.tool.name
     e.resource_pattern != null
-    glob.match(e.resource_pattern, ["/"], input.context.resource)
+    glob.match(canonicalize(e.resource_pattern), ["/"], canonicalize(input.context.resource))
 }
+
+# canonicalize applies the two normalization steps Rego can express natively —
+# lowercasing and trailing-slash stripping — so that differently-formatted but
+# equivalent resource strings reach glob.match identically. Unicode NFC
+# normalization is out of scope here: Rego has no normalization builtin, so
+# that step is the MCP Reverse Proxy's responsibility, applied to
+# context.resource before this input is constructed (see
+# docs/auth-architecture.md, "Resource-string canonicalization").
+canonicalize(s) := trim_suffix(lower(s), "/")
