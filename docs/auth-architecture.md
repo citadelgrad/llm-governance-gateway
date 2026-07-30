@@ -2,7 +2,7 @@
 
 ## Shape of the system
 
-One Authorization Server sits in front of everything and handles login exactly once, federating to Google Workspace for the actual credential check. It issues a single access token carrying multiple scopes (`llm:invoke`, `github:pr:write`, `mcp:<server>:invoke`). The existing Proxy stays the one ingress point for all traffic — it now validates that token instead of (or alongside) local JWT/API keys, then routes by path to one of four backends: the existing LLM dispatch, the GitHub Token Broker, the MCP Reverse Proxy, or the Cloud Credential Broker. All four legs emit audit events to the Governance Service, which is the sole writer to the audit table, so one query answers "what did this person/agent do" across every leg.
+One Authorization Server sits in front of everything and handles login exactly once, federating to Google Workspace for the actual credential check. It issues a single access token carrying multiple scopes (`llm:invoke`, `github:pr:write`, `mcp:<server>:invoke`). The existing Proxy stays the one ingress point for all traffic — it now validates that token via a new, structurally separate RS256-only verifier path, kept distinct from the existing local HS256 JWT/API-key path retained during migration and never merged into one algorithm-negotiated check (see "JWT signing algorithm: RS256 only" below), then routes by path to one of four backends: the existing LLM dispatch, the GitHub Token Broker, the MCP Reverse Proxy, or the Cloud Credential Broker. All four legs emit audit events to the Governance Service, which is the sole writer to the audit table, so one query answers "what did this person/agent do" across every leg.
 
 Nothing downstream (LLM providers, GitHub, MCP servers, AWS/GCP) ever sees a Google credential or a long-lived secret. They see short-lived, narrowly-scoped tokens the gateway mints or forwards.
 
@@ -41,7 +41,7 @@ flowchart TB
     dev -->|1: login once, device flow| as
     as -->|federates| google
     dev -->|2: Bearer token, every call| proxy
-    proxy -.->|validate via JWKS| as
+    proxy -.->|validate via JWKS, RS256 only| as
     proxy --> redis
     proxy --> gov
     gov --> opa
@@ -79,7 +79,7 @@ flowchart TB
 |---|---|---|
 | Developer or Agent | Person | CLI, IDE, Claude Code — any caller |
 | Google Workspace | External | Actual login/credential check |
-| Authorization Server | New | Device/PKCE flows, token issuance+refresh+revocation, multi-scope tokens, RFC 8693 token exchange |
+| Authorization Server | New | Device/PKCE flows (device-flow phishing mitigations below), token issuance+refresh+revocation, multi-scope tokens, RFC 8693 token exchange |
 | Gateway Proxy | Existing, extended | Public ingress, now validates AS tokens, routes by scope |
 | Governance Service | Existing, extended | PII, harm, audit; sole writer to the audit table — the other three new components and the proxy send it audit events rather than writing Postgres directly; also exposes the dedicated PII-only `POST /v1/dlp/pii-scan` endpoint the DLP checkpoint MCP Reverse Proxy calls on tool responses (shares the same process-wide Presidio analyzer/anonymizer — no second copy embedded — but is a separate route from `/inspect`, with no LLM-policy fields or checks) |
 | OPA (ingress) | Existing, extended | Policy decisions at ingress — can this token use this route/scope — unchanged shared instance, one failure domain |
@@ -114,7 +114,7 @@ sequenceDiagram
     AS->>Dev: access_token + refresh_token (scopes: llm, github, mcp:*, cloud:*)
 
     Dev->>GW: POST /v1/chat/completions (Bearer token)
-    GW->>GW: validate token via cached JWKS, check scope llm:invoke
+    GW->>GW: validate token via cached JWKS (RS256 only), check scope llm:invoke
     alt caller is known agent-runtime client without a valid act claim
         GW->>Gov: audit event (policy_denied: missing_act_claim)
         Gov--)DB: write audit row (async)
@@ -231,7 +231,7 @@ sequenceDiagram
 ## What's new vs. what's reused
 
 - **New:** Authorization Server (Zitadel instance in docker-compose), GitHub Token Broker, MCP Reverse Proxy, Cloud Credential Broker, OPA Sidecar (a second, separate OPA process colocated per MCP Reverse Proxy replica for the tool-call boundary check — not an extension of the shared ingress OPA instance).
-- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains six new columns for the six-dimension schema (see "Physical schema migration" below), not just delegation-chain/approval-status. Redis rate limiting extends from LLM-route-only to also gate the GitHub Token Broker and Cloud Credential Broker legs (see "Rate limiting" design decision below).
+- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, structurally separate from the existing `_validate_jwt` HS256 path (see "JWT signing algorithm: RS256 only" below), checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains six new columns for the six-dimension schema (see "Physical schema migration" below), not just delegation-chain/approval-status. Redis rate limiting extends from LLM-route-only to also gate the GitHub Token Broker and Cloud Credential Broker legs (see "Rate limiting" design decision below).
 - **Unchanged:** Provider dispatch.
 
 ---
@@ -239,6 +239,20 @@ sequenceDiagram
 ## Design decisions from gap-analysis research
 
 Two research passes — competitor/reference gap analysis, then deep dives on the questions it raised — were run against this design. Findings that change or firm up the shape above:
+
+### JWT signing algorithm: RS256 only, never negotiated
+
+AS-issued access tokens are signed RS256 exclusively, verified against the AS's JWKS endpoint (cached, see runtime-flow diagram above). This validation lives in a new verifier function, structurally separate from the existing `_validate_jwt` (`proxy/app/auth.py:73-91`) — not an extension of it. Each verifier pins exactly one explicit algorithm, matching the existing `algorithms=["HS256"]` list-literal pattern (`auth.py:78`) for its own single value: the new verifier's `jwt.decode()` call takes `algorithms=["RS256"]`, never a list spanning both HS256 and RS256, and never an algorithm resolved from the token's own `alg` header. This is the specific defense against RS256/HS256 key-confusion forgery: a merged verifier that accepts either algorithm lets an attacker who obtains the AS's RS256 public key (JWKS is public by design) resubmit it as the HMAC secret for an HS256-signed forgery, which that merged verifier would then accept as valid. Keeping the two verifiers structurally separate — one function, one algorithm, one key source each — closes that path entirely rather than relying on configuration discipline to avoid it.
+
+### Device flow: phishing mitigation
+
+RFC 8628's device authorization grant is inherently phishable: an attacker who obtains a live `user_code` can direct a victim to approve it on the real AS, since the AS has no way to distinguish the victim's intent from the attacker's. Three concrete, server-side mitigations apply:
+
+- **Short `user_code` TTL** — a bounded few-minute expiry window, limiting how long a phished code stays exploitable.
+- **Explicit confirmation/consent screen** — every approval names the requesting client and the scopes being granted; no silent or pre-approved auto-confirmation step exists.
+- **Rate-limited code issuance** — `POST /device_authorization` sits behind the same Redis-limiter pattern already used elsewhere in this design (see "Rate limiting" below), bounding how many codes an attacker can mint per tenant/IP window.
+
+These reduce, but do not eliminate, the risk: a sufficiently convincing phishing lure can still get a victim to approve a code within the TTL window despite the confirmation screen naming the correct client and scopes. That residual is a user-education gap, not a server-side control gap, and is not claimed to be closed by this design.
 
 ### Scope & entitlement model: coarse tokens, matrix lives outside Zitadel
 
