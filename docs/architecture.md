@@ -7,7 +7,7 @@ LLM Governance Gateway is a split-control-plane LLM proxy. The proxy owns client
 | Component | Tech | Exposure | Responsibility |
 |---|---|---|---|
 | Proxy | FastAPI, asyncpg, httpx, Redis client | Public HTTP in local/dev; public HTTPS in deployment | OpenAI-compatible API, authentication, tenant lookup, routing, rate limiting, provider dispatch |
-| Governance | FastAPI, Presidio, spaCy, llm-guard, asyncpg | Internal only | PII detection, pseudonymization, harm scoring, OPA policy calls, audit writes |
+| Governance | FastAPI, Presidio, spaCy, transformers (HF pipelines), asyncpg | Internal only | PII detection, pseudonymization, harm scoring, OPA policy calls, audit writes |
 | OPA | Open Policy Agent | Internal only | Rego policy decisions for model tiers, PHI/provider restrictions, provider overrides |
 | Postgres | Postgres 16 | Internal only | Audit log, pseudonym map, erasure log, bootstrap/provisioning state |
 | Redis | Redis 7 | Internal only | Sliding-window rate-limit counters |
