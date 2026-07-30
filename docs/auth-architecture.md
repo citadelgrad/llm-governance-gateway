@@ -48,6 +48,7 @@ flowchart TB
     gov --> pg
     proxy -->|route: llm:invoke| llm
     proxy -->|route: github:*| ghbroker
+    ghbroker -->|rate limit check| redis
     ghbroker -->|short-lived installation token| ghapi
     ghbroker -->|audit event| gov
     proxy -->|route: mcp:server:invoke| mcpproxy
@@ -56,6 +57,7 @@ flowchart TB
     mcpproxy --> mcpservers
     mcpproxy -->|audit event| gov
     proxy -->|route: cloud:aws:*, cloud:gcp:*| cloudbroker
+    cloudbroker -->|rate limit check| redis
     cloudbroker -->|RFC 8693 token exchange| as
     cloudbroker -->|short-lived STS/WIF creds| clouds
     cloudbroker -->|audit event| gov
@@ -86,7 +88,7 @@ flowchart TB
 | MCP Reverse Proxy | New | Validates per-server/per-tool scope via its colocated OPA sidecar, terminates MCP JSON-RPC/SSE transport, buffers and DLP-scans each tool response before forwarding |
 | Cloud Credential Broker | New | Server-side RFC 8693 exchange of the caller's token for short-lived AWS STS / GCP WIF credentials — proxy-mediated so the mint stays on the one audited path |
 | Postgres | Existing, extended | Audit sink for all four legs; only Governance holds a DB edge and writes to it, six-dimension schema (see below) |
-| Redis | Existing | Rate limiting — unchanged |
+| Redis | Existing, extended | Rate limiting — was LLM-route-only (`proxy/app/main.py:297`); now also checked inside the GitHub Token Broker and Cloud Credential Broker legs before their policy check, route-scoped so one leg's traffic doesn't consume another leg's budget (see "Rate limiting" design decision below). MCP tool-call volume is bounded separately, by the per-call tool-call-boundary OPA sidecar check, not by this limiter. |
 
 ## Runtime flow
 
@@ -95,6 +97,7 @@ sequenceDiagram
     participant Dev as Developer/Agent
     participant AS as Authorization Server
     participant GW as Gateway Proxy
+    participant Redis as Redis
     participant LLM as LLM Providers
     participant GH as GitHub Broker
     participant GHAPI as GitHub API
@@ -135,25 +138,30 @@ sequenceDiagram
 
     Dev->>GW: POST /v1/github/pr (same Bearer token)
     GW->>GH: check scope github:pr:write
-    alt caller is known agent-runtime client without a valid act claim
-        GH->>Gov: audit event (policy_denied: missing_act_claim)
-        Gov--)DB: write audit row (async)
-        GH--xDev: 401 missing_act_claim
-    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
-        GH->>Gov: policy check request (action=create_pr, repo, base, actor, sub, act.sub if present)
-        Gov->>OPA: per-action check (github/authz)
-        OPA->>Gov: decision
-        Gov->>Gov: mint audit_id, schedule audit write (background)
-        Gov->>GH: decision + audit_id
-        alt decision == deny
-            GH--xDev: 403 policy_violation (X-Audit-ID)
-        else decision == allow
-            GH->>GH: mint installation token from GitHub App key
-            GH->>GHAPI: create PR (installation token)
-            GHAPI->>GH: result
-            GH->>Dev: result
+    GH->>Redis: rate limit check (tenant:user:github)
+    alt rate limit exceeded
+        GH--xDev: 429 rate_limit_exceeded
+    else within limit
+        alt caller is known agent-runtime client without a valid act claim
+            GH->>Gov: audit event (policy_denied: missing_act_claim)
+            Gov--)DB: write audit row (async)
+            GH--xDev: 401 missing_act_claim
+        else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+            GH->>Gov: policy check request (action=create_pr, repo, base, actor, sub, act.sub if present)
+            Gov->>OPA: per-action check (github/authz)
+            OPA->>Gov: decision
+            Gov->>Gov: mint audit_id, schedule audit write (background)
+            Gov->>GH: decision + audit_id
+            alt decision == deny
+                GH--xDev: 403 policy_violation (X-Audit-ID)
+            else decision == allow
+                GH->>GH: mint installation token from GitHub App key
+                GH->>GHAPI: create PR (installation token)
+                GHAPI->>GH: result
+                GH->>Dev: result
+            end
+            Gov--)DB: write audit row (async)
         end
-        Gov--)DB: write audit row (async)
     end
 
     Dev->>GW: POST /v1/mcp/{server}/call (same Bearer token)
@@ -185,41 +193,46 @@ sequenceDiagram
 
     Dev->>GW: POST /v1/cloud/{provider}/credential (same Bearer token)
     GW->>CB: check scope cloud:{provider}:*
-    alt caller is known agent-runtime client without a valid act claim
-        CB->>Gov: audit event (policy_denied: missing_act_claim)
-        Gov--)DB: write audit row (async)
-        CB--xDev: 401 missing_act_claim
-    else human caller, or agent caller with valid act claim (act.sub distinct from sub)
-        CB->>Gov: policy check request (role/account, resource, environment, actor, sub, act.sub if present)
-        Gov->>OPA: per-action check (cloud/authz)
-        OPA->>Gov: decision
-        Gov->>Gov: mint audit_id
-        Gov->>CB: decision + audit_id
-        alt decision == deny
-            CB--xDev: 403 policy_violation (X-Audit-ID)
-        else decision == allow
-            CB->>AS: RFC 8693 token exchange
-            AS->>CB: audience-bound token
-            CB->>Cloud: AssumeRoleWithWebIdentity / WIF exchange
-            Cloud->>CB: short-lived STS/WIF credential
-            CB->>Gov: audit event (credential mint)
-            Gov->>DB: write audit row (synchronous — credential delivery gated on commit)
-            alt audit row committed
-                CB->>Dev: short-lived credential
-            else audit write failed
-                CB--xDev: credential withheld, independent alert fired
+    CB->>Redis: rate limit check (tenant:user:cloud)
+    alt rate limit exceeded
+        CB--xDev: 429 rate_limit_exceeded
+    else within limit
+        alt caller is known agent-runtime client without a valid act claim
+            CB->>Gov: audit event (policy_denied: missing_act_claim)
+            Gov--)DB: write audit row (async)
+            CB--xDev: 401 missing_act_claim
+        else human caller, or agent caller with valid act claim (act.sub distinct from sub)
+            CB->>Gov: policy check request (role/account, resource, environment, actor, sub, act.sub if present)
+            Gov->>OPA: per-action check (cloud/authz)
+            OPA->>Gov: decision
+            Gov->>Gov: mint audit_id
+            Gov->>CB: decision + audit_id
+            alt decision == deny
+                CB--xDev: 403 policy_violation (X-Audit-ID)
+            else decision == allow
+                CB->>AS: RFC 8693 token exchange
+                AS->>CB: audience-bound token
+                CB->>Cloud: AssumeRoleWithWebIdentity / WIF exchange
+                Cloud->>CB: short-lived STS/WIF credential
+                CB->>Gov: audit event (credential mint)
+                Gov->>DB: write audit row (synchronous — credential delivery gated on commit)
+                alt audit row committed
+                    CB->>Dev: short-lived credential
+                else audit write failed
+                    CB--xDev: credential withheld, independent alert fired
+                end
             end
         end
     end
 
-    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, four resource types, one audit trail — Governance is the sole writer.<br/>Every leg's act-claim check runs immediately after its scope check and before any Gov/OPA policy decision — an ingress-level authentication gate, not a policy decision itself.<br/>Every leg's OPA decision (and its audit_id) is minted before any external system is called.<br/>Routine audit-row commits are async (fire-and-forget), except cloud-credential mints, which gate delivery on the commit.
+    Note over Dev,DB: Access token silently refreshed in background.<br/>One token, four resource types, one audit trail — Governance is the sole writer.<br/>Every leg's act-claim check runs immediately after its scope check (and, for the GitHub and Cloud Credential legs, after their rate-limit check) and before any Gov/OPA policy decision — an ingress-level authentication gate, not a policy decision itself.<br/>Every leg's OPA decision (and its audit_id) is minted before any external system is called.<br/>Routine audit-row commits are async (fire-and-forget), except cloud-credential mints, which gate delivery on the commit.
 ```
 
 ## What's new vs. what's reused
 
 - **New:** Authorization Server (Zitadel instance in docker-compose), GitHub Token Broker, MCP Reverse Proxy, Cloud Credential Broker, OPA Sidecar (a second, separate OPA process colocated per MCP Reverse Proxy replica for the tool-call boundary check — not an extension of the shared ingress OPA instance).
-- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains six new columns for the six-dimension schema (see "Physical schema migration" below), not just delegation-chain/approval-status.
-- **Unchanged:** Rate limiting, provider dispatch.
+- **Extended:** Proxy's `authenticate()` gets an RS256/JWKS validation path against the AS, checked for scope per route. Governance gains an MCP-response DLP checkpoint. Audit schema gains six new columns for the six-dimension schema (see "Physical schema migration" below), not just delegation-chain/approval-status. Redis rate limiting extends from LLM-route-only to also gate the GitHub Token Broker and Cloud Credential Broker legs (see "Rate limiting" design decision below).
+- **Unchanged:** Provider dispatch.
 
 ---
 
@@ -260,6 +273,14 @@ Input shape:
 ```
 
 Log `model_refused` (the model declined on its own) and `policy_denied` (OPA blocked it) as structurally distinct audit event types — conflating them destroys the ability to reconstruct what actually stopped an action later.
+
+### Rate limiting: extend Redis checks to the GitHub and Cloud Credential legs
+
+`rate_limiter.check()` (`proxy/app/main.py:297`) enforces today only on the LLM route, keyed on `f"{tenant_id}:{user_id}"`, rejecting with `429 rate_limit_exceeded` (plus `Retry-After` and rate-limit headers) once the bucket is full. Before this decision, the GitHub Token Broker and Cloud Credential Broker legs had no rate limit of any kind — a materially different risk than the container diagram's blanket "Redis — unchanged" implied, since both legs mint real external credentials or create real GitHub PRs, not just forward an LLM call.
+
+**Decision: extend the same limiter, route-scoped, to both legs — before their policy check, not after.** Each of the GitHub Token Broker and Cloud Credential Broker calls `rate_limiter.check()` against its own route-scoped key (`f"{tenant_id}:{user_id}:github"` / `f"{tenant_id}:{user_id}:cloud"`) immediately after its scope check and before the Gov/OPA per-action decision (see runtime-flow diagram above), returning the same `429`/`Retry-After`/rate-limit-header contract as the LLM route on a full bucket. Route-scoping the key, rather than sharing one bucket across all three legs, means a caller hammering `/v1/github/pr` cannot exhaust the budget the LLM or Cloud Credential route would otherwise have available to that same tenant/user pair.
+
+**MCP tool calls are not on this limiter.** MCP traffic volume is already bounded per-call by the tool-call-boundary OPA sidecar above, which evaluates fresh on every call; adding a second, redundant volume control there is out of scope for this decision.
 
 ### Agent identity, delegation, and cloud credentials — one RFC 8693 mechanism, two uses
 
