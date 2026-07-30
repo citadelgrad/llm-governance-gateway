@@ -372,6 +372,15 @@ Checkpoint sits after the downstream MCP server's response is received and befor
 
 **Gap flagged, not solved:** Presidio is text-only; binary/OCR tool responses (images, attachments) have no coverage without a separate OCR pre-pass. Scoped out of the POC unless a specific target MCP server is known to return binary payloads.
 
+**Text-based evasion is a second, separate gap — pure text, not binary.** `governance/app/pii.py` passes the raw response string straight to Presidio's spaCy-backed `AnalyzerEngine` with zero pre-normalization, so several plain-text techniques can fragment or dodge entity matches even when the payload is 100% text:
+
+- **Homoglyphs / confusable characters** (e.g. Cyrillic `а` U+0430 substituted for Latin `a` U+0061) — breaks exact-match regex recognizers (SSN, credit card) and can confuse spaCy tokenization. **Non-goal for POC:** no confusable-skeleton normalization library is in the current dependency set; named here as a known bypass, not silently assumed covered.
+- **Zero-width characters** (U+200B zero-width space, U+200C/U+200D ZWNJ/ZWJ, U+FEFF BOM) inserted mid-entity — splits regex matches and fragments NER spans. **Planned mitigation:** strip the standard zero-width/format-character set as a pre-scan text-cleaning step (`str.translate`/regex strip); cheap and stateless, distinct from full Unicode normalization below.
+- **Non-canonical Unicode formatting** (NFD vs. NFC decomposition, fullwidth/halfwidth variants) — changes the codepoint sequence without changing rendered appearance, defeating regexes tuned to one normal form. Same disposition as the resource-string canonicalization decision above: OPA/Rego has no normalization builtin, and neither does Presidio itself, so NFC normalization (`unicodedata.normalize("NFC", ...)`) belongs in a pre-scan step in the future MCP Reverse Proxy, not in `pii.py` today.
+- **JSON-escaping / entity-splitting via concatenation** (`\uXXXX` escapes, entity text split across concatenated JSON string fragments) — the literal bytes Presidio scans can differ from the semantic text a downstream system reconstructs. **Non-goal for POC:** raw JSON-escaped payloads are scanned byte-for-byte with no unescaping pass; future mitigation is decoding JSON string values before the Presidio call, the same "no coverage without a separate pre-pass" shape as the binary/OCR gap above.
+
+None of these mitigations are implemented in `governance/app/pii.py` today — this is a gap statement, not a claim of existing coverage.
+
 ### Break-glass path for when OPA is down
 
 1. **Narrow, per-leg allow-list — never a scope-gated bypass.** Skipping the OPA call must not fall back to the coarse token scope (`mcp:invoke`, `llm:invoke`, `github:*`, `cloud:*`) as the de facto authorization boundary — those scopes are deliberately coarse (see "Scope & entitlement model"), so treating them as sufficient once OPA is skipped is a full policy-engine bypass in practice, not a narrowed one. Instead, each leg falls back to an explicit, OPA-independent, statically-declared capability set:
@@ -495,6 +504,7 @@ sequenceDiagram
 
 - **Second-admin approval for break-glass access** — real gap between acceptable-for-POC and production-grade; flagged explicitly rather than silently skipped.
 - **Binary/OCR coverage for DLP on MCP tool responses** — Presidio is text-only; no coverage plan yet for image/attachment-returning tools.
+- **Text-based DLP evasion (homoglyphs, zero-width characters, non-canonical Unicode, JSON-escaping)** — a separate, pure-text gap from binary/OCR above; see the DLP section for the per-technique mitigation/non-goal breakdown.
 - **True SSE passthrough for MCP tool responses** — the DLP checkpoint requires full server-side buffering before scanning (see DLP section above), so incremental streaming of tool-call results to the client is not offered pre-POC; deferred as a deliberate scope decision, not an oversight.
 - **Newly-provisioned agent → human binding** — this design assumes the human already holds a token; no flow yet for how a *new* agent proves it's acting for a specific human (WorkOS's agent-verified vs. user-claimed pattern is the reference).
 - **Budget/spend caps as a distinct mechanism from Redis rate limiting** — nested org→team→user→key hierarchy (LiteLLM/Portkey pattern); not designed yet.
