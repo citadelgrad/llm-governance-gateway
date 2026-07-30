@@ -272,6 +272,10 @@ Input shape:
 }
 ```
 
+**`context.resource` is not decorative — it is checked, but only for entitlement entries that declare a resource pattern.** The entitlement matrix isn't pure role→tool mapping: each `(role, server, tool)` entry may additionally declare a `resource_pattern`, and when it does, the sidecar's Rego rule requires `context.resource` to glob-match that pattern before allowing, denying an otherwise role/tool-eligible call whose resource falls outside it. See `policies/mcp/authz.rego` for the concrete, testable example — its `mcp-role:github-write` → `github-mcp`/`create_pr` entry restricts `context.resource` to `repo:org/*`, denying (for example) `repo:otherorg/name` even though the role and tool both match; `policies/mcp/authz_test.rego` covers the match, mismatch, and no-pattern-declared cases. (Pre-POC: this Rego is illustrative, run only by `make opa-test`, since the MCP Reverse Proxy and its OPA sidecar don't exist as running code yet.)
+
+**Design note: resource-level scoping is optional per tool, not mandatory for every entry.** A tool without a natural single-resource concept (for example a listing/search tool, see `mcp-role:read-only` → `list_prs` in `policies/mcp/authz.rego`, which declares no `resource_pattern`) is governed by role→tool matching alone, and `context.resource` is not evaluated for it — it may be absent or ignored in the input without affecting the decision. Only a tool whose entitlement entry declares a `resource_pattern` gets the additional check. This means the field's presence in the input shape above does not imply it is always enforced: whether it is checked depends on the tool's own entitlement entry.
+
 Log `model_refused` (the model declined on its own) and `policy_denied` (OPA blocked it) as structurally distinct audit event types — conflating them destroys the ability to reconstruct what actually stopped an action later.
 
 ### Rate limiting: extend Redis checks to the GitHub and Cloud Credential legs
