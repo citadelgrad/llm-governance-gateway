@@ -258,6 +258,18 @@ These reduce, but do not eliminate, the risk: a sufficiently convincing phishing
 
 Zitadel RBAC (project roles + org grants) is built for a small, human-managed role list, not N-servers × M-tools of scopes — minting one scope per server×tool doesn't fit the product and doesn't scale past a handful of MCP servers. Decision: Zitadel issues one coarse `mcp:invoke` scope plus a handful of project roles (`mcp-role:read-only`, `mcp-role:github-write`, ...) — small enough to satisfy the SOC2 access-review control below. The actual `mcp:<server>:<tool>` entitlement matrix lives **outside** Zitadel, as an OPA data document keyed by role, resolved at the MCP Reverse Proxy/OPA layer per call. Entitlement changes take effect within a bounded staleness window of ≤10 seconds, no token reissuance — see the OPA bundle-polling mechanism below. (Kong AI Gateway uses the same consumer-group-ACL shape; its own propagation timing is a separate implementation detail, not assumed to match this bound.)
 
+### Entitlement-matrix change control
+
+The entitlement matrix is not a separate JSON data file today — despite being described above as "an OPA data document keyed by role," it is a Rego value literal (`entitlements`) defined directly in `policies/mcp/authz.rego:14-21`, alongside the `allow` rules that consume it. A change to the matrix is therefore a change to that file, going through the same path as any other policy edit in this repo — no bespoke change-control process exists, or is needed, pre-POC.
+
+**Who can modify it.** Anyone able to open a PR touching `policies/mcp/authz.rego`, same as any other `policies/*.rego` file (e.g. `policies/llm/authz.rego`). No `CODEOWNERS` file exists in this repo today, so there is no in-repo technical gate forcing a specific reviewer for `policies/` changes — stated here as a real gap, not glossed over (same pattern as "Second-admin approval" in Open Questions below).
+
+**Review/approval before a change takes effect.** Standard PR review, plus `make opa-test` passing in CI (`.github/workflows/ci.yml:49-50`, running `docker compose run --rm opa test /policies -v`) — the same CI gate every other `policies/*.rego` file already goes through, exercised today by `policies/mcp/authz_test.rego`'s match/mismatch/no-pattern-declared cases (see "`context.resource` is not decorative" below). No separate approval workflow exists for the entitlement matrix specifically.
+
+**How changes are versioned.** Git commit history on `authz.rego` is the version record — every change is an attributable, timestamped, diffable commit merged via PR; no bespoke versioning scheme exists or is needed pre-POC. Once the bundle-serving sidecar exists post-POC (see the bundle-polling mechanism below), a deployed bundle can additionally be pinned to a specific commit SHA — a natural extension of git-as-version-record, not a new mechanism.
+
+**How an auditor sees the effective matrix.** Today: read the `entitlements` object directly in `policies/mcp/authz.rego` — plain-text, git-readable, requiring no OPA runtime — rather than inferring permissions from the Zitadel role list above, which names roles but not what they permit. Once the OPA sidecar exists post-POC, a live `GET /v1/data/mcp/authz/entitlements` query against a running sidecar would offer the same view; that query path is not running code today (pre-POC, consistent with "`context.resource` is not decorative" below, which notes the sidecar itself doesn't exist as running code yet).
+
 ### Policy enforcement: two evaluation points, two separate OPA processes
 
 OPA runs at two points, as two entirely separate processes with no shared runtime or data plane between them — not one shared service serving both:
