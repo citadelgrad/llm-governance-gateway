@@ -1,0 +1,35 @@
+docs/auth-architecture.md
+  s_ecdad16edb14d3::t_b987341f886b63 196-223
+  s_ecdad16edb14d3::t_d363c8199e6e1e 228
+  s_3352590b3aebb1::t_c2069a72f5a9dc 91
+  s_ecdad16edb14d3::t_849998eefd5519 141-163
+  s_ecdad16edb14d3::t_b36234609999ec 100
+  s_ecdad16edb14d3::t_1e4fe317fcab02 277-284
+  s_ecdad16edb14d3::t_3e8d02e7ae2cf9 51
+  s_ecdad16edb14d3::t_5bb6b5bf87ab9b 234-235
+  s_ecdad16edb14d3::t_fa921aabf517c7 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "118a0c97ac129e9c4cf3b2791fe9f8935d01686a",
+  "prompts": {},
+  "sessions": {
+    "s_3352590b3aebb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15c4c069-2301-4fda-89cb-b85421dd69f6",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_ecdad16edb14d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ed02b06f-210b-43b7-bda1-27ac7edfddaf",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
