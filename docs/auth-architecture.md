@@ -81,7 +81,7 @@ flowchart TB
 | Google Workspace | External | Actual login/credential check |
 | Authorization Server | New | Device/PKCE flows, token issuance+refresh+revocation, multi-scope tokens, RFC 8693 token exchange |
 | Gateway Proxy | Existing, extended | Public ingress, now validates AS tokens, routes by scope |
-| Governance Service | Existing, extended | PII, harm, audit; sole writer to the audit table — the other three new components and the proxy send it audit events rather than writing Postgres directly; also the DLP checkpoint MCP Reverse Proxy calls on tool responses (reuses its existing Presidio endpoint — no second copy embedded) |
+| Governance Service | Existing, extended | PII, harm, audit; sole writer to the audit table — the other three new components and the proxy send it audit events rather than writing Postgres directly; also exposes the dedicated PII-only `POST /v1/dlp/pii-scan` endpoint the DLP checkpoint MCP Reverse Proxy calls on tool responses (shares the same process-wide Presidio analyzer/anonymizer — no second copy embedded — but is a separate route from `/inspect`, with no LLM-policy fields or checks) |
 | OPA (ingress) | Existing, extended | Policy decisions at ingress — can this token use this route/scope — unchanged shared instance, one failure domain |
 | OPA Sidecar (tool-call boundary) | New | Separate OPA process, one per MCP Reverse Proxy replica, colocated on the same pod/host, reached over loopback/UDS — not the ingress instance, not a remote hop; evaluates tool + arguments + context fresh on every call, own failure domain |
 | GitHub Token Broker | New | Holds GitHub App key, mints 1hr installation tokens |
@@ -179,7 +179,7 @@ sequenceDiagram
         else decision == allow
             MCP->>MCPS: forward tool call
             MCPS->>MCP: tool response
-            MCP->>MCP: buffer response, DLP scan via Governance's Presidio-backed check
+            MCP->>MCP: buffer response, DLP scan via Governance's POST /v1/dlp/pii-scan
             alt DLP fails closed (scan error, timeout, or size cap breached)
                 MCP->>Gov: audit event (dlp_blocked)
                 MCP--xDev: response blocked
@@ -314,7 +314,9 @@ The same RFC 8693 mechanism generalizes into the Cloud Credential Broker: exchan
 
 ### DLP on MCP tool responses
 
-Checkpoint sits after the downstream MCP server's response is received and before it's forwarded to the client — same hop as the spec-mandated audience/schema checks. Call the Governance service's **existing** Presidio HTTP endpoint on the serialized response body (don't re-embed the library or load a second copy of the NLP models in the MCP Reverse Proxy), then block/alert or anonymize before forwarding.
+Checkpoint sits after the downstream MCP server's response is received and before it's forwarded to the client — same hop as the spec-mandated audience/schema checks. Call the Governance service's dedicated `POST /v1/dlp/pii-scan` endpoint (`governance/app/main.py`) on the serialized response body, then block/alert or anonymize before forwarding.
+
+**Not `/inspect` — a separate, PII-only endpoint.** `POST /inspect` requires `model_id` and `routing_method` and unconditionally runs `harm_opa_stage` (prompt-injection/harm classifier plus the `llm/authz` Rego policy — model tiers, PHI-provider gating), fail-closed on any OPA error. Tool-response bodies have no natural `model_id`/`routing_method` and have nothing to do with the `llm/authz` policy domain. `POST /v1/dlp/pii-scan` takes only `{"text": str}`, calls `governance/app/pii.py`'s `run()` directly, and returns PII findings, data classification, and redacted text — no `decision`, `harm_score`, `violations`, or `audit_id` fields, and no `llm/authz` evaluation. It reuses the same process-wide Presidio analyzer/anonymizer singletons as `/inspect` (`governance/app/pii.py:17-19`), so there's still no second copy of the NLP models loaded, but the route, request contract, and policy scope are entirely separate from `/inspect`. **Design note:** the MCP Reverse Proxy never constructs synthetic or placeholder `model_id`/`routing_method` values to satisfy `/inspect`'s schema — that pattern is deliberately avoided by giving this checkpoint its own endpoint with its own, narrower contract.
 
 **Always buffer, never stream tool responses through this checkpoint.** Presidio has no streaming API — same approach the reference implementation (Strac) uses — so the MCP Reverse Proxy always fully buffers a tool response server-side before it does anything else with it, regardless of whether the downstream MCP server sent it as a single JSON-RPC message or as SSE chunks. It does not pass incremental SSE chunks through to the client for tool-call responses; true end-to-end streaming is not offered on this path pre-POC (see open questions below). Forwarding not-yet-scanned chunks to preserve streaming UX would create an unscanned pass-through gap, which the project's fail-closed posture (`docs/architecture.md:39`) rules out.
 

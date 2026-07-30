@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from . import audit as audit_module
+from . import pii as pii_module
 from . import pipeline as pipeline_module
 from . import retention
 from .context import PipelineContext
@@ -144,6 +145,40 @@ async def inspect(
         harm_score=ctx.harm_score,
         violations=ctx.violations,
         audit_id=audit_id,
+    )
+
+
+# ─── /v1/dlp/pii-scan ────────────────────────────────────────────────────────
+# PII-only scan for callers that have no LLM-shaped context (e.g. MCP tool
+# responses). Calls pii_module.run() directly — no model_id/routing_method,
+# no harm classifier, no llm/authz Rego policy evaluation, no audit_log write
+# (model_id/routing_method are NOT NULL there and this path has no non-synthetic
+# values to give them).
+
+class PiiScanRequest(BaseModel):
+    text: str
+
+
+class PiiScanResponse(BaseModel):
+    pii_findings: list[dict]    # [{type, start, end, score}] only
+    data_classification: str    # "none" | "pii"
+    redacted_text: str
+
+
+@app.post("/v1/dlp/pii-scan", response_model=PiiScanResponse)
+async def pii_scan(
+    req: PiiScanRequest,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+) -> PiiScanResponse:
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
+    result = await pii_module.run(req.text)
+
+    return PiiScanResponse(
+        pii_findings=result.findings,
+        data_classification=result.data_classification,
+        redacted_text=result.redacted_text,
     )
 
 
