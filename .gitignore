@@ -43,3 +43,6 @@ __pycache__/
 
 # OPA generated data (contains user/tenant info)
 policies/data/*.json
+
+# pas pipeline run state (ephemeral, per-run)
+.pas/
