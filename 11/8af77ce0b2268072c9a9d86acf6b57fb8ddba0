@@ -1,0 +1,28 @@
+docs/auth-architecture.md
+  s_04386cc072aa7f::t_9883f91f388da4 253,255
+  s_0ee343e2a34d62::t_c669e537b9b851 247-252,254,256-258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "118af77ce0b2268072c9a9d86acf6b57fb8ddba0",
+  "prompts": {},
+  "sessions": {
+    "s_04386cc072aa7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a82dab8e-e012-4b0e-bb3c-9ede504986bc",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_0ee343e2a34d62": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a0fb9b9-d145-436b-80ad-161b4dd1af4f",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
