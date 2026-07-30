@@ -1,0 +1,19 @@
+docs/architecture.md
+  s_51a5d8fffb5cca::t_608325cec84bd4 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "ce11a483b419724c158997666f2f6eed40f7c2fc",
+  "prompts": {},
+  "sessions": {
+    "s_51a5d8fffb5cca": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "000e7bc1-e7f7-4e11-9959-5451831253e1",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
