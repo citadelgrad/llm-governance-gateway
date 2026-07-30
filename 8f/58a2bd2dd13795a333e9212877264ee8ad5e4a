@@ -1,0 +1,23 @@
+policies/mcp/authz.rego
+  s_b3d5add5e03c48::t_e241af995c633b 41,43-51
+policies/mcp/authz_test.rego
+  s_b3d5add5e03c48::t_8153882bc98e3f 17-26
+docs/auth-architecture.md
+  s_b3d5add5e03c48::t_18b37e10846eec 317-318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "8f58a2bd2dd13795a333e9212877264ee8ad5e4a",
+  "prompts": {},
+  "sessions": {
+    "s_b3d5add5e03c48": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8495ca7c-b32b-4cf3-9e0c-6e0fc14506a3",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
