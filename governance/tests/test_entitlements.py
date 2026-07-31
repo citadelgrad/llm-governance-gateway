@@ -2,6 +2,7 @@ import gzip
 import io
 import json
 import tarfile
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -125,6 +126,30 @@ async def test_get_bundle_reflects_live_edit(tmp_path):
     assert before != after
     after_data = json.loads(_untar(after)["data.json"])
     assert after_data["mcp"]["authz"]["entitlements"] == {"role-b": []}
+
+
+async def test_get_bundle_normalizes_non_nfc_resource_pattern_to_nfc(tmp_path):
+    """ai-gateway-vci: a resource_pattern authored in a non-NFC Unicode form
+    (e.g. NFD-decomposed accents) must reach the OPA bundle in NFC, matching
+    the form mcpproxy's _normalize_context already applies to
+    input.context.resource - otherwise an equivalent request could
+    false-deny depending only on how the pattern happened to be typed."""
+    nfc_pattern = "repo:caf\u00e9/*"  # single precomposed "e with acute accent"
+    nfd_pattern = unicodedata.normalize("NFD", nfc_pattern)  # "e" + combining acute accent
+    assert nfd_pattern != nfc_pattern
+
+    rego_file = tmp_path / "authz.rego"
+    rego_file.write_text(
+        'entitlements := {"role": [{"server": "s", "tool": "t", '
+        f'"resource_pattern": "{nfd_pattern}"}}]}}'
+    )
+
+    bundle_bytes = await get_bundle(str(rego_file))
+    data = json.loads(_untar(bundle_bytes)["data.json"])
+
+    assert (
+        data["mcp"]["authz"]["entitlements"]["role"][0]["resource_pattern"] == nfc_pattern
+    )
 
 
 async def test_get_bundle_nonexistent_path_raises():

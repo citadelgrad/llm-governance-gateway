@@ -19,8 +19,9 @@ import io
 import json
 import re
 import tarfile
+import unicodedata
 
-ENTITLEMENTS_MARKER = re.compile(r"entitlements\s*:=\s*")
+ENTITLEMENTS_MARKER = re.compile(r"^\s*entitlements\s*:=\s*", re.MULTILINE)
 
 
 class EntitlementsError(Exception):
@@ -38,11 +39,16 @@ def _extract_entitlements(rego_text: str) -> dict:
 
     depth = 0
     in_string = False
+    escape = False
     end = None
     for i in range(start, len(rego_text)):
         ch = rego_text[i]
         if in_string:
+            if escape:
+                escape = False
+                continue
             if ch == "\\":
+                escape = True
                 continue
             if ch == '"':
                 in_string = False
@@ -67,6 +73,25 @@ def _extract_entitlements(rego_text: str) -> dict:
         return json.loads(snippet)
     except json.JSONDecodeError as exc:
         raise EntitlementsError(f"entitlements value is not valid JSON after cleanup: {exc}") from exc
+
+
+def _normalize_nfc(value):
+    """Recursively NFC-normalizes every string in an entitlements value.
+
+    The MCP Reverse Proxy NFC-normalizes input.context.resource before OPA
+    ever sees it (mcpproxy/app/main.py's _normalize_context); if a
+    resource_pattern here were authored in a non-NFC form (e.g. NFD), it
+    would silently fail to glob-match an equivalent, differently-encoded
+    resource string. Normalizing here keeps both sides of that comparison
+    in the same normal form regardless of how authz.rego was typed.
+    """
+    if isinstance(value, str):
+        return unicodedata.normalize("NFC", value)
+    if isinstance(value, dict):
+        return {k: _normalize_nfc(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalize_nfc(v) for v in value]
+    return value
 
 
 def _build_bundle(entitlements: dict, revision: str) -> bytes:
@@ -102,7 +127,7 @@ def _read_and_build(rego_path: str) -> bytes:
     except UnicodeDecodeError as exc:
         raise EntitlementsError(f"{rego_path} is not valid UTF-8: {exc}") from exc
 
-    entitlements = _extract_entitlements(text)
+    entitlements = _normalize_nfc(_extract_entitlements(text))
     revision = hashlib.sha256(raw).hexdigest()
     return _build_bundle(entitlements, revision)
 

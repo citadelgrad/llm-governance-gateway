@@ -4,6 +4,7 @@ import secrets
 import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,8 +34,8 @@ async def lifespan(app: FastAPI):
     from . import harm as harm_module
     from . import opa as opa_module
     from . import pii
-    await asyncio.to_thread(harm_module.warm_up_scanners)  # warm up harm scanners at startup
     await pii.initialize(settings.spacy_model)
+    await asyncio.to_thread(harm_module.warm_up_scanners)  # warm up harm scanners at startup
     _ready = True
     yield
     _ready = False
@@ -62,6 +63,23 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                 content="Request body too large (max 1MB)",
                 status_code=413,
             )
+
+        # A request with no Content-Length header (e.g. chunked transfer
+        # encoding) would skip the check above entirely, so the body is
+        # also bounded here as it is read off the wire. The result is
+        # cached onto request._body (not a reassigned request._receive) -
+        # Starlette's BaseHTTPMiddleware replays the downstream body from
+        # request._body when set, so that is what must be populated.
+        body = bytearray()
+        async for chunk in request.stream():
+            body += chunk
+            if len(body) > MAX_BODY_SIZE:
+                return StarletteResponse(
+                    content="Request body too large (max 1MB)",
+                    status_code=413,
+                )
+
+        request._body = bytes(body)
         return await call_next(request)
 
 
@@ -78,8 +96,12 @@ async def health():
             stuck = await retention.count_stuck_partitions(session)
             if stuck > 0:
                 return {"status": "degraded", "reason": f"{stuck} stuck partition(s)"}
-    except Exception:
-        pass
+    except Exception as exc:
+        return Response(
+            status_code=503,
+            content=json.dumps({"status": "degraded", "reason": f"database unreachable: {exc}"}),
+            media_type="application/json",
+        )
     return {"status": "ok"}
 
 
@@ -324,11 +346,14 @@ async def audit_export(
         last = rows[-1]
         last_created_at = last.created_at.isoformat()
         last_audit_id = last.audit_id
-        next_url = (
-            f"/v1/audit/export?"
-            f"after_created_at={last_created_at}&after_audit_id={last_audit_id}"
-            f"&until={until.isoformat()}"
+        query = urlencode(
+            {
+                "after_created_at": last_created_at,
+                "after_audit_id": last_audit_id,
+                "until": until.isoformat(),
+            }
         )
+        next_url = f"/v1/audit/export?{query}"
         headers["Link"] = f'<{next_url}>; rel="next"'
 
     return StreamingResponse(

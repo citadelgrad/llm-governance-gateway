@@ -13,7 +13,14 @@ HARM_THRESHOLD = 0.8
 
 
 async def pii_stage(ctx: PipelineContext, opa_url: str) -> None:
-    result = await pii_module.run(ctx.text)
+    try:
+        result = await pii_module.run(ctx.text)
+    except Exception as exc:
+        # PII scanner unavailable: fail-closed, same policy as OPA below.
+        print(f"[pipeline] pii_scan error (fail-closed): {exc}", file=sys.stderr)
+        ctx.decision = "block"
+        ctx.violations.append("pii:scan_error")
+        return
     ctx.pii_findings = result.findings
     ctx.data_classification = result.data_classification
     ctx.redacted_text = result.redacted_text
