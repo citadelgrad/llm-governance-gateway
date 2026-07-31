@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from mcpproxy.app.governance_client import (
     GovernanceClient,
     make_governance_client,
 )
+from mcpproxy.app.opa_client import OpaCheckError, OpaClient, make_opa_client
 from mcpproxy.app.transport import (
     ToolResponseTimeoutError,
     ToolResponseTooLargeError,
@@ -30,11 +32,14 @@ async def lifespan(app: FastAPI):
     # own wall-clock enforcement in buffer_tool_response is what fires first.
     downstream_client = httpx.AsyncClient(timeout=30.0)
     governance_http_client = httpx.AsyncClient(timeout=30.0)
+    opa_http_client = httpx.AsyncClient(timeout=30.0)
     app.state.downstream_client = downstream_client
     app.state.governance_client = make_governance_client(governance_http_client)
+    app.state.opa_client = make_opa_client(opa_http_client)
     yield
     await downstream_client.aclose()
     await governance_http_client.aclose()
+    await opa_http_client.aclose()
 
 
 app = FastAPI(title="MCP Reverse Proxy", lifespan=lifespan)
@@ -63,9 +68,22 @@ async def _send_audit_event(
         print(f"[mcpproxy] {exc}", file=sys.stderr)
 
 
+def _policy_violation_response() -> Response:
+    body = json.dumps(
+        {"error": {"type": "policy_violation", "message": "Tool call denied by policy"}}
+    )
+    return Response(content=body, status_code=403, media_type="application/json")
+
+
 @app.post("/v1/mcp/call")
 async def call(request: Request):
     """Receiving endpoint for calls forwarded by the Gateway Proxy.
+
+    Every call is checked against the OPA Sidecar's tool-call-boundary
+    policy first, fresh on every call (no decision caching) - a deny (or an
+    unreachable/erroring sidecar, treated the same, fail-closed) blocks the
+    call before it ever reaches the downstream MCP server. Only on an
+    explicit allow does execution continue.
 
     Buffers the downstream MCP server's tool response in full - whether sent
     as a single JSON-RPC message or as SSE chunks - enforcing the 1 MiB /
@@ -73,8 +91,8 @@ async def call(request: Request):
     response is then scanned by Governance's DLP checkpoint before being
     forwarded; a cap breach or scan failure blocks the response outright
     (fail-closed), unlike the harm-scan pipeline it deliberately diverges
-    from. OPA sidecar evaluation and break-glass are added by later
-    ai-gateway-h04 tasks.
+    from. Break-glass on OPA Sidecar outage is added by a later
+    ai-gateway-h04 task.
     """
     body = await request.json()
     principal = body.get("principal", {})
@@ -83,6 +101,27 @@ async def call(request: Request):
 
     client: httpx.AsyncClient = request.app.state.downstream_client
     governance_client: GovernanceClient = request.app.state.governance_client
+    opa_client: OpaClient = request.app.state.opa_client
+
+    try:
+        allowed = await opa_client.check_tool_call(
+            principal=principal,
+            actor=body.get("actor", {}),
+            tool=body.get("tool", {}),
+            context=body.get("context", {}),
+        )
+    except OpaCheckError:
+        allowed = False
+
+    if not allowed:
+        await _send_audit_event(
+            governance_client,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            event_type="policy_denied",
+            decision="block",
+        )
+        return _policy_violation_response()
 
     try:
         async with client.stream("POST", DOWNSTREAM_URL, json=body) as upstream:
