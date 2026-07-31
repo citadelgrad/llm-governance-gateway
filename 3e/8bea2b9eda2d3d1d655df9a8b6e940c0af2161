@@ -1,0 +1,28 @@
+proxy/app/main.py
+  s_5eb8d65b0886af::t_0c7bfaef5e1c0b 787-792,799,801-802
+  s_5eb8d65b0886af::t_8e18da3a71ab3d 304-305
+  s_5eb8d65b0886af::t_e31c198e19d0e3 771-776,778,793-798,800
+proxy/tests/test_chat.py
+  s_5eb8d65b0886af::t_2473bdf0972bb2 3
+  s_5eb8d65b0886af::t_c4c64ac244130f 63-105
+  s_5eb8d65b0886af::t_90d5e930cb43ef 106-107
+proxy/tests/test_mcp_route.py
+  s_5eb8d65b0886af::t_f7b71b18f005d5 173-239
+  s_5eb8d65b0886af::t_bc677137a8c580 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "3e8bea2b9eda2d3d1d655df9a8b6e940c0af2161",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
