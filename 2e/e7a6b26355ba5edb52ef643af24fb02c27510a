@@ -1,0 +1,42 @@
+mcpproxy/pyproject.toml
+  s_d43d675d005c56::t_2aa72245512e12 1-19
+.envrc.example
+  s_d43d675d005c56::t_6ddc4654d1db2c 23-26
+docker-compose.yml
+  s_d43d675d005c56::t_a86f840e87cc78 98-122,124-142
+  s_421e0d9fb9408f::t_9b239096504b6e 123
+mcpproxy/.dockerignore
+  s_d43d675d005c56::t_3ce5c39fd28522 1-9
+mcpproxy/app/main.py
+  s_d43d675d005c56::t_48e11a6a9b3053 1-10
+Makefile
+  s_d43d675d005c56::t_c92a64dee8b64f 8-9,12
+mcpproxy/Dockerfile
+  s_d43d675d005c56::t_393ebea0e28638 1-17
+mcpproxy/uv.lock
+  s_d43d675d005c56::t_21da9568af885d 1-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "2ee7a6b26355ba5edb52ef643af24fb02c27510a",
+  "prompts": {},
+  "sessions": {
+    "s_421e0d9fb9408f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f29f8a5a-8b96-47d0-b834-2a4c79dc1779",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_d43d675d005c56": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6001d2f2-eb2f-4f98-9452-8b534754efee",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
