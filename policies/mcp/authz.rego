@@ -43,9 +43,11 @@ allow if {
 
 # canonicalize applies the two normalization steps Rego can express natively —
 # lowercasing and trailing-slash stripping — so that differently-formatted but
-# equivalent resource strings reach glob.match identically. Unicode NFC
-# normalization is out of scope here: Rego has no normalization builtin, so
+# equivalent resource strings reach glob.match identically. trim_suffix only
+# strips one trailing "/", so a regex is used instead to strip all of them
+# (e.g. "repo:org/foo//" must canonicalize the same as "repo:org/foo"). Unicode
+# NFC normalization is out of scope here: Rego has no normalization builtin, so
 # that step is the MCP Reverse Proxy's responsibility, applied to
 # context.resource before this input is constructed (see
 # docs/auth-architecture.md, "Resource-string canonicalization").
-canonicalize(s) := trim_suffix(lower(s), "/")
+canonicalize(s) := regex.replace(lower(s), "/+$", "")

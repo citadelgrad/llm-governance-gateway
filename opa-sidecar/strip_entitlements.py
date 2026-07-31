@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 import sys
 
-ENTITLEMENTS_MARKER = re.compile(r"entitlements\s*:=\s*")
+ENTITLEMENTS_MARKER = re.compile(r"^\s*entitlements\s*:=\s*", re.MULTILINE)
 IMPORT_STATEMENT = "import data.mcp.authz.entitlements\n"
 LAST_IMPORT_LINE = re.compile(r"^import .*$", re.MULTILINE)
 
@@ -26,10 +26,15 @@ LAST_IMPORT_LINE = re.compile(r"^import .*$", re.MULTILINE)
 def _find_block_end(text: str, start: int) -> int:
     depth = 0
     in_string = False
+    escape = False
     for i in range(start, len(text)):
         ch = text[i]
         if in_string:
+            if escape:
+                escape = False
+                continue
             if ch == "\\":
+                escape = True
                 continue
             if ch == '"':
                 in_string = False

@@ -24,6 +24,16 @@ test_resource_pattern_match_allow_case_and_trailing_slash_insensitive if {
     }
 }
 
+# --- multiple trailing slashes must canonicalize the same as one ---
+
+test_resource_pattern_match_allow_multiple_trailing_slashes if {
+    authz.allow with input as {
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
+        "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
+        "context": {"environment": "prod", "resource": "repo:org/name///", "prior_calls_this_session": 4},
+    }
+}
+
 # --- role match but resource outside the declared pattern: deny ---
 
 test_resource_pattern_mismatch_deny if {
