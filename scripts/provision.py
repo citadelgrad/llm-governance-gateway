@@ -94,15 +94,20 @@ def main():
         """)
         conn.commit()
 
-        # Idempotency check
+        tenants, users, models = load_config()
+
+        # Idempotency check. A config-hash match alone isn't enough to call this
+        # a no-op: a key can be deleted out-of-band (e.g. --rotate-key) without
+        # touching the yaml files, and that user still needs a fresh key issued.
         current_hash = config_hash()
         cur.execute("SELECT config_hash FROM provisioner_state WHERE id = 'singleton'")
         row = cur.fetchone()
-        if row and row[0] == current_hash:
+        cur.execute("SELECT DISTINCT user_id FROM api_keys")
+        users_with_keys = {r[0] for r in cur.fetchall()}
+        missing_keys = [u for u in users if u["id"] not in users_with_keys]
+        if row and row[0] == current_hash and not missing_keys:
             print("✓ No changes detected. Provisioner is a no-op.")
             return
-
-        tenants, users, models = load_config()
 
         # Upsert tenants
         for t in tenants:
