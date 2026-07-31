@@ -1,0 +1,40 @@
+governance/app/settings.py
+  s_4e230f623c901a::t_8ab2826b32f7b0 20
+governance/app/entitlements.py
+  s_4e230f623c901a::t_49045085f26e73 1-99,106-114
+  s_4e230f623c901a::t_7beb9bf98fb8fe 100-105
+governance/app/main.py
+  s_4e230f623c901a::t_54e0042102c05c 186-211
+  s_4e230f623c901a::t_5cb57b5db4fe06 19
+docker-compose.yml
+  s_4e230f623c901a::t_80ea81bf9d5214 61-62
+governance/tests/test_entitlements.py
+  s_4e230f623c901a::t_95f47365936eb1 1-4,6-11,13-218
+  s_4e230f623c901a::t_7af2587b103aaa 5,12
+governance/uv.lock
+  s_1a719fefaf4a9b::t_27311f2a3637f1 10-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "4dfba4edfcd1bbd1e7eaa6315dd628f5f8c12c8c",
+  "prompts": {},
+  "sessions": {
+    "s_1a719fefaf4a9b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0f491a09-2a97-4a15-8d25-e826b4ae96b3",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_4e230f623c901a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "625d07f6-94cf-4984-a616-de60bc98a954",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
