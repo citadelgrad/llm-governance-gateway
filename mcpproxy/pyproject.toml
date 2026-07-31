@@ -12,8 +12,34 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-httpx>=0.35",
+    "ruff>=0.9",
+    "ty>=0.0.40",
+    "httpx>=0.28",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]  # FastAPI Depends() in function defaults is idiomatic; long provider fixtures are tolerated
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# ".." = project root (needed so mcpproxy.app.* absolute imports resolve)
+# "." = mcpproxy/ (for local test imports)
+pythonpath = ["..", "."]
+
+[tool.ty.environment]
+python-version = "3.12"
+python-platform = "all"
+extra-paths = [".."]

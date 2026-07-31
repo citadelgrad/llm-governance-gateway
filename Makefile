@@ -35,10 +35,12 @@ migrate:
 lint:
 	cd proxy && uv --no-config run --extra dev ruff check . && uv --no-config run --extra dev ty check app
 	cd governance && uv --no-config run --extra dev ruff check app && uv --no-config run --extra dev ty check app
+	cd mcpproxy && uv --no-config run --extra dev ruff check . && uv --no-config run --extra dev ty check app
 
 test:
 	cd proxy && uv --no-config run --extra dev python -m pytest tests/
 	cd governance && uv --no-config run --extra dev python -m pytest tests/
+	cd mcpproxy && uv --no-config run --extra dev python -m pytest tests/
 
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
