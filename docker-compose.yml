@@ -58,6 +58,8 @@ services:
       SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
       GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
       PSEUDONYM_HMAC_KEY: ${PSEUDONYM_HMAC_KEY}
+    volumes:
+      - ./policies:/policies:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

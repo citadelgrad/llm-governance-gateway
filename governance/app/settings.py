@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GOVERNANCE_INTERNAL_TOKEN", "INTERNAL_TOKEN"),
     )
     pseudonym_hmac_key: str = Field(...)
+    entitlements_rego_path: str = "/policies/mcp/authz.rego"
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]

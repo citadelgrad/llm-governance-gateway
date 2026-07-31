@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response as StarletteResponse
 
 from . import audit as audit_module
+from . import entitlements as entitlements_module
 from . import pii as pii_module
 from . import pipeline as pipeline_module
 from . import retention
@@ -180,6 +181,32 @@ async def pii_scan(
         data_classification=result.data_classification,
         redacted_text=result.redacted_text,
     )
+
+
+# ─── /v1/mcp/entitlements-bundle ────────────────────────────────────────────
+# Data-only route: serves the `entitlements` value from policies/mcp/authz.rego
+# as an OPA-bundle-consumable gzip+tar, for the OPA Sidecar's bundle service to
+# poll (ai-gateway-h04.5). No model_id/routing_method, no llm/authz Rego
+# evaluation — this never touches pipeline_module or opa_module.check().
+
+@app.get("/v1/mcp/entitlements-bundle")
+async def entitlements_bundle(
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+) -> Response:
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
+    try:
+        bundle_bytes = await asyncio.wait_for(
+            entitlements_module.get_bundle(settings.entitlements_rego_path),
+            timeout=5.0,
+        )
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Entitlements bundle build timed out") from exc
+    except entitlements_module.EntitlementsError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return Response(content=bundle_bytes, media_type="application/gzip")
 
 
 # ─── /v1/audit/export ────────────────────────────────────────────────────────
