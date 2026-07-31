@@ -1,0 +1,40 @@
+docker-compose.yml
+  s_f86c29fcd3a082::t_f962069e87dba0 84,93
+  s_f86c29fcd3a082::t_f52ece796ace1c 94
+proxy/conftest.py
+  s_f86c29fcd3a082::t_8d4f8b3fd8ef4e 10-14
+proxy/app/config.py
+  s_f86c29fcd3a082::t_dd8117872ef125 9-10
+proxy/app/auth.py
+  s_f86c29fcd3a082::t_17742a616f8ed8 94-107
+  s_f86c29fcd3a082::t_ce1df5f6b2b918 4,22-24
+proxy/tests/conftest.py
+  s_f86c29fcd3a082::t_de4e847b4f7232 123
+  s_f86c29fcd3a082::t_57300bb8a9d270 44-46,54-59
+proxy/app/main.py
+  s_f86c29fcd3a082::t_8bc5fa61d1361d 109
+  s_f86c29fcd3a082::t_dfbc59fb5b1e32 755-787
+  s_f86c29fcd3a082::t_d3fb40bc35a973 71
+  s_f86c29fcd3a082::t_e30c0e08259236 273-298
+  s_f86c29fcd3a082::t_982e11b6cd05ba 94
+mcpproxy/app/main.py
+  s_f86c29fcd3a082::t_290fe77f8bf6e8 1,9-20
+proxy/tests/test_mcp_route.py
+  s_f86c29fcd3a082::t_5a66389a2dd7d7 1-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "ff73282eaaf58525f0a6e956571d41136641aaa5",
+  "prompts": {},
+  "sessions": {
+    "s_f86c29fcd3a082": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73f58647-d3c9-4f41-9430-b5bf30c67d2a",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
