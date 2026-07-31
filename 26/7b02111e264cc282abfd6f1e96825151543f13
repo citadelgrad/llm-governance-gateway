@@ -1,0 +1,35 @@
+mcpproxy/app/config.py
+  s_6a6db759e272d5::t_cce92fcf1f9931 13-17
+mcpproxy/app/main.py
+  s_6a6db759e272d5::t_e32a36b5fec9c9 41
+  s_6a6db759e272d5::t_2c50e0acb6c9e3 10-11
+  s_6a6db759e272d5::t_9102e852f2fbcb 94-95,98-105,112,118,123-152
+  s_6a6db759e272d5::t_30760f60d419bc 81-88
+mcpproxy/tests/test_main.py
+  s_6a6db759e272d5::t_83ce4732fb3c63 304-480
+  s_6a6db759e272d5::t_302f3d510a4b15 255-256
+  s_6a6db759e272d5::t_26a451d49ac5c0 3,7,9,15-28
+  s_6a6db759e272d5::t_61bbbef6e4ea82 29-30
+mcpproxy/app/circuit_breaker.py
+  s_6a6db759e272d5::t_040438006b36cd 1-71
+mcpproxy/tests/test_circuit_breaker.py
+  s_6a6db759e272d5::t_a4d50597188bc4 1-140
+mcpproxy/tests/conftest.py
+  s_6a6db759e272d5::t_17f8fad270e758 7,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "267b02111e264cc282abfd6f1e96825151543f13",
+  "prompts": {},
+  "sessions": {
+    "s_6a6db759e272d5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4e02f705-995a-4cf8-a8d4-8ce14e77a706",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
