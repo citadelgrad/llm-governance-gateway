@@ -1,0 +1,41 @@
+governance/app/audit.py
+  s_a487ec15688118::t_8b1b0292170c30 85-134
+docker-compose.yml
+  s_a487ec15688118::t_8d422c2e774a79 107-109
+mcpproxy/app/governance_client.py
+  s_a487ec15688118::t_e753c7245e0867 1-72
+mcpproxy/app/config.py
+  s_a487ec15688118::t_633cded8ab79cc 8,14
+  s_a487ec15688118::t_e41d8c0f7989c4 1-7,9-13
+mcpproxy/pyproject.toml
+  s_a487ec15688118::t_c8e3f4fbdabd75 16
+governance/app/main.py
+  s_a487ec15688118::t_81617ed146f5c4 212-250
+mcpproxy/tests/conftest.py
+  s_a487ec15688118::t_fa7376a01b7913 3
+  s_a487ec15688118::t_28ee6e2b11b048 10,13,18-24,26-28,31
+governance/tests/test_mcp_audit_event.py
+  s_a487ec15688118::t_c85aa384bfb73b 1-76
+mcpproxy/tests/test_main.py
+  s_a487ec15688118::t_fa373994af4a6b 6,27-33,35-36,39,43-46,51,56,60,64-65,78,82-85,89-90,98,102-105,110,118-134,138-166
+mcpproxy/app/main.py
+  s_a487ec15688118::t_14d43e206f5396 4,9-14,32,34,37,48-65,72-76,80-83,85,92-111,114-120
+mcpproxy/uv.lock
+  s_a487ec15688118::t_93d07bd30c158a 184,203,321-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "c588a6fd7401e65ff705c76b1f4dd8bdd7911f69",
+  "prompts": {},
+  "sessions": {
+    "s_a487ec15688118": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8df1bfb4-0fe4-437c-9a2f-58981569afcc",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
