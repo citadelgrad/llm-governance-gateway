@@ -103,7 +103,7 @@ class GatewayClient:
             response.raise_for_status()
             return response.json()
 
-    async def chat(self, prompt: str, *, model: str = "gpt-4o-mini") -> httpx.Response:
+    async def chat(self, prompt: str, *, model: str = "gpt-5.6-luna") -> httpx.Response:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=30) as client:
             return await client.post(
                 "/v1/chat/completions",
@@ -111,7 +111,7 @@ class GatewayClient:
                 json={"model": model, "messages": [{"role": "user", "content": prompt}]},
             )
 
-    async def responses(self, prompt: str, *, model: str = "gpt-4o-mini") -> httpx.Response:
+    async def responses(self, prompt: str, *, model: str = "gpt-5.6-luna") -> httpx.Response:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=30) as client:
             return await client.post(
                 "/v1/responses",

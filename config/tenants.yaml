@@ -3,10 +3,10 @@ tenants:
     name: "Acme Corporation"
     allowed_models:
       - gpt-4o
-      - gpt-4o-mini
+      - gpt-5.6-luna
       - claude-3-5-sonnet
-      - claude-3-haiku
-      - gemini-1.5-flash
+      - claude-haiku-4-5-20251001
+      - gemini-3.1-flash-lite
     rate_limit: 1000
     pii_action: redact
     pii_redaction_notification: header
@@ -17,10 +17,10 @@ tenants:
     name: "Internal / Engineering"
     allowed_models:
       - gpt-4o
-      - gpt-4o-mini
+      - gpt-5.6-luna
       - claude-3-5-sonnet
-      - claude-3-haiku
-      - gemini-1.5-flash
+      - claude-haiku-4-5-20251001
+      - gemini-3.1-flash-lite
       - o1-mini
     rate_limit: 5000
     pii_action: pass
@@ -31,9 +31,9 @@ tenants:
   - id: local-integration
     name: "Local Integration Project"
     allowed_models:
-      - gpt-4o-mini
-      - claude-3-haiku
-      - gemini-1.5-flash
+      - gpt-5.6-luna
+      - claude-haiku-4-5-20251001
+      - gemini-3.1-flash-lite
     rate_limit: 1000
     pii_action: redact
     pii_redaction_notification: header

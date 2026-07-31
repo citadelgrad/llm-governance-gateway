@@ -14,8 +14,8 @@ ROTATE_KEY=false
 USER_ID="vscode-tester"
 TENANT_ID="local-integration"
 # Must stay inside config/tenants.yaml's local-integration allowed_models list.
-GATEWAY_MODEL="gpt-4o-mini"
-CLAUDE_MODEL="claude-3-haiku"
+GATEWAY_MODEL="gpt-5.6-luna"
+CLAUDE_MODEL="claude-haiku-4-5-20251001"
 GATEWAY_PROXY_PORT="${GATEWAY_PROXY_PORT:-18765}"
 GATEWAY_POSTGRES_PORT="${GATEWAY_POSTGRES_PORT:-15433}"
 
@@ -316,7 +316,7 @@ main dev environment.
 ## Try the governance features
 
 The onboarded user is on the \`${TENANT_ID}\` tenant, which only allows
-\`${GATEWAY_MODEL}\`, \`claude-3-haiku\`, and \`gemini-1.5-flash\`
+\`${GATEWAY_MODEL}\`, \`claude-haiku-4-5-20251001\`, and \`gemini-3.1-flash-lite\`
 (see \`$REPO_ROOT/config/tenants.yaml\`). Try these from any wired-up client:
 
 - **PII redaction**: ask it to repeat back "My SSN is 123-45-6789" — the

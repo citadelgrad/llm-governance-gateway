@@ -5,12 +5,12 @@ from proxy.app.main import app
 from proxy.app.rate_limit import RateLimitResult
 
 _CLEAN_BODY = {
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.6-luna",
     "messages": [{"role": "user", "content": "Hello, how are you?"}],
 }
 
 _STREAM_BODY = {
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.6-luna",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": True,
 }
@@ -70,7 +70,7 @@ async def test_pii_redaction_headers(async_client):
         audit_id="pii-audit-id",
     )
     body = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-5.6-luna",
         "messages": [{"role": "user", "content": "My SSN is 123-45-6789"}],
     }
     response = await client.post("/v1/chat/completions", json=body)
@@ -85,7 +85,7 @@ async def test_phi_block_via_mock_provider(async_client, monkeypatch):
     monkeypatch.setattr(settings, "mock_mode", True)
     client, _ = async_client
     body = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-5.6-luna",
         "messages": [{"role": "user", "content": "Show me the patient diagnosis"}],
     }
     response = await client.post("/v1/chat/completions", json=body)

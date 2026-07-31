@@ -4,7 +4,7 @@ models:
     provider: openai
     base_url: https://api.openai.com/v1
 
-  - id: gpt-4o-mini
+  - id: gpt-5.6-luna
     provider: openai
     base_url: https://api.openai.com/v1
 
@@ -17,12 +17,12 @@ models:
     provider: anthropic
     base_url: https://api.anthropic.com
 
-  - id: claude-3-haiku
+  - id: claude-haiku-4-5-20251001
     provider: anthropic
     base_url: https://api.anthropic.com
 
   # Google
-  - id: gemini-1.5-flash
+  - id: gemini-3.1-flash-lite
     provider: google
     base_url: https://generativelanguage.googleapis.com/v1beta
 
@@ -37,4 +37,4 @@ models:
 
   - id: flash
     provider: google
-    alias_of: gemini-1.5-flash
+    alias_of: gemini-3.1-flash-lite

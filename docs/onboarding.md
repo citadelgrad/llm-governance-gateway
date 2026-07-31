@@ -72,7 +72,7 @@ tenants:
   - id: example-co
     name: "Example Co"
     allowed_models:
-      - gpt-4o-mini
+      - gpt-5.6-luna
       - claude-3-5-sonnet
     rate_limit: 1000
     pii_action: redact
@@ -213,7 +213,7 @@ Expected shape:
   "user_id": "scott-laptop",
   "tenant_id": "example-co",
   "roles": ["tier1"],
-  "allowed_models": ["gpt-4o-mini"],
+  "allowed_models": ["gpt-5.6-luna"],
   "rate_limit": {"requests_per_minute": 1000, "resets_at": "..."},
   "pii_policy": {"notification": true}
 }
@@ -226,7 +226,7 @@ curl -sS -X POST "$GATEWAY_URL/v1/chat/completions" \
   -H "Authorization: ApiKey $USER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.6-luna",
     "messages": [{"role": "user", "content": "Reply with gateway-ok"}]
   }' | python3 -m json.tool
 ```
@@ -248,7 +248,7 @@ Use the onboarding CLI to generate copy/pasteable config for Hermes, Claude Code
 uv --no-config run --with pyyaml scripts/onboard.py agent-config \
   --gateway-url https://llm-gateway.example.com \
   --api-key-env GATEWAY_API_KEY \
-  --model gpt-4o-mini \
+  --model gpt-5.6-luna \
   --claude-model claude-3-5-sonnet
 ```
 
@@ -267,7 +267,7 @@ export GATEWAY_API_KEY="gw_user_key"
 hermes config set model.provider custom
 hermes config set model.base_url "$GATEWAY_URL/v1"
 hermes config set model.api_key "$GATEWAY_API_KEY"
-hermes config set model.default "gpt-4o-mini"
+hermes config set model.default "gpt-5.6-luna"
 ```
 
 Windows PowerShell:
@@ -279,7 +279,7 @@ $env:GATEWAY_API_KEY = "gw_user_key"
 hermes config set model.provider custom
 hermes config set model.base_url "$env:GATEWAY_URL/v1"
 hermes config set model.api_key "$env:GATEWAY_API_KEY"
-hermes config set model.default "gpt-4o-mini"
+hermes config set model.default "gpt-5.6-luna"
 ```
 
 Restart Hermes after changing provider config. Then verify:
@@ -355,7 +355,7 @@ This repository exposes `/v1/responses` for Codex-compatible basic prompt traffi
 Create or edit `~/.codex/config.toml` on macOS/Linux, or `%USERPROFILE%\.codex\config.toml` on Windows:
 
 ```toml
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
 model_provider = "llm-governance-gateway"
 
 [model_providers.llm-governance-gateway]
@@ -367,7 +367,7 @@ requires_openai_auth = false
 
 [profiles.gateway]
 model_provider = "llm-governance-gateway"
-model = "gpt-4o-mini"
+model = "gpt-5.6-luna"
 ```
 
 macOS/Linux:

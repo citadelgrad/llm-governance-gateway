@@ -9,13 +9,13 @@ default allow := false
 # divergence fails CI before it can silently widen or narrow access.
 model_tiers := {
     "gpt-4o":            "tier2",
-    "gpt-4o-mini":       "tier1",
+    "gpt-5.6-luna":       "tier1",
     "o1-mini":           "tier2",
     "gpt-3.5-turbo":     "tier1",
     "claude-3-5-sonnet": "tier2",
-    "claude-3-haiku":    "tier1",
+    "claude-haiku-4-5-20251001": "tier1",
     "claude-opus-4-5":   "tier2",
-    "gemini-1.5-flash":  "tier1",
+    "gemini-3.1-flash-lite": "tier1",
 }
 
 allow if {

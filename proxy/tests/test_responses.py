@@ -5,7 +5,7 @@ from proxy.app.main import app
 from proxy.app.responses_compat import translate_responses_request
 
 _RESPONSES_BODY = {
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.6-luna",
     "input": "Reply with gateway-ok only.",
 }
 
@@ -18,7 +18,7 @@ async def test_responses_accepts_bearer_api_key(auth_client, api_key_creds):
         {"hash": key_hash, "user_id": "key-user", "tenant_id": "test-tenant", "roles": ["user"]},
         {
             "default_provider": "openai",
-            "allowed_models": ["gpt-4o-mini"],
+            "allowed_models": ["gpt-5.6-luna"],
             "pii_redaction_notification": "header",
             "rate_limit_requests_per_minute": 100,
         },
@@ -58,7 +58,7 @@ async def test_responses_translate_happy_path(async_client):
     response = await client.post(
         "/v1/responses",
         json={
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "instructions": "Be terse.",
             "input": [
                 {
@@ -73,7 +73,7 @@ async def test_responses_translate_happy_path(async_client):
     assert response.status_code == 200
     body = response.json()
     assert body["object"] == "response"
-    assert body["model"] == "gpt-4o-mini"
+    assert body["model"] == "gpt-5.6-luna"
     assert body["status"] == "completed"
     assert body["output_text"]
     assert body["output"][0]["type"] == "message"
@@ -97,7 +97,7 @@ async def test_responses_pii_redaction_headers(async_client, gov_mock):
 
     response = await client.post(
         "/v1/responses",
-        json={"model": "gpt-4o-mini", "input": "My SSN is 123-45-6789"},
+        json={"model": "gpt-5.6-luna", "input": "My SSN is 123-45-6789"},
     )
 
     assert response.status_code == 200
@@ -130,7 +130,7 @@ async def test_responses_rejects_unsupported_shape(async_client):
     response = await client.post(
         "/v1/responses",
         json={
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "input": [
                 {
                     "type": "message",
@@ -148,7 +148,7 @@ async def test_responses_rejects_unsupported_shape(async_client):
 def test_responses_translation_preserves_text_part_boundaries():
     body = translate_responses_request(
         {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "input": [
                 {
                     "type": "message",
@@ -167,7 +167,7 @@ def test_responses_translation_preserves_text_part_boundaries():
 def test_responses_translation_forwards_generation_options():
     body = translate_responses_request(
         {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "input": "hello",
             "max_output_tokens": 123,
             "temperature": 0.2,
@@ -184,7 +184,7 @@ async def test_responses_rejects_tools_instead_of_silently_dropping(async_client
     response = await client.post(
         "/v1/responses",
         json={
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "input": "hello",
             "tools": [{"type": "function", "name": "lookup"}],
         },

@@ -30,7 +30,7 @@ tenants:
   - id: acme-corp
     name: Acme Corporation
     allowed_models:
-      - gpt-4o-mini
+      - gpt-5.6-luna
     rate_limit: 1000
     pii_action: redact
     pii_redaction_notification: true
@@ -115,7 +115,7 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
         "--api-key-env",
         "GATEWAY_API_KEY",
         "--model",
-        "gpt-4o-mini",
+        "gpt-5.6-luna",
         "--claude-model",
         "claude-3-5-sonnet",
     )
@@ -126,7 +126,7 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
     assert "Claude Code" in output
     assert "Codex" in output
     assert "https://gateway.example.com/v1" in output
-    assert "gpt-4o-mini" in output
+    assert "gpt-5.6-luna" in output
     assert "claude-3-5-sonnet" in output
     assert "GATEWAY_API_KEY" in output
     assert 'wire_api = "responses"' in output

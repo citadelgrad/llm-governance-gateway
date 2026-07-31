@@ -176,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent_config.add_argument("--gateway-url", required=True)
     agent_config.add_argument("--api-key-env", default="GATEWAY_API_KEY")
-    agent_config.add_argument("--model", default="gpt-4o-mini")
+    agent_config.add_argument("--model", default="gpt-5.6-luna")
     agent_config.add_argument("--claude-model", default="claude-3-5-sonnet")
 
     return parser

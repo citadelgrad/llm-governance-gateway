@@ -10,7 +10,7 @@ test_tier1_model_allow if {
     authz.allow with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": [],
@@ -23,7 +23,7 @@ test_tier1_claude_haiku_allow if {
     authz.allow with input as {
         "phase": "pre_call",
         "request": {
-            "model": "claude-3-haiku",
+            "model": "claude-haiku-4-5-20251001",
             "provider": "anthropic",
             "data_classification": [],
             "pii_findings": [],
@@ -118,7 +118,7 @@ test_phi_unapproved_tier1_deny_allow_coexist if {
     mock_input := {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": ["PHI"],
             "pii_findings": [],
@@ -166,7 +166,7 @@ test_non_phi_no_deny if {
     result := authz.deny with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": ["PII"],
             "pii_findings": [],
@@ -180,7 +180,7 @@ test_no_classification_no_deny if {
     result := authz.deny with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": [],
@@ -196,7 +196,7 @@ test_redact_pii_enabled if {
     authz.redact_pii with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": ["SSN"],
@@ -212,7 +212,7 @@ test_redact_pii_no_findings if {
     not authz.redact_pii with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": [],
@@ -228,7 +228,7 @@ test_redact_pii_action_flag if {
     not authz.redact_pii with input as {
         "phase": "pre_call",
         "request": {
-            "model": "gpt-4o-mini",
+            "model": "gpt-5.6-luna",
             "provider": "openai",
             "data_classification": [],
             "pii_findings": ["email"],

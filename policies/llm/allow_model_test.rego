@@ -8,16 +8,16 @@ import data.llm.allow_model
 
 test_tier1_in_allowed_models if {
     allow_model.allow with input as {
-        "request": {"model": "gpt-4o-mini"},
-        "tenant": {"allowed_models": ["gpt-4o-mini", "gpt-4o"]},
+        "request": {"model": "gpt-5.6-luna"},
+        "tenant": {"allowed_models": ["gpt-5.6-luna", "gpt-4o"]},
         "user": {"roles": []},
     }
 }
 
 test_tier1_gemini_flash_in_allowed_models if {
     allow_model.allow with input as {
-        "request": {"model": "gemini-1.5-flash"},
-        "tenant": {"allowed_models": ["gemini-1.5-flash"]},
+        "request": {"model": "gemini-3.1-flash-lite"},
+        "tenant": {"allowed_models": ["gemini-3.1-flash-lite"]},
         "user": {"roles": []},
     }
 }
@@ -26,8 +26,8 @@ test_tier1_gemini_flash_in_allowed_models if {
 
 test_tier1_not_in_allowed_models if {
     not allow_model.allow with input as {
-        "request": {"model": "gpt-4o-mini"},
-        "tenant": {"allowed_models": ["gemini-1.5-flash"]},
+        "request": {"model": "gpt-5.6-luna"},
+        "tenant": {"allowed_models": ["gemini-3.1-flash-lite"]},
         "user": {"roles": []},
     }
 }
@@ -45,7 +45,7 @@ test_tier2_with_role_in_allowed_models if {
 test_tier2_claude_sonnet_with_role if {
     allow_model.allow with input as {
         "request": {"model": "claude-3-5-sonnet"},
-        "tenant": {"allowed_models": ["claude-3-5-sonnet", "claude-3-haiku"]},
+        "tenant": {"allowed_models": ["claude-3-5-sonnet", "claude-haiku-4-5-20251001"]},
         "user": {"roles": ["tier2-access"]},
     }
 }
@@ -65,7 +65,7 @@ test_tier2_in_allowed_models_no_role if {
 test_tier2_with_role_not_in_allowed_models if {
     not allow_model.allow with input as {
         "request": {"model": "gpt-4o"},
-        "tenant": {"allowed_models": ["gpt-4o-mini"]},
+        "tenant": {"allowed_models": ["gpt-5.6-luna"]},
         "user": {"roles": ["tier2-access"]},
     }
 }

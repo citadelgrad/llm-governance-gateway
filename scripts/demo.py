@@ -63,7 +63,7 @@ def _run(
     label: str,
     messages: list[dict],
     expected: int,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5.6-luna",
     token: str | None = None,
 ) -> tuple[bool, str]:
     headers = {"Authorization": f"Bearer {token or _token(['tier1'])}"}
@@ -145,7 +145,7 @@ def main() -> None:
     for _ in range(max(0, RATE_LIMIT - 5)):
         httpx.post(
             f"{BASE_URL}/v1/chat/completions",
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "pad"}]},
+            json={"model": "gpt-5.6-luna", "messages": [{"role": "user", "content": "pad"}]},
             headers={"Authorization": f"Bearer {_token(['tier1'])}"},
             timeout=10,
         )

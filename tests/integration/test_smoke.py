@@ -48,7 +48,7 @@ class TestSmoke:
             response = await client.post(
                 "/v1/chat/completions",
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-5.6-luna",
                     "messages": [{"role": "user", "content": "hello"}],
                 },
             )
@@ -70,7 +70,7 @@ class TestSmoke:
                 "/v1/chat/completions",
                 headers={"Authorization": f"Bearer {_jwt()}"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-5.6-luna",
                     "messages": [{"role": "user", "content": "Hello, world!"}],
                 },
             )
@@ -86,7 +86,7 @@ class TestSmoke:
                 "/v1/responses",
                 headers={"Authorization": f"Bearer {_jwt()}"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-5.6-luna",
                     "input": "Reply with gateway-ok only.",
                 },
             )
@@ -102,7 +102,7 @@ class TestSmoke:
                 "/v1/chat/completions",
                 headers={"Authorization": f"Bearer {_jwt(user_id='smoke-pii-user')}"},
                 json={
-                    "model": "gpt-4o-mini",
+                    "model": "gpt-5.6-luna",
                     "messages": [
                         {"role": "user", "content": "My SSN is 123-45-6789, can you help?"}
                     ],

@@ -310,7 +310,7 @@ async def test_count_tokens_disallowed_model_returns_403(auth_messages_client):
         },
     ]
     body = {
-        "model": "claude-3-haiku",
+        "model": "claude-haiku-4-5-20251001",
         "messages": [{"role": "user", "content": "Hello"}],
     }
     response = await client.post(

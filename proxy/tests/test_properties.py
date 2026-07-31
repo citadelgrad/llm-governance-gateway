@@ -78,7 +78,7 @@ _MESSAGE = st.fixed_dictionaries({"role": _ROLE, "content": _CLEAN_CONTENT})
 _MESSAGES = st.lists(_MESSAGE, min_size=1, max_size=5)
 
 # Known-good routable model (present in conftest._MODELS_CONFIG)
-_KNOWN_MODEL = st.just("gpt-4o-mini")
+_KNOWN_MODEL = st.just("gpt-5.6-luna")
 
 # ---------------------------------------------------------------------------
 # Fixture helpers — imported from proxy.tests.helpers so this file stays DRY.
@@ -86,7 +86,7 @@ _KNOWN_MODEL = st.just("gpt-4o-mini")
 # ---------------------------------------------------------------------------
 
 _MODELS_CONFIG = [
-    {"id": "gpt-4o-mini", "provider": "openai"},
+    {"id": "gpt-5.6-luna", "provider": "openai"},
     {"id": "gpt-4o", "provider": "openai"},
 ]
 
@@ -262,7 +262,7 @@ async def test_p3_body_at_limit_minus_one_accepted():
     _setup_app()
     # Build a valid JSON object padded to exactly MAX_BODY_SIZE - 1 bytes.
     # We use a 'padding' key to control the total serialised length.
-    base = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "x"}]}
+    base = {"model": "gpt-5.6-luna", "messages": [{"role": "user", "content": "x"}]}
     base_bytes = json.dumps(base).encode()
     # Pad inside the JSON by adding whitespace after the last brace
     # (HTTP body; the middleware checks len(body), not Content-Length arithmetic)
@@ -383,7 +383,7 @@ async def test_p4_unicode_content_does_not_crash(content):
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             body = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-5.6-luna",
                 "messages": [{"role": "user", "content": content}],
             }
             response = await client.post("/v1/chat/completions", json=body)
@@ -414,7 +414,7 @@ async def test_p4_control_characters_do_not_crash(content):
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             body = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-5.6-luna",
                 "messages": [{"role": "user", "content": content}],
             }
             response = await client.post("/v1/chat/completions", json=body)
@@ -462,7 +462,7 @@ async def test_p5_extra_fields_silently_ignored(extra):
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             body = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-5.6-luna",
                 "messages": [{"role": "user", "content": "hello"}],
                 **extra,
             }
@@ -519,7 +519,7 @@ async def test_p6_duplicate_auth_header_never_500(second_auth):
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             body = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-5.6-luna",
                 "messages": [{"role": "user", "content": "hello"}],
             }
             # httpx merges duplicate header names with comma per RFC 7230

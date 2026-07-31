@@ -26,13 +26,13 @@ TEST_API_KEY = "local-fixture-token-for-auth-tests"
 TEST_API_KEY_HASH = bcrypt.hashpw(TEST_API_KEY.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 _MODELS_CONFIG = [
-    {"id": "gpt-4o-mini", "provider": "openai"},
+    {"id": "gpt-5.6-luna", "provider": "openai"},
     {"id": "gpt-4o", "provider": "openai"},
 ]
 
 _CLAUDE_MODELS_CONFIG = [
     {"id": "claude-3-5-sonnet", "provider": "anthropic"},
-    {"id": "claude-3-haiku", "provider": "anthropic"},
+    {"id": "claude-haiku-4-5-20251001", "provider": "anthropic"},
 ]
 
 

@@ -32,7 +32,7 @@ def _translate_request(body: dict) -> tuple[str, dict]:
 
     Returns (model_id, gemini_body).
     """
-    model: str = body.get("model", "gemini-1.5-flash")
+    model: str = body.get("model", "gemini-3.1-flash-lite")
     messages: list[dict] = body.get("messages", [])
 
     system_parts: list[str] = []

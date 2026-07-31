@@ -414,14 +414,14 @@ async def test_anthropic_stream_tool_use_stop_reason_maps_to_tool_calls(httpx_mo
 
 def test_gemini_translate_extracts_system_instruction():
     body = {
-        "model": "gemini-1.5-flash",
+        "model": "gemini-3.1-flash-lite",
         "messages": [
             {"role": "system", "content": "You are concise."},
             {"role": "user", "content": "hi"},
         ],
     }
     model, gemini_body = gemini_provider._translate_request(body)
-    assert model == "gemini-1.5-flash"
+    assert model == "gemini-3.1-flash-lite"
     assert gemini_body["systemInstruction"] == {
         "parts": [{"text": "You are concise."}]
     }
@@ -430,7 +430,7 @@ def test_gemini_translate_extracts_system_instruction():
 
 def test_gemini_translate_maps_assistant_to_model_role():
     body = {
-        "model": "gemini-1.5-flash",
+        "model": "gemini-3.1-flash-lite",
         "messages": [
             {"role": "user", "content": "hi"},
             {"role": "assistant", "content": "hello there"},
@@ -444,7 +444,7 @@ def test_gemini_translate_maps_assistant_to_model_role():
 
 def test_gemini_translate_generation_config():
     body = {
-        "model": "gemini-1.5-flash",
+        "model": "gemini-3.1-flash-lite",
         "messages": [{"role": "user", "content": "hi"}],
         "temperature": 0.5,
         "top_p": 0.9,
@@ -478,8 +478,8 @@ def test_gemini_to_openai_envelope_basic():
             "totalTokenCount": 10,
         },
     }
-    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-1.5-flash")
-    assert envelope["model"] == "gemini-1.5-flash"
+    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+    assert envelope["model"] == "gemini-3.1-flash-lite"
     assert envelope["choices"][0]["message"]["content"] == "Hi there!"
     assert envelope["choices"][0]["finish_reason"] == "stop"
     assert envelope["usage"]["total_tokens"] == 10
@@ -496,7 +496,7 @@ def test_gemini_to_openai_envelope_max_tokens_maps_to_length():
         ],
         "usageMetadata": {},
     }
-    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-1.5-flash")
+    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
     assert envelope["choices"][0]["finish_reason"] == "length"
 
 
@@ -507,7 +507,7 @@ def test_gemini_to_openai_envelope_safety_maps_to_content_filter():
         ],
         "usageMetadata": {},
     }
-    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-1.5-flash")
+    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
     assert envelope["choices"][0]["finish_reason"] == "content_filter"
 
 
@@ -519,7 +519,7 @@ def test_gemini_to_openai_envelope_safety_maps_to_content_filter():
 async def test_gemini_chat_completions_end_to_end(httpx_mock):
     httpx_mock.add_response(
         method="POST",
-        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent",
         match_headers={"x-goog-api-key": "gemini-test-key"},
         json={
             "candidates": [
@@ -541,7 +541,7 @@ async def test_gemini_chat_completions_end_to_end(httpx_mock):
         response = await gemini_provider.chat_completions(
             client,
             {
-                "model": "gemini-1.5-flash",
+                "model": "gemini-3.1-flash-lite",
                 "messages": [{"role": "user", "content": "ping"}],
             },
             stream=False,
