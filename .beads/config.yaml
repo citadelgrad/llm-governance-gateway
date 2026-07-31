@@ -55,3 +55,5 @@ issue-prefix: "GW"
 backup.enabled: false
 validation:
     on-create: warn
+sync:
+    remote: "git+https://github.com/citadelgrad/llm-governance-gateway.git"
