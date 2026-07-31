@@ -87,6 +87,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       MOCK_PROVIDERS: ${MOCK_PROVIDERS:-false}
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-5}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     depends_on:
       redis:
         condition: service_healthy
