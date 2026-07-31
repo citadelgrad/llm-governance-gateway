@@ -20,6 +20,10 @@ export GOVERNANCE_URL="http://localhost:8000"
 export GATEWAY_BASE_URL="http://localhost:8765"
 export MODELS_YAML="config/models.yaml"
 
+# MCP Reverse Proxy and its OPA Sidecar (non-default host ports).
+export GATEWAY_MCPPROXY_PORT="18766"
+export GATEWAY_OPA_SIDECAR_PORT="18767"
+
 # PII detection model.
 # Local high-recall option: en_core_web_lg (~680MB)
 # Smaller deploy-friendly option: en_core_web_sm (~12MB)
