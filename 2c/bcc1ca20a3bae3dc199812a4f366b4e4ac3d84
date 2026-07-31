@@ -1,0 +1,19 @@
+.beads/config.yaml
+  s_ca369f2e1c10fe::t_c352087d7f2dc0 58-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "2cbcc1ca20a3bae3dc199812a4f366b4e4ac3d84",
+  "prompts": {},
+  "sessions": {
+    "s_ca369f2e1c10fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ebeea1b-7dfd-4114-acab-bad59929b29c",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
