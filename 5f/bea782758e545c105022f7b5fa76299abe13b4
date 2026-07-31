@@ -1,0 +1,27 @@
+scripts/setup-vscode-sandbox.sh
+  s_5eb8d65b0886af::t_27c45d3447268c 60-64
+  s_5eb8d65b0886af::t_7bee435b4596e3 136
+  s_5eb8d65b0886af::t_0e66d4dd7b8c88 119-120
+scripts/onboard.py
+  s_5eb8d65b0886af::t_5bb08a785f9945 34-41
+  s_5eb8d65b0886af::t_d6167aa0bbef9d 7,9
+scripts/provision.py
+  s_5eb8d65b0886af::t_1a2f2460f58b64 160-179
+  s_5eb8d65b0886af::t_dd76e2260dd9e5 26-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "5fbea782758e545c105022f7b5fa76299abe13b4",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
