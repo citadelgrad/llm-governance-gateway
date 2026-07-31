@@ -24,7 +24,7 @@ tenants:
       - o1-mini
     rate_limit: 5000
     pii_action: pass
-    pii_redaction_notification: false
+    pii_redaction_notification: silent
     default_provider: anthropic
     contact_email: engineering@internal.example.com
 

@@ -38,7 +38,7 @@ services:
     build:
       context: ./governance
       args:
-        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_sm}
+        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
     command: ["uv", "run", "alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
@@ -50,7 +50,7 @@ services:
     build:
       context: ./governance
       args:
-        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_sm}
+        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
     environment:
       DATABASE_URL: postgresql+asyncpg://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
       REDIS_URL: redis://redis:6379
