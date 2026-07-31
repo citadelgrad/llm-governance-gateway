@@ -1,0 +1,24 @@
+policies/mcp/authz.rego
+  s_5eb8d65b0886af::t_c4efdf925edba5 46-49,53
+policies/mcp/authz_test.rego
+  s_5eb8d65b0886af::t_64bc19bca5adb4 27-36
+opa-sidecar/strip_entitlements.py
+  s_5eb8d65b0886af::t_5dd4fce506f7c1 29,33-35,37
+  s_5eb8d65b0886af::t_711635fadf8518 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "c0e18221381d682b2155af3164727e0bc871b460",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
