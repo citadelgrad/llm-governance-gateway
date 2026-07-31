@@ -1,0 +1,19 @@
+# OPA bundle-service config for the MCP tool-call-boundary sidecar.
+# Polls Governance's entitlement-data endpoint (ai-gateway-h04.4) rather
+# than loading policies/mcp/authz.rego's entitlements from local disk, so a
+# change to the entitlement data reaches decisions within max_delay_seconds
+# with no access-token reissuance (docs/auth-architecture.md, "short global
+# bundle-poll interval on the sidecar, not a per-session cache").
+services:
+  governance:
+    url: http://governance:8000
+    headers:
+      X-Internal-Token: ${GOVERNANCE_INTERNAL_TOKEN}
+
+bundles:
+  mcp_entitlements:
+    service: governance
+    resource: /v1/mcp/entitlements-bundle
+    polling:
+      min_delay_seconds: 5
+      max_delay_seconds: 10

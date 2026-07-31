@@ -100,48 +100,55 @@ services:
       timeout: 5s
       retries: 10
 
-  # Tool-call-boundary OPA process, colocated per MCP Reverse Proxy replica
-  # per docs/auth-architecture.md ("two evaluation points, two separate OPA
-  # processes"). Distinct from the `opa` ingress instance above: it only
-  # loads the mcp.authz package, never the llm/* policies.
-  #
-  # Loads policies/mcp from local disk (`-b`) rather than polling a remote
-  # bundle service for now: the real bundle source is Governance's
-  # entitlement-data endpoint (ai-gateway-h04.4), which doesn't exist yet.
-  # Pointing at it before it exists would leave this healthcheck failing
-  # forever and block `make up`/CI for the whole stack. ai-gateway-h04.5
-  # swaps this for real bundle-service polling (polling.min_delay_seconds:
-  # 5, max_delay_seconds: 10) once h04.4 lands.
-  #
-  # Published on a host port to satisfy this task's port-collision AC; the
-  # doc's "reachable only over loopback/UDS from its paired replica"
-  # isolation requirement is tightened in ai-gateway-h04.5, which owns OPA
-  # Sidecar deployment.
-  opa-sidecar:
-    image: openpolicyagent/opa:0.68.0-debug
-    command: ["run", "--server", "-a", "0.0.0.0:8181", "-b", "/policies/mcp"]
-    ports:
-      - "${GATEWAY_OPA_SIDECAR_PORT:-18767}:8181"
-    volumes:
-      - ./policies/mcp:/policies/mcp:ro
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8181/health?bundles=true"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   mcpproxy:
     build: ./mcpproxy
     ports:
       - "${GATEWAY_MCPPROXY_PORT:-18766}:8000"
     depends_on:
-      opa-sidecar:
-        condition: service_healthy
       governance:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
       interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Tool-call-boundary OPA process, colocated per MCP Reverse Proxy replica
+  # per docs/auth-architecture.md ("two evaluation points, two separate OPA
+  # processes"). Distinct from the `opa` ingress instance above: it only
+  # loads the mcp.authz package, never the llm/* policies.
+  #
+  # Polls Governance's entitlement-data endpoint (ai-gateway-h04.4) for its
+  # bundle, per sidecar-config.yaml (min_delay_seconds: 5, max_delay_seconds:
+  # 10). The image bakes in a derived variant of policies/mcp/authz.rego with
+  # the `entitlements := {...}` literal stripped, so the polled bundle's base
+  # data and the compiled rules don't collide at the same path (see
+  # opa-sidecar/strip_entitlements.py) — the canonical policy file on disk is
+  # untouched.
+  #
+  # `network_mode: "service:mcpproxy"` shares its paired replica's network
+  # namespace instead of joining the compose bridge network, and OPA binds to
+  # 127.0.0.1 only: together this makes the sidecar reachable exclusively
+  # over loopback from that one mcpproxy container, never as an independently
+  # addressable service to any other container (docs/auth-architecture.md,
+  # "colocated sidecar, not in-process/WASM"; "reachable only over
+  # loopback/UDS"). This requires the mcpproxy container to exist first, so
+  # mcpproxy must not depend on this service's health in turn.
+  opa-sidecar:
+    build:
+      context: .
+      dockerfile: opa-sidecar/Dockerfile
+    network_mode: "service:mcpproxy"
+    environment:
+      GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
+    depends_on:
+      mcpproxy:
+        condition: service_started
+      governance:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8181/health?bundles=true"]
+      interval: 5s
       timeout: 5s
       retries: 10
 
