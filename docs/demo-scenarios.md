@@ -4,7 +4,7 @@ Six canned scenarios cover the main governance and policy gates in the AI Gatewa
 scenario maps to a fixture in `tests/fixtures/mock_scenarios.py` and is triggered by
 specific message content when `MOCK_PROVIDERS=true` (the default for local demos).
 
-The proxy listens on **`http://localhost:8765`** (Docker host port, mapped to internal
+The proxy listens on **`http://localhost:18765`** (Docker host port, mapped to internal
 port 8000). All requests go to `POST /v1/chat/completions` with a Bearer token obtained
 from `POST /v1/keys`.
 
@@ -33,7 +33,7 @@ sensitive patterns used by the other five scenarios.
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -95,7 +95,7 @@ request continue to the provider.
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -151,7 +151,7 @@ request because the target provider (`openai` / mock) has not signed a HIPAA BAA
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -214,7 +214,7 @@ the pattern and sets `blocked = true`.
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -273,7 +273,7 @@ A caller whose JWT/API-key roles do not include `tier2-access` requests a tier-2
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <TIER1_API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -337,7 +337,7 @@ calling governance, so this block happens upstream of the PII/harm pipeline.
 **Input:**
 
 ```bash
-curl -s -X POST http://localhost:8765/v1/chat/completions \
+curl -s -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{

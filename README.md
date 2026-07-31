@@ -39,7 +39,7 @@ flowchart TB
     client[Client / API consumer]
 
     subgraph gateway[LLM Governance Gateway]
-        proxy[Proxy FastAPI\npublic :8765]
+        proxy[Proxy FastAPI\npublic :18765]
         governance[Governance FastAPI\ninternal]
         opa[Open Policy Agent\nRego policies]
         postgres[(Postgres\naudit + pseudonyms)]
@@ -137,14 +137,14 @@ For operator rollout steps, see [Onboarding users and routing agents through the
 Health check:
 
 ```bash
-curl http://localhost:8765/health
+curl http://localhost:18765/health
 ```
 
 Chat completions:
 
 ```bash
 TOKEN="replace-with-jwt-or-api-key"
-curl -X POST http://localhost:8765/v1/chat/completions \
+curl -X POST http://localhost:18765/v1/chat/completions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from jose import jwt
 
-BASE_URL = os.environ.get("GATEWAY_BASE_URL", "http://localhost:8765")
+BASE_URL = os.environ.get("GATEWAY_BASE_URL", "http://localhost:18765")
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
 RATE_LIMIT = int(os.environ.get("RATE_LIMIT_REQUESTS", "5"))
 

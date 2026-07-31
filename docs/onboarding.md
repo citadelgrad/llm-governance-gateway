@@ -12,7 +12,7 @@ Important: endpoint configuration only routes model API calls. It does not stop 
 Default local endpoint:
 
 ```text
-http://localhost:8765
+http://localhost:18765
 ```
 
 Production endpoint examples:
@@ -31,18 +31,21 @@ Current gateway API surface:
 | `GET /v1/models` | tenant-scoped model list | implemented |
 | `POST /v1/chat/completions` | OpenAI-compatible chat completions | implemented |
 | `POST /v1/responses` | OpenAI Responses-compatible endpoint for Codex | implemented |
+| `POST /v1/messages` | Anthropic Messages-compatible endpoint for Claude Code | implemented |
+| `POST /v1/messages/count_tokens` | Anthropic Messages token counting | implemented |
 | `POST /v1/keys` | tenant admin key creation | implemented |
 | `GET /v1/audit` | tenant admin audit view | implemented |
+| `GET /v1/audit/export` | tenant admin audit log export (streamed) | implemented |
 | `DELETE /v1/users/{user_id}` | tenant admin user deletion workflow | implemented |
+| `POST /v1/mcp/{server}/call` | authenticated MCP tool-call passthrough to the MCP reverse proxy | implemented |
 
 Agent compatibility today:
 
 | Agent | Native API it expects | Works with this gateway today? | Notes |
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
-| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | not directly | Claude Code can be pointed at an LLM gateway with `ANTHROPIC_BASE_URL`, but this repo does not yet expose the Anthropic Messages endpoints. Add a compatibility endpoint or put an Anthropic-compatible shim in front. |
+| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | yes | The gateway natively implements `/v1/messages` and `/v1/messages/count_tokens`; point `ANTHROPIC_BASE_URL` at the gateway. |
 | Codex CLI | OpenAI Responses API: `/v1/responses` | yes | Use a custom provider with `wire_api = "responses"` and send the gateway API key via `GATEWAY_API_KEY`. |
-Claude Code still needs a separate Anthropic Messages-compatible surface. Codex no longer needs a shim for basic prompt traffic.
 
 ## Enrollment model
 
@@ -166,7 +169,7 @@ make provision
 4. If an admin needs to issue an additional key, call `POST /v1/keys` with an existing tenant admin credential:
 
 ```bash
-GATEWAY_URL="http://localhost:8765"
+GATEWAY_URL="http://localhost:18765"
 ADMIN_KEY="gw_admin_key_from_provisioning"
 
 curl -sS -X POST "$GATEWAY_URL/v1/keys" \
@@ -199,7 +202,7 @@ Notes:
 Use the user's API key, not the admin key:
 
 ```bash
-GATEWAY_URL="http://localhost:8765"
+GATEWAY_URL="http://localhost:18765"
 USER_KEY="gw_or_generated_user_key"
 
 curl -sS "$GATEWAY_URL/v1/me" \

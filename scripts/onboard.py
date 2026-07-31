@@ -107,7 +107,7 @@ hermes config set model.api_key \"${api_key_env}\"
 hermes config set model.default \"{model}\"
 
 ### Claude Code
-# Requires an Anthropic Messages-compatible gateway/shim exposing /v1/messages.
+# The gateway natively exposes /v1/messages (Anthropic Messages API-compatible).
 export ANTHROPIC_BASE_URL=\"{base}\"
 export ANTHROPIC_AUTH_TOKEN=\"${api_key_env}\"
 export ANTHROPIC_MODEL=\"{claude_model}\"

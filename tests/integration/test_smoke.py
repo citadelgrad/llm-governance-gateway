@@ -15,7 +15,7 @@ import pytest
 from jose import jwt
 
 SKIP = not os.environ.get("INTEGRATION_TEST")
-GATEWAY_URL = os.environ.get("GATEWAY_BASE_URL", "http://localhost:8765")
+GATEWAY_URL = os.environ.get("GATEWAY_BASE_URL", "http://localhost:18765")
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
 
 

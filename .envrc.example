@@ -12,12 +12,12 @@ export GOVERNANCE_INTERNAL_TOKEN="replace-with-32-plus-byte-random-hex"
 export GATEWAY_BOOTSTRAP_TOKEN="replace-with-32-plus-byte-random-hex"
 export PSEUDONYM_HMAC_KEY="replace-with-32-plus-byte-random-hex"
 
-# Services: Docker Compose maps Postgres to localhost:15432 and the proxy to localhost:8765.
-export DATABASE_URL="postgresql://gateway:gateway@localhost:15432/gateway"
+# Services: Docker Compose maps Postgres to localhost:15433 and the proxy to localhost:18765.
+export DATABASE_URL="postgresql://gateway:gateway@localhost:15433/gateway"
 export REDIS_URL="redis://localhost:6379"
 export OPA_URL="http://localhost:8181"
 export GOVERNANCE_URL="http://localhost:8000"
-export GATEWAY_BASE_URL="http://localhost:8765"
+export GATEWAY_BASE_URL="http://localhost:18765"
 export MODELS_YAML="config/models.yaml"
 
 # MCP Reverse Proxy (non-default host port). Its OPA Sidecar has no host

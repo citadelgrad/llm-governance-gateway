@@ -83,8 +83,8 @@ Tenant defaults and allowed models live in `config/tenants.yaml`. Demo users liv
 
 Docker Compose starts:
 
-- Postgres on host port `15432`.
-- Proxy on host port `8765`.
+- Postgres on host port `15433`.
+- Proxy on host port `18765`.
 - Internal governance service.
 - Internal OPA service.
 - Internal Redis service.
