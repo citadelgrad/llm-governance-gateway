@@ -1,0 +1,20 @@
+scripts/setup-vscode-sandbox.sh
+  s_ca369f2e1c10fe::t_90aa787234b670 1-89,94-349
+  s_ca369f2e1c10fe::t_32525dddf76b5b 90-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "bfff74aa386f3c976fc0e671326fe929578a8be0",
+  "prompts": {},
+  "sessions": {
+    "s_ca369f2e1c10fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ebeea1b-7dfd-4114-acab-bad59929b29c",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
