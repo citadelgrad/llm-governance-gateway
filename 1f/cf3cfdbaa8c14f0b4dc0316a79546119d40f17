@@ -1,0 +1,63 @@
+scripts/setup-vscode-sandbox.sh
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 17-18,319
+policies/llm/allow_model.rego
+  s_031c1196f0e7f1::t_b5667c07c2dc68 12,16,18
+proxy/tests/test_chat.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 8,13,73,88
+policies/llm/allow_model_test.rego
+  s_031c1196f0e7f1::t_b362f43664079e 11-12,19-20,29-30,48,68
+proxy/tests/test_messages.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 313
+policies/llm/authz_test.rego
+  s_031c1196f0e7f1::t_b362f43664079e 13,26,121,169,183,199,215,231
+README.md
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 151
+proxy/tests/test_responses.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 8,21,61,76,100,133,151,170,187
+tests/test_onboard_cli.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 33,118,129
+policies/llm/authz.rego
+  s_031c1196f0e7f1::t_b5667c07c2dc68 14,18,20
+proxy/tests/test_properties.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 81,89,265,386,417,465,522
+config/models.yaml
+  s_031c1196f0e7f1::t_3887c45a5938da 7
+  s_031c1196f0e7f1::t_23d5e0e1533348 20,25
+  s_031c1196f0e7f1::t_aa95a7e51eaa1b 40
+proxy/tests/conftest.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 29,35
+apps/local-integration-tests/gateway_client.py
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 106,114
+docs/demo-scenarios.md
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 40,52,102,158,221,344
+scripts/demo.py
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 66,148
+config/tenants.yaml
+  s_031c1196f0e7f1::t_a761e2e4e5e64e 6,8-9,20,22-23,34-36
+proxy/tests/test_adapters.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 417,424,433,447,481-482,499,510,522,544
+docs/onboarding.md
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 75,216,229,251,270,282,358,370
+tests/integration/test_smoke.py
+  s_031c1196f0e7f1::t_fc0855c0dea929 51,73,89,105
+proxy/app/providers/gemini.py
+  s_031c1196f0e7f1::t_860b3bb10d4b0c 35
+scripts/onboard.py
+  s_031c1196f0e7f1::t_c36fa8a7fccc7c 179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "1fcf3cfdbaa8c14f0b4dc0316a79546119d40f17",
+  "prompts": {},
+  "sessions": {
+    "s_031c1196f0e7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fde3e1bc-d3ef-455f-a4f3-e6536e0a26c8",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
