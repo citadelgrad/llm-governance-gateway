@@ -1,0 +1,19 @@
+docker-compose.yml
+  s_031c1196f0e7f1::t_d8e531cb5124be 90-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "e7a8a7ff54930a668e0ebc0d061fff17cf1a89e0",
+  "prompts": {},
+  "sessions": {
+    "s_031c1196f0e7f1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fde3e1bc-d3ef-455f-a4f3-e6536e0a26c8",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
