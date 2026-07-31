@@ -23,6 +23,14 @@ def load_config():
     tenants = yaml.safe_load((CONFIG / "tenants.yaml").read_text())["tenants"]
     users = yaml.safe_load((CONFIG / "users.yaml").read_text())["users"]
     models = yaml.safe_load((CONFIG / "models.yaml").read_text())["models"]
+    for t in tenants:
+        notification = t.get("pii_redaction_notification")
+        if notification is not None and not isinstance(notification, str):
+            raise SystemExit(
+                f"tenants.yaml: tenant {t.get('id')!r} has pii_redaction_notification="
+                f"{notification!r} ({type(notification).__name__}); must be a string "
+                f"such as 'header' or 'silent'"
+            )
     return tenants, users, models
 
 
@@ -149,15 +157,26 @@ def main():
             # Check if key already exists for this user
             cur.execute("SELECT prefix FROM api_keys WHERE user_id = %s", (u["id"],))
             if not cur.fetchone():
-                plaintext = generate_key()
-                key_hash = bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
-                key_prefix = plaintext[:8]
-                cur.execute("""
-                    INSERT INTO api_keys (prefix, hash, user_id, tenant_id, roles)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (prefix) DO NOTHING
-                """, (key_prefix, key_hash, u["id"], u["tenant_id"], u.get("roles", [])))
-                generated_keys.append((u["id"], plaintext))
+                # key_prefix is only the first 8 chars of the key, so a collision
+                # with another user's prefix is possible (if rare); ON CONFLICT DO
+                # NOTHING would then silently skip the insert, leaving this user
+                # with no key at all — retry with a fresh key until it lands.
+                for attempt in range(5):
+                    plaintext = generate_key()
+                    key_hash = bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
+                    key_prefix = plaintext[:8]
+                    cur.execute("""
+                        INSERT INTO api_keys (prefix, hash, user_id, tenant_id, roles)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (prefix) DO NOTHING
+                    """, (key_prefix, key_hash, u["id"], u["tenant_id"], u.get("roles", [])))
+                    if cur.rowcount == 1:
+                        generated_keys.append((u["id"], plaintext))
+                        break
+                else:
+                    print(f"ERROR: could not generate a unique key prefix for {u['id']} "
+                          f"after {attempt + 1} attempts", file=sys.stderr)
+                    sys.exit(1)
 
         # Update provisioner_state
         cur.execute("""

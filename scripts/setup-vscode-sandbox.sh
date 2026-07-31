@@ -57,6 +57,11 @@ done
 log() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 err() { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; }
 
+if ! [[ "$USER_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+  err "invalid --user-id '${USER_ID}': only letters, digits, '-', and '_' are allowed."
+  exit 1
+fi
+
 # --- 1. Preconditions -------------------------------------------------------
 
 if ! docker info >/dev/null 2>&1; then
@@ -111,7 +116,8 @@ log "Gateway is healthy."
 if [ "$ROTATE_KEY" = true ]; then
   log "Rotating API key for $USER_ID..."
   docker compose exec -T -e PGPASSWORD=gateway postgres \
-    psql -U gateway -d gateway -c "DELETE FROM api_keys WHERE user_id = '${USER_ID}';" >/dev/null
+    psql -U gateway -d gateway -v user_id="$USER_ID" \
+    -c "DELETE FROM api_keys WHERE user_id = :'user_id';" >/dev/null
 fi
 
 log "Onboarding test user '$USER_ID' under tenant '$TENANT_ID'..."
@@ -127,7 +133,7 @@ if ! make provision | tee "$provision_log"; then
   exit 1
 fi
 
-new_key="$(grep -F "  ${USER_ID}: " "$provision_log" | sed -E "s/^ *${USER_ID}: //" || true)"
+new_key="$(grep -F "  ${USER_ID}: " "$provision_log" | sed -E 's/^[^:]*: //' || true)"
 
 KEY_FILE_NAME=".envrc"
 if [ -n "$new_key" ]; then

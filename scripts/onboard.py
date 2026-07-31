@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -29,7 +31,14 @@ def _load_yaml(path: Path, top_key: str) -> dict[str, Any]:
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(yaml.safe_dump(data, sort_keys=False))
+        os.replace(tmp_name, path)
+    except BaseException:
+        os.unlink(tmp_name)
+        raise
 
 
 def _tenant_exists(config_dir: Path, tenant_id: str) -> bool:
