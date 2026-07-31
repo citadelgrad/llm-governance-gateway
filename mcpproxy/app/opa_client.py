@@ -34,10 +34,10 @@ class OpaClient:
                 timeout=OPA_CHECK_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
+            data = resp.json()
         except Exception as exc:
             raise OpaCheckError(f"OPA sidecar check failed: {exc}") from exc
 
-        data = resp.json()
         if "result" not in data:
             raise OpaCheckError("OPA sidecar response missing 'result' key")
         return bool(data["result"])

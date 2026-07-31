@@ -376,14 +376,15 @@ async def test_call_denied_while_open_for_tool_not_on_allowlist(async_client):
     opa_client.check_tool_call.assert_not_awaited()
     downstream_client.stream.assert_not_called()
     governance_client.send_audit_event.assert_awaited_once_with(
-        tenant_id="tenant-1", user_id="user-1", event_type="policy_denied", decision="block"
+        tenant_id="tenant-1", user_id="user-1", event_type="breakglass_denied", decision="block"
     )
 
 
 async def test_call_allowed_while_open_for_tool_on_allowlist(async_client):
     """AC3/AC5: while open, a tool on the static allow-list is allowed and
-    proceeds to the downstream call without any sidecar call."""
-    client, downstream_client, _governance_client = async_client
+    proceeds to the downstream call without any sidecar call. The audit
+    event is distinguishable from a normal OPA-backed allow."""
+    client, downstream_client, governance_client = async_client
     opa_client = main_module.app.state.opa_client
     circuit_breaker = main_module.app.state.circuit_breaker
     _open_the_breaker(circuit_breaker)
@@ -395,6 +396,9 @@ async def test_call_allowed_while_open_for_tool_on_allowlist(async_client):
     assert resp.status_code == 200
     opa_client.check_tool_call.assert_not_awaited()
     downstream_client.stream.assert_called_once()
+    governance_client.send_audit_event.assert_awaited_once_with(
+        tenant_id="tenant-1", user_id="user-1", event_type="breakglass_tool_call", decision="allow"
+    )
 
 
 async def test_probe_after_cooldown_reaches_sidecar_and_closes_on_success(
@@ -555,6 +559,34 @@ async def test_missing_or_null_resource_is_skipped_without_error(async_client):
 
     assert resp_null.status_code == 200
     assert opa_client.check_tool_call.await_args.kwargs["context"]["resource"] is None
+
+
+async def test_missing_internal_token_is_rejected_before_any_policy_or_downstream_call(
+    async_client,
+):
+    """A caller with no X-Internal-Token can't self-assert a principal and
+    reach the OPA check or downstream server at all."""
+    client, downstream_client, _ = async_client
+    opa_client = main_module.app.state.opa_client
+    client.headers.pop("X-Internal-Token")
+
+    resp = await client.post("/v1/mcp/call", json=_full_call_body())
+
+    assert resp.status_code == 403
+    opa_client.check_tool_call.assert_not_awaited()
+    downstream_client.stream.assert_not_called()
+
+
+async def test_wrong_internal_token_is_rejected(async_client):
+    client, downstream_client, _ = async_client
+    opa_client = main_module.app.state.opa_client
+    client.headers["X-Internal-Token"] = "not-the-real-token"
+
+    resp = await client.post("/v1/mcp/call", json=_full_call_body())
+
+    assert resp.status_code == 403
+    opa_client.check_tool_call.assert_not_awaited()
+    downstream_client.stream.assert_not_called()
 
 
 async def test_already_nfc_resource_is_unchanged(async_client):

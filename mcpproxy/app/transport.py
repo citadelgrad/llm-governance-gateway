@@ -33,11 +33,13 @@ async def buffer_tool_response(
     async def _consume() -> bytes:
         buffer = bytearray()
         async for chunk in chunks:
-            buffer += chunk
-            if len(buffer) > max_bytes:
+            # Checked before extending the buffer, not after: a single chunk
+            # larger than the cap must not be appended even transiently.
+            if len(buffer) + len(chunk) > max_bytes:
                 raise ToolResponseTooLargeError(
                     f"tool response exceeded {max_bytes} byte cap"
                 )
+            buffer += chunk
         return bytes(buffer)
 
     try:

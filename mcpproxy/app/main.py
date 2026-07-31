@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sys
 import unicodedata
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from mcpproxy.app.circuit_breaker import CircuitBreaker
 from mcpproxy.app.config import settings
 from mcpproxy.app.governance_client import (
@@ -102,8 +103,16 @@ def _normalize_context(context: dict) -> dict:
 
 
 @app.post("/v1/mcp/call")
-async def call(request: Request):
+async def call(
+    request: Request,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+):
     """Receiving endpoint for calls forwarded by the Gateway Proxy.
+
+    Requires a valid X-Internal-Token, matching the pattern used by every
+    internal endpoint in governance/app/main.py - without this, a caller's
+    self-declared `principal` (tenant_id/user_id) would be trusted straight
+    from the request body with no verification of who is actually calling.
 
     Every call is checked against the OPA Sidecar's tool-call-boundary
     policy first, fresh on every call (no decision caching) - a deny blocks
@@ -126,12 +135,17 @@ async def call(request: Request):
     (fail-closed), unlike the harm-scan pipeline it deliberately diverges
     from.
     """
+    if not x_internal_token or not secrets.compare_digest(
+        x_internal_token, settings.governance_internal_token
+    ):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
     body = await request.json()
     principal = body.get("principal", {})
     tenant_id = principal.get("tenant_id", "")
     user_id = principal.get("user_id", "")
     tool = body.get("tool", {})
-    context = _normalize_context(body.get("context", {}))
+    context = _normalize_context(body.get("context") or {})
 
     client: httpx.AsyncClient = request.app.state.downstream_client
     governance_client: GovernanceClient = request.app.state.governance_client
@@ -139,6 +153,7 @@ async def call(request: Request):
     circuit_breaker: CircuitBreaker = request.app.state.circuit_breaker
 
     is_probe = False
+    used_breakglass = False
     if circuit_breaker.is_closed():
         call_sidecar = True
     elif circuit_breaker.try_start_probe():
@@ -159,6 +174,7 @@ async def call(request: Request):
             if is_probe:
                 circuit_breaker.record_probe_failure()
                 allowed = _breakglass_allowed(tool)
+                used_breakglass = True
             else:
                 circuit_breaker.record_failure()
                 allowed = False
@@ -166,13 +182,14 @@ async def call(request: Request):
             circuit_breaker.record_success()
     else:
         allowed = _breakglass_allowed(tool)
+        used_breakglass = True
 
     if not allowed:
         await _send_audit_event(
             governance_client,
             tenant_id=tenant_id,
             user_id=user_id,
-            event_type="policy_denied",
+            event_type="breakglass_denied" if used_breakglass else "policy_denied",
             decision="block",
         )
         return _policy_violation_response()
@@ -193,8 +210,18 @@ async def call(request: Request):
 
     try:
         text = buffered.decode("utf-8")
-        await governance_client.scan_for_pii(text)
+        scan_result = await governance_client.scan_for_pii(text)
     except (DlpScanError, UnicodeDecodeError):
+        await _send_audit_event(
+            governance_client,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            event_type="dlp_blocked",
+            decision="block",
+        )
+        return Response(status_code=502)
+
+    if scan_result.pii_findings:
         await _send_audit_event(
             governance_client,
             tenant_id=tenant_id,
@@ -208,7 +235,7 @@ async def call(request: Request):
         governance_client,
         tenant_id=tenant_id,
         user_id=user_id,
-        event_type="mcp_tool_call",
+        event_type="breakglass_tool_call" if used_breakglass else "mcp_tool_call",
         decision="allow",
     )
     return Response(content=buffered, status_code=200, media_type=content_type)
