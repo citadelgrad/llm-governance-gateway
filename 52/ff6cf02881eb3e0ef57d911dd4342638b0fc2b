@@ -1,0 +1,19 @@
+scripts/provision.py
+  s_0dca0564055efd::t_728c98ca6f5cba 97-101,105-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "52ff6cf02881eb3e0ef57d911dd4342638b0fc2b",
+  "prompts": {},
+  "sessions": {
+    "s_0dca0564055efd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ad19683-39bc-4dfb-9232-2d94fabebe6b",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
