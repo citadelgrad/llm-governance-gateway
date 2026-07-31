@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from mcpproxy.app.circuit_breaker import CircuitBreaker
 from mcpproxy.app.main import app
 
 
@@ -12,6 +13,7 @@ def _setup_app_state(downstream_client, governance_client, opa_client):
     app.state.downstream_client = downstream_client
     app.state.governance_client = governance_client
     app.state.opa_client = opa_client
+    app.state.circuit_breaker = CircuitBreaker()
 
 
 @pytest.fixture

@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
+from mcpproxy.app.circuit_breaker import CircuitBreaker
+from mcpproxy.app.config import settings
 from mcpproxy.app.governance_client import (
     AuditEventError,
     DlpScanError,
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
     app.state.downstream_client = downstream_client
     app.state.governance_client = make_governance_client(governance_http_client)
     app.state.opa_client = make_opa_client(opa_http_client)
+    app.state.circuit_breaker = CircuitBreaker()
     yield
     await downstream_client.aclose()
     await governance_http_client.aclose()
@@ -75,15 +78,30 @@ def _policy_violation_response() -> Response:
     return Response(content=body, status_code=403, media_type="application/json")
 
 
+def _breakglass_allowed(tool: dict) -> bool:
+    """Static, read-only fallback used only while the OPA Sidecar circuit
+    breaker is open - never the entitlement-matrix document (unreachable
+    through the down sidecar) and never the caller's coarse token scope."""
+    key = f"{tool.get('server', '')}:{tool.get('name', '')}"
+    return key in settings.breakglass_tool_allowlist
+
+
 @app.post("/v1/mcp/call")
 async def call(request: Request):
     """Receiving endpoint for calls forwarded by the Gateway Proxy.
 
     Every call is checked against the OPA Sidecar's tool-call-boundary
-    policy first, fresh on every call (no decision caching) - a deny (or an
-    unreachable/erroring sidecar, treated the same, fail-closed) blocks the
-    call before it ever reaches the downstream MCP server. Only on an
+    policy first, fresh on every call (no decision caching) - a deny blocks
+    the call before it ever reaches the downstream MCP server. Only on an
     explicit allow does execution continue.
+
+    While the sidecar is reachable, a per-replica circuit breaker tracks
+    consecutive transport failures (never DENY decisions). After 5 such
+    failures it opens, and calls fall back to a static, read-only tool
+    allow-list instead of the sidecar - the break-glass path from
+    docs/auth-architecture.md. After 30s open, exactly one call probes the
+    sidecar again; success closes the breaker, failure reopens it and
+    restarts the cooldown.
 
     Buffers the downstream MCP server's tool response in full - whether sent
     as a single JSON-RPC message or as SSE chunks - enforcing the 1 MiB /
@@ -91,27 +109,47 @@ async def call(request: Request):
     response is then scanned by Governance's DLP checkpoint before being
     forwarded; a cap breach or scan failure blocks the response outright
     (fail-closed), unlike the harm-scan pipeline it deliberately diverges
-    from. Break-glass on OPA Sidecar outage is added by a later
-    ai-gateway-h04 task.
+    from.
     """
     body = await request.json()
     principal = body.get("principal", {})
     tenant_id = principal.get("tenant_id", "")
     user_id = principal.get("user_id", "")
+    tool = body.get("tool", {})
 
     client: httpx.AsyncClient = request.app.state.downstream_client
     governance_client: GovernanceClient = request.app.state.governance_client
     opa_client: OpaClient = request.app.state.opa_client
+    circuit_breaker: CircuitBreaker = request.app.state.circuit_breaker
 
-    try:
-        allowed = await opa_client.check_tool_call(
-            principal=principal,
-            actor=body.get("actor", {}),
-            tool=body.get("tool", {}),
-            context=body.get("context", {}),
-        )
-    except OpaCheckError:
-        allowed = False
+    is_probe = False
+    if circuit_breaker.is_closed():
+        call_sidecar = True
+    elif circuit_breaker.try_start_probe():
+        call_sidecar = True
+        is_probe = True
+    else:
+        call_sidecar = False
+
+    if call_sidecar:
+        try:
+            allowed = await opa_client.check_tool_call(
+                principal=principal,
+                actor=body.get("actor", {}),
+                tool=tool,
+                context=body.get("context", {}),
+            )
+        except OpaCheckError:
+            if is_probe:
+                circuit_breaker.record_probe_failure()
+                allowed = _breakglass_allowed(tool)
+            else:
+                circuit_breaker.record_failure()
+                allowed = False
+        else:
+            circuit_breaker.record_success()
+    else:
+        allowed = _breakglass_allowed(tool)
 
     if not allowed:
         await _send_audit_event(
