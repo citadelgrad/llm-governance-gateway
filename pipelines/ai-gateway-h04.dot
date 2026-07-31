@@ -105,16 +105,50 @@ Re-run tests after fixing."
 
     // --- Close this task ---
     close_task [
-        shape="box"
+        shape="diamond"
         label="Close Task"
+        node_type="conditional"
         timeout="300s"
         allowed_tools="Bash(bd:*),Bash(git:*)"
         prompt="Read .pas/current_task.md to get the task ID.
 1. Stage changes: git add -A
 2. Commit with a descriptive message referencing the task ID
 3. Close the task: bd close <task-id> --reason='Implemented successfully'
-4. Run: bd sync --flush-only"
+4. Run: bd sync --flush-only
+
+If all steps succeeded, respond with SUCCESS on the last line.
+If any step failed, respond with FAIL on the last line."
     ]
+
+    // --- Retry a failed close, once ---
+    close_task_retry [
+        shape="diamond"
+        label="Retry Close Task"
+        node_type="conditional"
+        timeout="300s"
+        allowed_tools="Bash(bd:*),Bash(git:*)"
+        prompt="The previous attempt to close this task failed. Read .pas/current_task.md to get the task ID.
+Retry, skipping any step already done:
+1. Check for uncommitted changes and stage them: git add -A
+2. Commit with a descriptive message referencing the task ID, if not already committed
+3. Close the task: bd close <task-id> --reason='Implemented successfully', if not already closed
+4. Run: bd sync --flush-only, if not already synced
+
+If the task is now committed, closed, and synced, respond with SUCCESS on the last line.
+If it still fails, respond with FAIL on the last line."
+    ]
+
+    // --- Give up after one retry; flag for a human instead of silently advancing ---
+    flag_for_human [
+        shape="box"
+        label="Flag For Human"
+        allowed_tools="Bash(bd:*)"
+        prompt="Read .pas/current_task.md to get the task ID.
+Run: bd human <task-id> --reason='close_task failed twice in a row; commit/close/sync needs manual review'
+This task's work may be implemented and verified but left uncommitted, unclosed, or unsynced. Do not attempt further automated fixes."
+    ]
+
+    halted [shape="Msquare", label="Halted: Needs Human"]
 
     // --- Check if more tasks remain ---
     check_remaining [
@@ -146,7 +180,13 @@ If all tasks are closed or remaining tasks are blocked, respond with DONE on the
     verify -> fixup      [label="FAIL", condition="preferred_label=FAIL"]
     fixup  -> verify
 
-    close_task -> check_remaining
+    close_task -> check_remaining  [label="SUCCESS", condition="preferred_label=SUCCESS"]
+    close_task -> close_task_retry [label="FAIL", condition="preferred_label=FAIL"]
+
+    close_task_retry -> check_remaining [label="SUCCESS", condition="preferred_label=SUCCESS"]
+    close_task_retry -> flag_for_human  [label="FAIL", condition="preferred_label=FAIL"]
+
+    flag_for_human -> halted
 
     check_remaining -> pick_task [label="MORE", condition="preferred_label=MORE", loop_restart=true]
     check_remaining -> done      [label="DONE", condition="preferred_label=DONE"]
