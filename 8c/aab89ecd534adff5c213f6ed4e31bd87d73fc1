@@ -1,0 +1,42 @@
+mcpproxy/tests/test_main.py
+  s_6f2049b4a44bf8::t_1426805de7f2c1 1-100
+mcpproxy/app/transport.py
+  s_6f2049b4a44bf8::t_077bbab76d8828 1-48
+mcpproxy/pyproject.toml
+  s_6f2049b4a44bf8::t_963c1c1363ef2a 15-25,31-45
+mcpproxy/app/main.py
+  s_6f2049b4a44bf8::t_47b6d51eaab0e6 1,3-7,9-30,40,42-46,49-58
+  s_6f2049b4a44bf8::t_60169ff77f472b 8
+mcpproxy/tests/test_transport.py
+  s_6f2049b4a44bf8::t_def8a373387037 1-83
+mcpproxy/tests/conftest.py
+  s_6f2049b4a44bf8::t_29db3c50c57fae 1-22
+Makefile
+  s_6f2049b4a44bf8::t_89e9373e630776 38,43
+mcpproxy/uv.lock
+  s_66e346885f8655::t_e893806143f29a 5-8,40-48,95-107,144-158,168-176,183,187-196,200-206,209-227,319-369,425-449,463-487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "8caab89ecd534adff5c213f6ed4e31bd87d73fc1",
+  "prompts": {},
+  "sessions": {
+    "s_66e346885f8655": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a34dbfc4-790d-4c3b-b19d-9815a27c486e",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_6f2049b4a44bf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "016d7635-ed24-462b-8fd6-e09276185fbc",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
