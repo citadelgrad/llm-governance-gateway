@@ -104,6 +104,9 @@ services:
     build: ./mcpproxy
     ports:
       - "${GATEWAY_MCPPROXY_PORT:-18766}:8000"
+    environment:
+      GOVERNANCE_URL: http://governance:8000
+      GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
     depends_on:
       governance:
         condition: service_healthy

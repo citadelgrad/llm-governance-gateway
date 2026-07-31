@@ -82,3 +82,53 @@ async def write_audit(
     except Exception as exc:
         print(f"[audit] write_audit failed: {exc}", file=sys.stderr)
         await session.rollback()
+
+
+async def write_mcp_audit_event(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    user_id: str,
+    hmac_key: str,
+    audit_id: str,
+    event_type: str,
+    decision: str,
+) -> None:
+    """Write an audit record for an MCP tool-call event.
+
+    MCP tool calls have no model_id/routing_method in the LLM-pipeline sense,
+    so this writes routing_method="mcp" (sentinel) and model_id=NULL directly
+    instead of going through PipelineContext/write_audit, which would
+    misrepresent an MCP event as an LLM one. Unlike write_audit (a
+    best-effort BackgroundTasks write), failures here propagate so the
+    caller (the /v1/mcp/audit-event endpoint) surfaces them.
+    """
+    now = datetime.now(UTC)
+    user_pseudonym = await pseudonym_module.get_or_create(session, hmac_key, tenant_id, user_id)
+
+    await session.execute(
+        text("""
+            INSERT INTO audit_log (
+                audit_id, created_at, written_at,
+                user_id, tenant_id, model_id, routing_method,
+                decision, violations, phase
+            ) VALUES (
+                :audit_id, :created_at, :written_at,
+                :user_id, :tenant_id, NULL, 'mcp',
+                :decision,
+                CAST(:violations AS jsonb),
+                :phase
+            )
+        """),
+        {
+            "audit_id": audit_id,
+            "created_at": now,
+            "written_at": now,
+            "user_id": user_pseudonym,
+            "tenant_id": tenant_id,
+            "decision": decision,
+            "violations": json.dumps([event_type] if decision == "block" else []),
+            "phase": event_type,
+        },
+    )
+    await session.commit()

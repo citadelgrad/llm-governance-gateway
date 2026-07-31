@@ -209,6 +209,45 @@ async def entitlements_bundle(
     return Response(content=bundle_bytes, media_type="application/gzip")
 
 
+# ─── /v1/mcp/audit-event ────────────────────────────────────────────────────
+# Records an MCP tool-call outcome (forwarded or dlp_blocked) from the MCP
+# Reverse Proxy. No model_id/routing_method in the LLM-pipeline sense - writes
+# via audit_module.write_mcp_audit_event(), not write_audit()/PipelineContext.
+
+class McpAuditEventRequest(BaseModel):
+    tenant_id: str
+    user_id: str
+    event_type: str    # e.g. "mcp_tool_call" | "dlp_blocked"
+    decision: str       # "allow" | "block"
+
+
+class McpAuditEventResponse(BaseModel):
+    audit_id: str
+
+
+@app.post("/v1/mcp/audit-event", response_model=McpAuditEventResponse)
+async def mcp_audit_event(
+    req: McpAuditEventRequest,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+    session: AsyncSession = Depends(get_session),
+) -> McpAuditEventResponse:
+    if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+
+    audit_id = str(audit_module.uuid7())
+    await audit_module.write_mcp_audit_event(
+        session,
+        tenant_id=req.tenant_id,
+        user_id=req.user_id,
+        hmac_key=settings.pseudonym_hmac_key,
+        audit_id=audit_id,
+        event_type=req.event_type,
+        decision=req.decision,
+    )
+
+    return McpAuditEventResponse(audit_id=audit_id)
+
+
 # ─── /v1/audit/export ────────────────────────────────────────────────────────
 
 @app.get("/v1/audit/export")
