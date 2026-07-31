@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import unicodedata
 from contextlib import asynccontextmanager
 
 import httpx
@@ -86,6 +87,20 @@ def _breakglass_allowed(tool: dict) -> bool:
     return key in settings.breakglass_tool_allowlist
 
 
+def _normalize_context(context: dict) -> dict:
+    """NFC-normalizes context.resource before the OPA Sidecar input is
+    built - Rego's canonicalize() handles lowercasing/trailing-slash
+    stripping but has no Unicode-normalization builtin (see
+    docs/auth-architecture.md, "Resource-string canonicalization")."""
+    resource = context.get("resource")
+    if not isinstance(resource, str):
+        return context
+    normalized = unicodedata.normalize("NFC", resource)
+    if normalized == resource:
+        return context
+    return {**context, "resource": normalized}
+
+
 @app.post("/v1/mcp/call")
 async def call(request: Request):
     """Receiving endpoint for calls forwarded by the Gateway Proxy.
@@ -116,6 +131,7 @@ async def call(request: Request):
     tenant_id = principal.get("tenant_id", "")
     user_id = principal.get("user_id", "")
     tool = body.get("tool", {})
+    context = _normalize_context(body.get("context", {}))
 
     client: httpx.AsyncClient = request.app.state.downstream_client
     governance_client: GovernanceClient = request.app.state.governance_client
@@ -137,7 +153,7 @@ async def call(request: Request):
                 principal=principal,
                 actor=body.get("actor", {}),
                 tool=tool,
-                context=body.get("context", {}),
+                context=context,
             )
         except OpaCheckError:
             if is_probe:

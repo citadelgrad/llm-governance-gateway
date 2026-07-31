@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import unicodedata
 from unittest.mock import AsyncMock, MagicMock
 
 import mcpproxy.app.circuit_breaker as circuit_breaker_module
@@ -478,3 +479,94 @@ async def test_failed_probe_reopens_breaker_and_restarts_the_cooldown(async_clie
 
     opa_client.check_tool_call.assert_not_awaited()
     assert follow_up_resp.status_code == 403
+
+
+async def test_context_resource_is_nfc_normalized_before_opa_check(async_client):
+    """AC1: an NFD-form context.resource reaches the OPA Sidecar as NFC."""
+    client, downstream_client, _ = async_client
+    downstream_client.stream = MagicMock(return_value=_make_stream_ctx([b'{"result": "ok"}']))
+    opa_client = main_module.app.state.opa_client
+    body = _full_call_body()
+    nfd_resource = unicodedata.normalize("NFD", "repo:org/café")
+    body["context"]["resource"] = nfd_resource
+
+    await client.post("/v1/mcp/call", json=body)
+
+    sent_context = opa_client.check_tool_call.await_args.kwargs["context"]
+    assert sent_context["resource"] == unicodedata.normalize("NFC", nfd_resource)
+
+
+async def test_nfc_and_nfd_forms_of_same_resource_produce_identical_opa_input(async_client):
+    """AC2: visually identical NFC-form and NFD-form resource strings collapse
+    to the same context.resource value sent to the sidecar."""
+    client, downstream_client, _ = async_client
+    downstream_client.stream = MagicMock(
+        side_effect=lambda *a, **k: _make_stream_ctx([b'{"result": "ok"}'])
+    )
+    opa_client = main_module.app.state.opa_client
+    nfc_body = _full_call_body()
+    nfc_body["context"]["resource"] = unicodedata.normalize("NFC", "repo:org/café")
+    nfd_body = _full_call_body()
+    nfd_body["context"]["resource"] = unicodedata.normalize("NFD", "repo:org/café")
+
+    await client.post("/v1/mcp/call", json=nfc_body)
+    first_resource = opa_client.check_tool_call.await_args.kwargs["context"]["resource"]
+
+    await client.post("/v1/mcp/call", json=nfd_body)
+    second_resource = opa_client.check_tool_call.await_args.kwargs["context"]["resource"]
+
+    assert first_resource == second_resource
+
+
+async def test_tool_arguments_are_not_touched_by_resource_normalization(async_client):
+    """AC3: an NFD-form value inside tool.arguments is passed through
+    unmodified, even though context.resource in the same request is
+    normalized to NFC."""
+    client, downstream_client, _ = async_client
+    downstream_client.stream = MagicMock(return_value=_make_stream_ctx([b'{"result": "ok"}']))
+    opa_client = main_module.app.state.opa_client
+    body = _full_call_body()
+    nfd_argument = unicodedata.normalize("NFD", "café")
+    body["tool"]["arguments"]["title"] = nfd_argument
+    body["context"]["resource"] = unicodedata.normalize("NFD", "repo:org/café")
+
+    await client.post("/v1/mcp/call", json=body)
+
+    sent_tool = opa_client.check_tool_call.await_args.kwargs["tool"]
+    assert sent_tool["arguments"]["title"] == nfd_argument
+
+
+async def test_missing_or_null_resource_is_skipped_without_error(async_client):
+    """AC4: a request with no context.resource key, and one with an explicit
+    null resource, both pass through unmodified without raising."""
+    client, downstream_client, _ = async_client
+    downstream_client.stream = MagicMock(
+        side_effect=lambda *a, **k: _make_stream_ctx([b'{"result": "ok"}'])
+    )
+    opa_client = main_module.app.state.opa_client
+
+    resp_missing = await client.post("/v1/mcp/call", json=_principal_body())
+    assert resp_missing.status_code == 200
+    assert opa_client.check_tool_call.await_args.kwargs["context"] == {}
+
+    body_null = _full_call_body()
+    body_null["context"]["resource"] = None
+    resp_null = await client.post("/v1/mcp/call", json=body_null)
+
+    assert resp_null.status_code == 200
+    assert opa_client.check_tool_call.await_args.kwargs["context"]["resource"] is None
+
+
+async def test_already_nfc_resource_is_unchanged(async_client):
+    """AC5: a resource string already in NFC form, already lowercase, with no
+    trailing slash is passed through unchanged."""
+    client, downstream_client, _ = async_client
+    downstream_client.stream = MagicMock(return_value=_make_stream_ctx([b'{"result": "ok"}']))
+    opa_client = main_module.app.state.opa_client
+    body = _full_call_body()
+
+    await client.post("/v1/mcp/call", json=body)
+
+    sent_context = opa_client.check_tool_call.await_args.kwargs["context"]
+    assert sent_context["resource"] == "repo:org/name"
+    assert sent_context == body["context"]
