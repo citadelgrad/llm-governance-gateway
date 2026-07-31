@@ -41,6 +41,9 @@ def make_jwt(
     tenant_id: str = "test-tenant",
     roles: list[str] | None = None,
     secret: str = TEST_JWT_SECRET,
+    scope: str | list[str] | None = None,
+    client_id: str | None = None,
+    act_sub: str | None = None,
 ) -> str:
     payload = {
         "user_id": user_id,
@@ -48,6 +51,12 @@ def make_jwt(
         "roles": roles or ["user"],
         "exp": datetime.now(UTC) + timedelta(hours=1),
     }
+    if scope is not None:
+        payload["scope"] = scope
+    if client_id is not None:
+        payload["client_id"] = client_id
+    if act_sub is not None:
+        payload["act"] = {"sub": act_sub}
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -111,6 +120,7 @@ def _setup_app_state(pool, gov_mock, models_config=None):
     app.state.governance_client = gov_mock
     app.state.openai_client = None
     app.state.anthropic_client = None
+    app.state.mcpproxy_client = AsyncMock()
     app.state.models_config = cfg
     app.state.models_by_id = {m["id"]: m for m in cfg}
     app.state.ready = True

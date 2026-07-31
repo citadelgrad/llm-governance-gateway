@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     governance_url: str = "http://governance:8000"
     governance_internal_token: str = Field(...)
+    mcpproxy_url: str = "http://mcpproxy:8000"
+    agent_runtime_client_ids: list[str] = []
     database_url: str = Field(..., description="PostgreSQL connection string (required)")
     openai_api_key: str = ""
     anthropic_api_key: str = ""

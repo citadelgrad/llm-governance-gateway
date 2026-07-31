@@ -81,6 +81,7 @@ services:
       REDIS_URL: redis://redis:6379
       GOVERNANCE_URL: http://governance:8000
       GOVERNANCE_INTERNAL_TOKEN: ${GOVERNANCE_INTERNAL_TOKEN}
+      MCPPROXY_URL: http://mcpproxy:8000
       JWT_SECRET: ${JWT_SECRET}
       MOCK_PROVIDERS: ${MOCK_PROVIDERS:-false}
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-5}
@@ -88,6 +89,8 @@ services:
       redis:
         condition: service_healthy
       governance:
+        condition: service_healthy
+      mcpproxy:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]

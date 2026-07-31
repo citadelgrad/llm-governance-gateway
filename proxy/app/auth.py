@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import asyncpg
 import bcrypt
@@ -19,6 +19,9 @@ class CallerContext:
     user_id: str
     tenant_id: str
     roles: list[str]
+    scopes: list[str] = field(default_factory=list)
+    client_id: str | None = None
+    act_sub: str | None = None
 
 
 _api_key_cache: TTLCache = TTLCache(maxsize=1000, ttl=60)
@@ -88,7 +91,20 @@ def _validate_jwt(token: str) -> CallerContext:
     if not user_id or not tenant_id:
         raise AuthError("token missing required claims")
 
-    return CallerContext(user_id=user_id, tenant_id=tenant_id, roles=roles)
+    scope_claim = claims.get("scope", claims.get("scopes", []))
+    scopes = scope_claim.split() if isinstance(scope_claim, str) else list(scope_claim or [])
+    client_id = claims.get("client_id")
+    act_claim = claims.get("act") or {}
+    act_sub = act_claim.get("sub") if isinstance(act_claim, dict) else None
+
+    return CallerContext(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        roles=roles,
+        scopes=scopes,
+        client_id=client_id,
+        act_sub=act_sub,
+    )
 
 
 async def authenticate(

@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
 
     gov_http = httpx.AsyncClient(timeout=10.0)
     governance_client = make_governance_client(gov_http)
+    mcpproxy_client = httpx.AsyncClient(timeout=10.0)
 
     openai_client: httpx.AsyncClient | None = None
     anthropic_client: httpx.AsyncClient | None = None
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
     app.state.rate_limiter = rate_limiter
     app.state.gov_http = gov_http
     app.state.governance_client = governance_client
+    app.state.mcpproxy_client = mcpproxy_client
     app.state.openai_client = openai_client
     app.state.anthropic_client = anthropic_client
     app.state.gemini_client = gemini_client
@@ -104,6 +106,7 @@ async def lifespan(app: FastAPI):
     await db_pool.close()
     await redis.aclose()
     await gov_http.aclose()
+    await mcpproxy_client.aclose()
     for client in (openai_client, anthropic_client, gemini_client, ollama_client):
         if client is not None:
             await client.aclose()
@@ -264,6 +267,32 @@ def _enforce_allowed_model(model_id: str, allowed_models: list[str]) -> None:
                 "model_not_allowed",
                 f"Model {model_id} is not allowed for this tenant",
             ),
+        )
+
+
+def _enforce_mcp_scope(caller: CallerContext, server: str) -> None:
+    required_scope = f"mcp:{server}:invoke"
+    if required_scope not in caller.scopes:
+        raise HTTPException(
+            status_code=403,
+            detail=error_envelope("missing_scope", f"Missing required scope: {required_scope}"),
+        )
+
+
+def _enforce_act_claim(caller: CallerContext) -> None:
+    """Reject agent-runtime clients that lack a valid act claim.
+
+    Runs after the scope check, before any OPA/downstream call, per the
+    runtime-flow gate ordering in docs/auth-architecture.md. Human callers
+    (client_id not in the registered agent-runtime list) and agents already
+    carrying an act.sub distinct from sub are unaffected.
+    """
+    if caller.client_id not in settings.agent_runtime_client_ids:
+        return
+    if not caller.act_sub or caller.act_sub == caller.user_id:
+        raise HTTPException(
+            status_code=401,
+            detail=error_envelope("missing_act_claim", "Agent caller missing a valid act claim"),
         )
 
 
@@ -723,3 +752,36 @@ async def audit_export(
                 yield chunk
 
     return StreamingResponse(_stream(), media_type="application/octet-stream")
+
+
+@app.post("/v1/mcp/{server}/call")
+async def mcp_call(
+    server: str,
+    request: Request,
+    caller: CallerContext = Depends(get_caller),
+):
+    # Both gates run before any OPA or downstream call, per
+    # docs/auth-architecture.md's runtime-flow diagram.
+    _enforce_mcp_scope(caller, server)
+    _enforce_act_claim(caller)
+
+    body = await _parse_json_body(request)
+    outbound = {
+        "tool": {**body.get("tool", {}), "server": server},
+        "context": body.get("context", {}),
+        "principal": {
+            "user_id": caller.user_id,
+            "tenant_id": caller.tenant_id,
+            "roles": caller.roles,
+        },
+    }
+
+    resp = await request.app.state.mcpproxy_client.post(
+        f"{settings.mcpproxy_url}/v1/mcp/call",
+        json=outbound,
+    )
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
