@@ -1,0 +1,38 @@
+governance/app/entitlements.py
+  s_5eb8d65b0886af::t_860235d6477d4c 24
+  s_5eb8d65b0886af::t_8090ade4fc787c 78-94
+  s_5eb8d65b0886af::t_f92c0974e0f360 22
+  s_5eb8d65b0886af::t_1430fc125c86a6 130
+  s_5eb8d65b0886af::t_0b772fa4e90b99 42,47-49,51
+  s_5eb8d65b0886af::t_25f799b2c1be0a 95-96
+governance/app/pipeline.py
+  s_5eb8d65b0886af::t_ca3601df532f82 16-23
+governance/tests/test_entitlements.py
+  s_5eb8d65b0886af::t_4eac698a0d47ef 131-136,139-152
+  s_5eb8d65b0886af::t_3f4033de84f7e1 137-138
+  s_5eb8d65b0886af::t_9f2cf4500360fd 5
+  s_5eb8d65b0886af::t_eefd7305a514bd 153-154
+governance/app/main.py
+  s_5eb8d65b0886af::t_376a69340a6784 69-73,82
+  s_5eb8d65b0886af::t_4de52126989540 99-104
+  s_5eb8d65b0886af::t_98a172b0a77ead 38
+  s_5eb8d65b0886af::t_03e5ae79883105 7
+  s_5eb8d65b0886af::t_c81f7de0cd994c 66-68,74-81
+  s_5eb8d65b0886af::t_1829bf08e0c926 349-354,356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "c0e36a3d5405f4258eb52a2b0f2725e98763b1f2",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
