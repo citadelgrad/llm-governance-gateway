@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -17,6 +19,9 @@ class PiiResult:
 _analyzer: AnalyzerEngine | None = None
 _anonymizer: AnonymizerEngine | None = None
 _lock: asyncio.Lock | None = None
+_executor: ThreadPoolExecutor | None = None
+_executor_max_workers: int | None = None
+_semaphore: asyncio.Semaphore | None = None
 
 def _get_lock() -> asyncio.Lock:
     global _lock
@@ -24,11 +29,22 @@ def _get_lock() -> asyncio.Lock:
         _lock = asyncio.Lock()
     return _lock
 
+def _get_semaphore() -> asyncio.Semaphore:
+    global _semaphore
+    if _semaphore is None:
+        assert _executor_max_workers is not None, "call initialize() first"
+        _semaphore = asyncio.Semaphore(_executor_max_workers)
+    return _semaphore
+
 async def initialize(spacy_model: str = "en_core_web_lg") -> None:
-    global _analyzer, _anonymizer
+    global _analyzer, _anonymizer, _executor, _executor_max_workers
     async with _get_lock():
         if _analyzer is not None:
             return  # already initialized (idempotent)
+        if _executor is None:
+            _executor_max_workers = min(32, (os.cpu_count() or 1) + 4)
+            _executor = ThreadPoolExecutor(max_workers=_executor_max_workers)
+            asyncio.get_running_loop().set_default_executor(_executor)
         from presidio_analyzer.nlp_engine import NlpEngineProvider
         provider = NlpEngineProvider(nlp_configuration={
             "nlp_engine_name": "spacy",
@@ -65,15 +81,17 @@ def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
 
 async def scan(text: str) -> list[RecognizerResult]:
     assert _analyzer is not None, "call initialize() first"
-    return await asyncio.to_thread(_analyzer.analyze, text=text, language="en")
+    async with _get_semaphore():
+        return await asyncio.to_thread(_analyzer.analyze, text=text, language="en")
 
 async def redact(text: str, results: list[RecognizerResult]) -> str:
     assert _anonymizer is not None, "call initialize() first"
-    anonymized = await asyncio.to_thread(
-        _anonymizer.anonymize,
-        text=text,
-        analyzer_results=cast(Any, results),
-    )
+    async with _get_semaphore():
+        anonymized = await asyncio.to_thread(
+            _anonymizer.anonymize,
+            text=text,
+            analyzer_results=cast(Any, results),
+        )
     return anonymized.text
 
 async def run(text: str) -> PiiResult:
