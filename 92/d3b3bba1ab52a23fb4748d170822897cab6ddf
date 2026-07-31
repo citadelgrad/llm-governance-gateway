@@ -1,0 +1,34 @@
+README.md
+  s_8eda6621ac32a4::t_c35f743866c28d 42,140,147
+scripts/demo.py
+  s_8eda6621ac32a4::t_c35f743866c28d 21
+.envrc.example
+  s_8eda6621ac32a4::t_62416f9fc423c2 15-16,20
+docs/onboarding.md
+  s_8eda6621ac32a4::t_a61f752a54b206 34-35,38,40,47
+  s_8eda6621ac32a4::t_41c87a9282e022 15,172,205
+scripts/onboard.py
+  s_8eda6621ac32a4::t_5f119625777f8a 110
+docs/architecture.md
+  s_8eda6621ac32a4::t_0a3045f4af641f 86-87
+docs/demo-scenarios.md
+  s_8eda6621ac32a4::t_c35f743866c28d 7,36,98,154,217,276,340
+tests/integration/test_smoke.py
+  s_8eda6621ac32a4::t_c35f743866c28d 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "92d3b3bba1ab52a23fb4748d170822897cab6ddf",
+  "prompts": {},
+  "sessions": {
+    "s_8eda6621ac32a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "487f5528-0786-481e-98ca-96befbd65ad3",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
