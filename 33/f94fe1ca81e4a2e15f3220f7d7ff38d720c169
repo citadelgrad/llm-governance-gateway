@@ -1,0 +1,51 @@
+mcpproxy/tests/conftest.py
+  s_5eb8d65b0886af::t_98021ca4e3faae 8
+  s_5eb8d65b0886af::t_34a491838b5ebc 3,9
+  s_5eb8d65b0886af::t_37df2f8acd2c2e 43-46
+  s_5eb8d65b0886af::t_4d1bf9bd6a7380 36-38
+mcpproxy/app/opa_client.py
+  s_5eb8d65b0886af::t_5427cb439f9f96 37
+mcpproxy/app/main.py
+  s_5eb8d65b0886af::t_29b11876053a8f 106-109,112-115
+  s_5eb8d65b0886af::t_c5ac4cb48932da 138-142
+  s_5eb8d65b0886af::t_0ca135d28a2fa7 238
+  s_5eb8d65b0886af::t_8d2386ae5b5469 148
+  s_5eb8d65b0886af::t_32e777bf9c50c7 5,11
+  s_5eb8d65b0886af::t_6dea73ded20927 156,177,185,192
+  s_5eb8d65b0886af::t_65f9a9b4562dd1 213,224
+  s_5eb8d65b0886af::t_246031e1fa50e2 116
+  s_5eb8d65b0886af::t_7e83768a801b87 225-227
+  s_bdbf16e738fe47::t_ea3e09a6be4d14 228-233
+mcpproxy/app/transport.py
+  s_5eb8d65b0886af::t_66d8b4f91e79f5 36-38,42
+mcpproxy/tests/test_opa_client.py
+  s_5eb8d65b0886af::t_a13ec6f3cccb7d 1-66
+mcpproxy/tests/test_main.py
+  s_5eb8d65b0886af::t_3f623a159d6d43 379
+  s_5eb8d65b0886af::t_47bb94a573a55f 385-387,399-401
+  s_5eb8d65b0886af::t_2eb10042feb302 564-591
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "33f94fe1ca81e4a2e15f3220f7d7ff38d720c169",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_bdbf16e738fe47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a9cdd1269c449a0b0",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
