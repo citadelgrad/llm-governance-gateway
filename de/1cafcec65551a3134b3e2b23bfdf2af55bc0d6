@@ -1,0 +1,22 @@
+config/tenants.yaml
+  s_5eb8d65b0886af::t_34b1d511438d90 27
+docker-compose.yml
+  s_5eb8d65b0886af::t_63ea359f6b7ab4 53
+  s_5eb8d65b0886af::t_b9d40393881e79 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "de1cafcec65551a3134b3e2b23bfdf2af55bc0d6",
+  "prompts": {},
+  "sessions": {
+    "s_5eb8d65b0886af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f45e68aa-787f-4b99-90c9-308273c92015",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
