@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from proxy.app.config import settings as app_settings
 from proxy.app.governance_client import GovernanceError, InspectResponse
 from proxy.app.main import app
 from proxy.app.rate_limit import RateLimitResult
@@ -57,6 +58,51 @@ async def test_governance_blocks(async_client):
     body = response.json()
     assert body["detail"]["error"]["type"] == "policy_violation"
     assert len(body["detail"]["error"]["violations"]) > 0
+
+
+async def test_agent_client_missing_act_claim_rejected_on_chat_completions(auth_client, jwt_factory):
+    """docs/auth-architecture.md: the act claim is required uniformly at every
+    ingress leg (chat, github, mcp, cloud), not just MCP - a registered
+    agent-runtime client ID with no act claim must be rejected here too,
+    before governance is ever called."""
+    client, _ = auth_client
+    original = app_settings.agent_runtime_client_ids
+    app_settings.agent_runtime_client_ids = ["agent-runtime-1"]
+    try:
+        token = jwt_factory(client_id="agent-runtime-1")
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {token}"},
+            json=_CLEAN_BODY,
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["error"]["type"] == "missing_act_claim"
+    finally:
+        app_settings.agent_runtime_client_ids = original
+
+
+async def test_agent_client_with_valid_act_claim_proceeds_on_chat_completions(
+    auth_client, jwt_factory
+):
+    """The same agent-runtime client succeeds once it carries a valid,
+    distinct act claim."""
+    client, _ = auth_client
+    original = app_settings.agent_runtime_client_ids
+    app_settings.agent_runtime_client_ids = ["agent-runtime-1"]
+    try:
+        token = jwt_factory(client_id="agent-runtime-1", act_sub="delegating-human-user")
+
+        response = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {token}"},
+            json=_CLEAN_BODY,
+        )
+
+        assert response.status_code == 200
+    finally:
+        app_settings.agent_runtime_client_ids = original
 
 
 async def test_pii_redaction_headers(async_client):

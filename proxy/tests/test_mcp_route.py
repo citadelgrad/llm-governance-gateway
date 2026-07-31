@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 from proxy.app.config import settings as app_settings
 from proxy.app.main import app
 
@@ -169,3 +170,70 @@ async def test_mcp_call_server_segment_passed_through_unmodified(auth_client, jw
     _, kwargs = mock_post.call_args
     assert kwargs["json"]["tool"]["server"] == "weird-Server_Name.42"
     assert kwargs["json"]["tool"]["name"] == "create_pr"
+
+
+async def test_mcp_call_null_tool_rejected_with_structured_400(auth_client, jwt_factory):
+    """ai-gateway-rhh: a non-object 'tool' field is rejected with a structured
+    4xx, not an unhandled 500 from spreading None."""
+    client, _ = auth_client
+    app.state.mcpproxy_client.post = AsyncMock(return_value=_mcpproxy_response())
+    token = jwt_factory(scope="mcp:github-mcp:invoke")
+
+    response = await client.post(
+        "/v1/mcp/github-mcp/call",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tool": None},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["type"] == "invalid_request"
+    app.state.mcpproxy_client.post.assert_not_awaited()
+
+
+async def test_mcp_call_string_tool_rejected_with_structured_400(auth_client, jwt_factory):
+    """ai-gateway-rhh: a string 'tool' field is rejected the same way as null."""
+    client, _ = auth_client
+    app.state.mcpproxy_client.post = AsyncMock(return_value=_mcpproxy_response())
+    token = jwt_factory(scope="mcp:github-mcp:invoke")
+
+    response = await client.post(
+        "/v1/mcp/github-mcp/call",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tool": "create_pr"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["type"] == "invalid_request"
+    app.state.mcpproxy_client.post.assert_not_awaited()
+
+
+async def test_mcp_call_mcpproxy_unreachable_returns_502(auth_client, jwt_factory):
+    """ai-gateway-rhh: a connection error to mcpproxy surfaces as a structured 502."""
+    client, _ = auth_client
+    app.state.mcpproxy_client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    token = jwt_factory(scope="mcp:github-mcp:invoke")
+
+    response = await client.post(
+        "/v1/mcp/github-mcp/call",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tool": {"name": "create_pr"}},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"]["type"] == "mcpproxy_unavailable"
+
+
+async def test_mcp_call_mcpproxy_timeout_returns_504(auth_client, jwt_factory):
+    """ai-gateway-rhh: a timed-out mcpproxy call surfaces as a structured 504."""
+    client, _ = auth_client
+    app.state.mcpproxy_client.post = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+    token = jwt_factory(scope="mcp:github-mcp:invoke")
+
+    response = await client.post(
+        "/v1/mcp/github-mcp/call",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tool": {"name": "create_pr"}},
+    )
+
+    assert response.status_code == 504
+    assert response.json()["detail"]["error"]["type"] == "mcpproxy_timeout"

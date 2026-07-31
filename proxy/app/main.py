@@ -301,6 +301,8 @@ async def _run_gateway_pipeline(
     caller: CallerContext,
     body: dict,
 ) -> tuple[Response | StreamingResponse, dict[str, str]]:
+    _enforce_act_claim(caller)
+
     model_id = body.get("model", "")
     stream = body.get("stream", False)
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
@@ -766,8 +768,14 @@ async def mcp_call(
     _enforce_act_claim(caller)
 
     body = await _parse_json_body(request)
+    tool = body.get("tool", {})
+    if not isinstance(tool, dict):
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope("invalid_request", "Request body's 'tool' must be a JSON object"),
+        )
     outbound = {
-        "tool": {**body.get("tool", {}), "server": server},
+        "tool": {**tool, "server": server},
         "context": body.get("context", {}),
         "principal": {
             "user_id": caller.user_id,
@@ -776,10 +784,22 @@ async def mcp_call(
         },
     }
 
-    resp = await request.app.state.mcpproxy_client.post(
-        f"{settings.mcpproxy_url}/v1/mcp/call",
-        json=outbound,
-    )
+    try:
+        resp = await request.app.state.mcpproxy_client.post(
+            f"{settings.mcpproxy_url}/v1/mcp/call",
+            json=outbound,
+            headers={"X-Internal-Token": settings.governance_internal_token},
+        )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=error_envelope("mcpproxy_timeout", "MCP proxy service timed out"),
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=error_envelope("mcpproxy_unavailable", "MCP proxy service unavailable"),
+        ) from exc
     return Response(
         content=resp.content,
         status_code=resp.status_code,
