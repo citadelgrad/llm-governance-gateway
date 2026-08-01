@@ -93,6 +93,7 @@ async def health():
     try:
         factory = get_session_factory()
         async with factory() as session:
+            await retention.ensure_write_partitions(session)
             stuck = await retention.count_stuck_partitions(session)
             if stuck > 0:
                 return {"status": "degraded", "reason": f"{stuck} stuck partition(s)"}

@@ -27,11 +27,16 @@ def _safe_partition_name(name: str) -> str:
     return name
 
 
-async def create_next_partition(session: AsyncSession) -> None:
-    today = date.today()
-    next_month = _next_month(today)
-    end_month = _next_month(next_month)
-    table_name = _partition_name(next_month)
+async def ensure_write_partitions(session: AsyncSession) -> None:
+    """Ensure UTC's current and next audit partitions exist before serving writes."""
+    current_month = datetime.now(UTC).date().replace(day=1)
+    await _create_partition(session, current_month)
+    await _create_partition(session, _next_month(current_month))
+
+
+async def _create_partition(session: AsyncSession, month: date) -> None:
+    end_month = _next_month(month)
+    table_name = _partition_name(month)
 
     exists = await session.execute(
         text("SELECT 1 FROM information_schema.tables WHERE table_name = :name"),
@@ -44,12 +49,13 @@ async def create_next_partition(session: AsyncSession) -> None:
         safe_name = _safe_partition_name(table_name)
         await session.execute(text(f"""
             CREATE TABLE {safe_name} PARTITION OF audit_log
-                FOR VALUES FROM ('{next_month}') TO ('{end_month}')
+                FOR VALUES FROM ('{month}') TO ('{end_month}')
         """))
         await session.commit()
     except Exception as exc:
-        print(f"[retention] create_next_partition failed: {exc}", file=sys.stderr)
+        print(f"[retention] create partition {table_name} failed: {exc}", file=sys.stderr)
         await session.rollback()
+        raise
 
 
 async def advance_partitions(session: AsyncSession) -> None:

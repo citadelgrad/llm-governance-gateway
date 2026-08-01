@@ -13,7 +13,7 @@ if _repo_root not in sys.path:
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from governance.app.retention import advance_partitions, create_next_partition
+from governance.app.retention import advance_partitions, ensure_write_partitions
 
 _raw_url = os.environ.get("DATABASE_URL")
 if not _raw_url:
@@ -34,8 +34,8 @@ async def main() -> None:
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        print("[rotate_partitions] Creating next partition...")
-        await create_next_partition(session)
+        print("[rotate_partitions] Ensuring current and next partitions...")
+        await ensure_write_partitions(session)
 
         print("[rotate_partitions] Advancing partition archive state...")
         await advance_partitions(session)
