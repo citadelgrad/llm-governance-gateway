@@ -62,6 +62,41 @@ gateway still maps configured `PERSON_NAME` findings to the legacy `PERSON` type
 
 Treat changes to this list or likelihood threshold as security-policy changes and rerun the evaluation corpus.
 
+## Per-tenant PERSON/name-detection opt-in: feasibility assessment (`ai-gateway-6xx`)
+
+Today, disabling PERSON/name detection is a single, process-wide default applied identically to every tenant and every request on both backends. There is no per-tenant or per-request override:
+
+- **Presidio**: `governance/app/pii.py`'s `_DISABLED_PRESIDIO_ENTITIES` frozenset unconditionally filters `PERSON` out of every `scan()` call's results, regardless of caller.
+- **Google DLP**: `PERSON_NAME` is simply absent from the default `GOOGLE_DLP_INFO_TYPES` allowlist (see table above). `_google_info_types` is resolved once in `initialize()` for the life of the process, not per request.
+
+This section assesses whether `config/users.yaml` or request metadata could realistically carry a flag to re-enable PERSON detection for one tenant, as requested by `ai-gateway-6xx`.
+
+**Can `config/users.yaml` carry it?** Its schema is `id`, `tenant_id`, `roles`, `initial_key` — no feature-flag field exists today. More importantly, this file is IaC-only: it is read solely by `scripts/provision.py` and `scripts/onboard.py` at provisioning time and reconciled into Postgres and OPA data documents (`policies/data/users.json`). Neither `governance/app/pii.py` nor `governance/app/pipeline.py` reads it, or anything derived from it, at request time. Adding a field there would require a new delivery path end-to-end, not just a schema addition. That said, `roles` is already a *live* per-request channel — it flows `config/users.yaml` -> API-key auth -> proxy `CallerContext.roles` -> `InspectRequest.roles` -> governance `PipelineContext.roles` — with zero new schema needed. A role convention (e.g. `pii:person-detection-enabled`) could ride this existing channel with no new plumbing. However, `PipelineContext.roles` is never read inside `pii_stage()` or `pii.py` today, so this is unused capacity, not a wired path — and a per-user role is arguably the wrong scope for a compliance-sensitive detector policy that a tenant admin, not an individual end user, should control.
+
+**Can `config/tenants.yaml` carry it?** This is the more natural fit, and the ticket's premise (that only `users.yaml` could serve) undersells what already exists: `config/tenants.yaml` already has per-tenant PII policy fields — `pii_action` (`redact`/`pass`) and `pii_redaction_notification` (`header`/`silent`) — reconciled by `scripts/provision.py` into a Postgres `tenants` table and read per-request by the proxy's `get_tenant_info()`. This is a working, established precedent for tenant-scoped PII policy. Its limitation today: that tenant data is consumed entirely inside the **proxy** (for response headers and the `/v1/me` `pii_policy` field) and is never forwarded to governance's `/inspect` call — governance currently has no visibility into any tenant-level PII policy at all.
+
+Wiring a new field (e.g. `pii_disabled_entities_override` or a positive `pii_enabled_entities`) through to the detector would need, following the exact pattern `pii_action`/`pii_redaction_notification` already established:
+
+1. A schema addition to `config/tenants.yaml`.
+2. Reconciliation of the new column in `scripts/provision.py`'s Postgres `tenants` table.
+3. A `SELECT` addition in the proxy's `get_tenant_info()`.
+4. A new field on `proxy/app/governance_client.py`'s `InspectRequest` dataclass, populated at the `/v1/messages`-style call site in `proxy/app/main.py`.
+5. A new field on governance `app/main.py`'s `InspectRequest` Pydantic model.
+6. A new field on `governance/app/context.py`'s `PipelineContext`.
+7. `governance/app/pipeline.py`'s `pii_stage()` passing the value into `pii_module.run()`.
+8. `governance/app/pii.py`'s `run()`/`scan()` accepting an optional per-call override to merge with (or replace) `_DISABLED_PRESIDIO_ENTITIES`.
+9. For parity on the Google backend: equivalent per-call `info_types` override plumbing in `run()`/`run_google()`, since `_google_info_types` is presently fixed once at `initialize()` time for the whole process — this is the larger, currently-unbuilt half of the work.
+
+Each step is small and mechanical, so **this is feasible**, via `config/tenants.yaml` (preferred over `config/users.yaml` or ad hoc per-request metadata — a per-request override would let any caller holding a valid key weaken PII detection for their own traffic, which is a weaker control than a tenant admin-set policy).
+
+**Is it desired right now? No — deferred, not rejected.** Reasoning:
+
+1. No tenant has actually requested PERSON/name detection; this is speculative, nice-to-have work (P4), not a response to a concrete need.
+2. Flipping the flag on does not fix the underlying detector behavior — it only exposes the same false-positive corpus (Django/Gemini/Claude-style misclassification, confirmed on both Presidio and the live Google DLP evaluation above) to whichever tenant opts in. This document already states Google-side opt-in additionally requires "adding contextual inspection rules and corpus coverage" that has not been done. Shipping the toggle before that prerequisite work would hand a tenant a control surface that looks supported but reproduces a known accuracy problem.
+3. Presidio is a rollback-only path scheduled for removal once the Google DLP production soak completes (see "Rollout and rollback" and "Production soak evidence" below, tracked as `ai-gateway-fcr`). Building override plumbing that primarily targets `_DISABLED_PRESIDIO_ENTITIES` would be effort spent on code with a scheduled deletion date; a real opt-in needs to target the Google side's `info_types` plumbing (step 9 above), which is the larger, currently-undone half of the work.
+
+Revisit this if a specific tenant requests name detection **and** the Google DLP contextual-rules/corpus prerequisite has been completed. No follow-up issue has been filed for the implementation; if raised again, scope it as tenant-level (`config/tenants.yaml`) opt-in with parity across both backends, not a Presidio-only patch.
+
 ## GCP setup
 
 Enable the API in the dedicated privacy project:

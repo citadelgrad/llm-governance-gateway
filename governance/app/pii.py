@@ -330,6 +330,21 @@ def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
 # CREDIT_CARD, ...) is unaffected. Filtering the results (rather than passing
 # an `entities=` allowlist into analyze()) keeps this independent of the
 # analyzer's supported-entity introspection.
+#
+# This is a process-wide default applied identically to every tenant and
+# every request -- no field on config/tenants.yaml, config/users.yaml,
+# InspectRequest, or PipelineContext feeds into this filter today, so there
+# is no per-tenant or per-request way to re-enable PERSON. A feasibility
+# assessment for adding such an opt-in (ai-gateway-6xx) concluded it is
+# feasible -- config/tenants.yaml already carries other per-tenant PII policy
+# fields (pii_action, pii_redaction_notification) reconciled the same way,
+# and could be extended the same way -- but is deferred rather than
+# implemented: opting a tenant in would only expose it to the same
+# false-positive corpus described above, not fix it, and Presidio itself is
+# a rollback-only backend slated for removal after the Google DLP production
+# soak (ai-gateway-fcr). See "Per-tenant PERSON/name-detection opt-in:
+# feasibility assessment (ai-gateway-6xx)" in
+# docs/google-sensitive-data-protection.md for the full assessment.
 _DISABLED_PRESIDIO_ENTITIES = frozenset({"PERSON"})
 
 
