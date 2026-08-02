@@ -15,6 +15,12 @@ from proxy.app.providers import (
 from proxy.app.providers import (
     ollama as ollama_provider,
 )
+from proxy.app.anthropic_compat import (
+    AnthropicCompatError,
+    AnthropicMessagesRequest,
+    messages_to_chat_body,
+    openai_sse_to_anthropic_sse,
+)
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 
 # ---------------------------------------------------------------------------
@@ -850,3 +856,238 @@ def test_sanitize_response_always_application_json():
     # Body must be valid JSON
     body = json.loads(resp.body)
     assert "error" in body
+
+
+# ---------------------------------------------------------------------------
+# anthropic_compat — messages_to_chat_body tool-use translation
+# ---------------------------------------------------------------------------
+
+
+def _messages_request(**overrides) -> AnthropicMessagesRequest:
+    payload = {
+        "model": "claude-3-5-sonnet",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 100,
+    }
+    payload.update(overrides)
+    return AnthropicMessagesRequest.model_validate(payload)
+
+
+def test_messages_to_chat_body_translates_tools_and_tool_choice():
+    req = _messages_request(
+        tools=[
+            {
+                "name": "get_weather",
+                "description": "Get the weather",
+                "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}},
+            }
+        ],
+        tool_choice={"type": "tool", "name": "get_weather"},
+    )
+    body = messages_to_chat_body(req)
+    assert body["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the weather",
+                "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+            },
+        }
+    ]
+    assert body["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+
+
+def test_messages_to_chat_body_tool_choice_auto_and_any():
+    auto_body = messages_to_chat_body(_messages_request(tool_choice={"type": "auto"}))
+    assert auto_body["tool_choice"] == "auto"
+    any_body = messages_to_chat_body(_messages_request(tool_choice={"type": "any"}))
+    assert any_body["tool_choice"] == "required"
+    none_body = messages_to_chat_body(_messages_request(tool_choice={"type": "none"}))
+    assert none_body["tool_choice"] == "none"
+
+
+def test_messages_to_chat_body_translates_multiturn_tool_use_and_tool_result():
+    req = _messages_request(
+        messages=[
+            {"role": "user", "content": "What's the weather in NYC?"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Let me check."},
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "get_weather",
+                        "input": {"city": "NYC"},
+                    },
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": "72F and sunny"}
+                ],
+            },
+        ],
+    )
+    body = messages_to_chat_body(req)
+    msgs = body["messages"]
+    assert msgs[0] == {"role": "user", "content": "What's the weather in NYC?"}
+
+    assistant_msg = msgs[1]
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] == "Let me check."
+    assert assistant_msg["tool_calls"] == [
+        {
+            "id": "toolu_1",
+            "type": "function",
+            "function": {"name": "get_weather", "arguments": json.dumps({"city": "NYC"})},
+        }
+    ]
+
+    tool_msg = msgs[2]
+    assert tool_msg == {"role": "tool", "tool_call_id": "toolu_1", "content": "72F and sunny"}
+
+
+def test_messages_to_chat_body_tool_result_is_error_prefixes_error():
+    req = _messages_request(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": "not found",
+                        "is_error": True,
+                    }
+                ],
+            },
+        ],
+    )
+    body = messages_to_chat_body(req)
+    tool_msg = body["messages"][0]
+    assert tool_msg == {"role": "tool", "tool_call_id": "toolu_1", "content": "Error: not found"}
+
+
+def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
+    req = _messages_request(
+        system=[
+            {"type": "text", "text": "Be concise.", "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": " Be kind."},
+        ],
+    )
+    body = messages_to_chat_body(req)
+    assert body["messages"][0] == {"role": "system", "content": "Be concise. Be kind."}
+
+
+def test_messages_to_chat_body_rejects_unsupported_content_block():
+    req = _messages_request(
+        messages=[{"role": "user", "content": [{"type": "image", "source": {}}]}],
+    )
+    with pytest.raises(AnthropicCompatError):
+        messages_to_chat_body(req)
+
+
+# ---------------------------------------------------------------------------
+# anthropic_compat — openai_sse_to_anthropic_sse streaming translation
+# ---------------------------------------------------------------------------
+
+
+async def _sse_body(*raw_chunks: str):
+    for chunk in raw_chunks:
+        yield chunk
+
+
+def _sse_lines(events: str) -> list[dict]:
+    """Parse `event: ...` / `data: ...` pairs out of the emitted SSE text."""
+    parsed = []
+    for block in events.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        data_line = next((line for line in block.splitlines() if line.startswith("data:")), None)
+        if data_line:
+            parsed.append(json.loads(data_line[len("data:"):].strip()))
+    return parsed
+
+
+async def test_openai_sse_to_anthropic_sse_preserves_message_id_and_usage():
+    chunks = [
+        f"data: {json.dumps({'id': 'chatcmpl-real-id', 'choices': [{'index': 0, 'delta': {'content': 'Hi'}, 'finish_reason': None}]})}\n\n",
+        f"data: {json.dumps({'id': 'chatcmpl-real-id', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': {'completion_tokens': 7}})}\n\n",
+        "data: [DONE]\n\n",
+    ]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    full_text = "".join(events)
+    parsed = _sse_lines(full_text)
+    assert parsed[0]["type"] == "message_start"
+    assert parsed[0]["message"]["id"] == "chatcmpl-real-id"
+    message_delta = next(e for e in parsed if e["type"] == "message_delta")
+    assert message_delta["delta"]["stop_reason"] == "end_turn"
+    assert message_delta["usage"]["output_tokens"] == 7
+    assert parsed[-1]["type"] == "message_stop"
+
+
+async def test_openai_sse_to_anthropic_sse_translates_tool_call_deltas():
+    chunks = [
+        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'call_1', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': ''}}]}, 'finish_reason': None}]})}\n\n",
+        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'function': {'arguments': '{\"city\":'}}]}, 'finish_reason': None}]})}\n\n",
+        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'function': {'arguments': '\"NYC\"}'}}]}, 'finish_reason': None}]})}\n\n",
+        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})}\n\n",
+        "data: [DONE]\n\n",
+    ]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    full_text = "".join(events)
+    parsed = _sse_lines(full_text)
+
+    tool_start = next(e for e in parsed if e["type"] == "content_block_start" and e["index"] == 1)
+    assert tool_start["content_block"]["type"] == "tool_use"
+    assert tool_start["content_block"]["id"] == "call_1"
+    assert tool_start["content_block"]["name"] == "get_weather"
+
+    json_deltas = [
+        e for e in parsed if e["type"] == "content_block_delta" and e["index"] == 1
+    ]
+    combined_json = "".join(d["delta"]["partial_json"] for d in json_deltas)
+    assert combined_json == '{"city":"NYC"}'
+
+    message_delta = next(e for e in parsed if e["type"] == "message_delta")
+    assert message_delta["delta"]["stop_reason"] == "tool_use"
+
+    stop_indices = {e["index"] for e in parsed if e["type"] == "content_block_stop"}
+    assert stop_indices == {0, 1}
+
+
+async def test_openai_sse_to_anthropic_sse_surfaces_mid_stream_error():
+    chunks = [
+        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'content': 'partial'}, 'finish_reason': None}]})}\n\n",
+        'data: {"error": {"type": "upstream_timeout"}}\n\n',
+    ]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    full_text = "".join(events)
+    assert "event: error" in full_text
+    parsed = _sse_lines(full_text)
+    error_event = next(e for e in parsed if e["type"] == "error")
+    assert error_event["error"]["type"] == "upstream_timeout"
+    # No message_stop should follow a surfaced mid-stream error.
+    assert not any(e["type"] == "message_stop" for e in parsed)
+
+
+async def test_openai_sse_to_anthropic_sse_buffers_fragmented_chunks():
+    """A single data: line split across two network chunks must still parse correctly."""
+    full_line = (
+        f"data: {json.dumps({'id': 'chatcmpl-frag', 'choices': [{'index': 0, 'delta': {'content': 'Hello world'}, 'finish_reason': None}]})}\n\n"
+    )
+    split_at = len(full_line) // 2
+    chunks = [
+        full_line[:split_at],
+        full_line[split_at:],
+        f"data: {json.dumps({'id': 'chatcmpl-frag', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n",
+    ]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    full_text = "".join(events)
+    parsed = _sse_lines(full_text)
+    text_delta = next(e for e in parsed if e["type"] == "content_block_delta" and e["index"] == 0)
+    assert text_delta["delta"]["text"] == "Hello world"
