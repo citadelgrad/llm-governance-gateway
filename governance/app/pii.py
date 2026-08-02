@@ -189,13 +189,21 @@ def _get_pools() -> tuple[asyncio.Semaphore, asyncio.Semaphore, asyncio.Semaphor
 def _can_acquire_immediately(sem: asyncio.Semaphore) -> bool:
     """True if `sem.acquire()` is guaranteed to return without suspending.
 
-    Requires a free permit (`_value > 0`) AND an empty waiter queue. The
-    waiter check matters even when `_value > 0`: without it, an
-    opportunistic borrow could same-tick "jump the FIFO line" ahead of a
-    task that is already legitimately queued on this semaphore, undermining
-    the AC1/AC2 bound below.
+    Uses the public `Semaphore.locked()` API instead of reading the
+    private `_value`/`_waiters` fields directly -- those are CPython
+    implementation details, not part of the public API, and are not
+    guaranteed stable across versions. `locked()` is true when there is
+    no free permit OR at least one non-cancelled waiter is already
+    queued; negating it gives exactly "a permit is free AND nobody
+    legitimately queued is ahead of us" -- the same condition the old
+    field-based check enforced, including the "don't jump the FIFO line
+    ahead of an already-queued task" requirement the AC1/AC2 bound below
+    depends on. (A waiter that has already been cancelled but not yet
+    pruned from the internal queue by its own coroutine no longer counts
+    under `locked()` -- correctly so, since a cancelled waiter has
+    abandoned the queue and is not "legitimately queued" anymore.)
     """
-    return sem._value > 0 and not sem._waiters  # noqa: SLF001 - see docstring
+    return not sem.locked()
 
 
 @asynccontextmanager
