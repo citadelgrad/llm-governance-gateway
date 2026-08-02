@@ -22,13 +22,17 @@ from mcpproxy.app.opa_client import OpaClient
 # the actual policies/mcp/authz.rego file over HTTP, via the same OpaClient
 # class every other mcpproxy test mocks out.
 #
-# Note: policies/mcp/authz.rego's entitlement matrix is keyed by role only
-# (mcp-role:github-write, mcp-role:read-only) - tenant_id is not itself
-# consulted by its `allow` rules, so this test cannot show tenant_id
-# *changing* the decision. What it proves is the full request path (a real
-# tenant_id, sourced from the real config file, flowing through the real
-# OpaClient into a real OPA server loaded with the real policy) behaves the
-# way authz_test.rego's equivalent allow/deny cases say it should.
+# Note: policies/mcp/authz.rego's entitlement matrix is keyed by role
+# (mcp-role:github-write, mcp-role:read-only), but every `allow` rule also
+# calls same_tenant(e.tenant_id, input.principal.tenant_id) - tenant_id IS
+# consulted, and a mismatch denies regardless of role/tool/resource match.
+# This test only drives the matching-tenant path with a real config-sourced
+# tenant_id; it doesn't exercise the mismatch/deny path itself - that's
+# covered by authz_test.rego's rego-only tenant_id-mismatch and boundary
+# cases. What this test proves is the full request path (a real tenant_id,
+# sourced from the real config file, flowing through the real OpaClient into
+# a real OPA server loaded with the real policy) behaves the way
+# authz_test.rego's equivalent allow cases say it should.
 #
 # config/users.yaml's own roles (admin/tier1/tier2) are the LLM Gateway
 # Proxy's tenant-tier vocabulary (see policies/llm/authz.rego) - a different
