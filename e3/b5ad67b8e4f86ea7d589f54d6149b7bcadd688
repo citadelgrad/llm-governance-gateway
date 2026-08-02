@@ -1,0 +1,21 @@
+governance/app/pii.py
+  s_828d84a357b70f::t_d130d97ebc586f 333-347
+docs/google-sensitive-data-protection.md
+  s_828d84a357b70f::t_243a5693892510 65-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e3b5ad67b8e4f86ea7d589f54d6149b7bcadd688",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
