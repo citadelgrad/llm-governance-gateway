@@ -27,10 +27,20 @@ def test_extract_entitlements_reads_real_authz_rego():
 
     assert result == {
         "mcp-role:github-write": [
-            {"server": "github-mcp", "tool": "create_pr", "resource_pattern": "repo:org/*"},
+            {
+                "server": "github-mcp",
+                "tool": "create_pr",
+                "resource_pattern": "repo:org/*",
+                "tenant_id": "tenant_acme",
+            },
         ],
         "mcp-role:read-only": [
-            {"server": "github-mcp", "tool": "list_prs", "resource_pattern": None},
+            {
+                "server": "github-mcp",
+                "tool": "list_prs",
+                "resource_pattern": None,
+                "tenant_id": "tenant_acme",
+            },
         ],
     }
 
