@@ -1,0 +1,31 @@
+governance/tests/test_pii_google.py
+  s_828d84a357b70f::t_d7449a827e7a5c 58,77-80
+proxy/app/responses_compat.py
+  s_828d84a357b70f::t_e90b38a4d649c7 294-315
+  s_828d84a357b70f::t_302cafbbbc05f6 10-11
+  s_828d84a357b70f::t_d2d07ecf869d09 247-249
+governance/app/pii.py
+  s_828d84a357b70f::t_33d75b9d87e0f3 239
+  s_828d84a357b70f::t_e5643128f1af00 113,117,121-125
+  s_828d84a357b70f::t_59757c95057591 258
+  s_828d84a357b70f::t_d2a0fbc4a38b66 119-120
+governance/tests/test_pii_concurrency.py
+  s_828d84a357b70f::t_3c17c565c799c8 148
+  s_828d84a357b70f::t_d56c4f25f4e75a 165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "2845eed9c90aa7ae9bd60e461f8f767bc65adc77",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
