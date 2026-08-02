@@ -1,8 +1,10 @@
 import asyncio
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
+from google.api_core.exceptions import ServiceUnavailable
 
 from app import pii
 
@@ -329,3 +331,107 @@ async def test_interactive_only_saturation_still_queues_new_requests(fake_presid
     )
     assert all(results)
     assert fake_presidio.max_concurrent == TEST_SEMAPHORE_SIZE
+
+
+# --- ai-gateway-ypb: run_google retry backoff must not hold a pool slot ----
+
+
+class _FlakyForTextDlpClient:
+    """Fake Google DLP client that fails a fixed number of times with a
+    retryable transient error, but only for ONE specific triggering request
+    text - any other text always succeeds immediately. This lets a test run
+    a genuinely retrying call and an unrelated concurrent call through the
+    SAME `pii._google_client` without the two calls' scripted behavior
+    interfering with each other.
+    """
+
+    def __init__(self, trigger_text: str, fail_times: int):
+        self._trigger_text = trigger_text
+        self._remaining_failures = fail_times
+        self.trigger_calls = 0
+
+    def inspect_content(self, request, retry, timeout):
+        if request["item"]["value"] == self._trigger_text:
+            self.trigger_calls += 1
+            if self._remaining_failures > 0:
+                self._remaining_failures -= 1
+                raise ServiceUnavailable("transient upstream error")
+        return SimpleNamespace(
+            result=SimpleNamespace(findings=[], findings_truncated=False)
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_google_retry_backoff_releases_slot_for_other_class(monkeypatch):
+    """ai-gateway-ypb: a retrying `run_google` call must release its pool
+    slot during backoff sleeps instead of holding it for the whole
+    retry/backoff window - otherwise a concurrent request of the other
+    class can be starved of its guaranteed home-pool slot on a small pool.
+
+    Reproduces the ticket's scenario on a 2-slot pool (`_split_pool_sizes(2)
+    == (interactive=1, bulk=1, shared=0)`): the bulk-home slot is held by
+    other in-flight bulk traffic (simulated by manually acquiring it), which
+    forces a retrying bulk call to opportunistically borrow the (otherwise
+    idle) INTERACTIVE home slot - exactly what a second bulk request would
+    do under sustained bulk load (see `_acquire_scan_slot`). A genuine
+    interactive request that arrives while that borrower is mid-backoff must
+    still get its home slot promptly, not wait for the borrower's entire
+    retry window.
+    """
+    total = 2
+    monkeypatch.setattr(pii, "_executor_max_workers", total)
+    monkeypatch.setattr(pii, "_semaphore", None)
+    monkeypatch.setattr(pii, "_interactive_semaphore", None)
+    monkeypatch.setattr(pii, "_bulk_semaphore", None)
+    monkeypatch.setattr(pii, "_shared_semaphore", None)
+    monkeypatch.setattr(pii, "_pool_sizes", None)
+
+    trigger_text = "bulk retry probe"
+    client = _FlakyForTextDlpClient(trigger_text, fail_times=2)
+    monkeypatch.setattr(pii, "_google_client", client)
+
+    interactive_sem, bulk_sem, _shared_sem = pii._get_pools()
+    assert (interactive_sem._value, bulk_sem._value) == (1, 1)
+
+    # Simulate other in-flight bulk traffic already holding the bulk home
+    # slot, so the retrying bulk call below must borrow the interactive
+    # home slot instead of using its own (busy) home pool.
+    await bulk_sem.acquire()
+
+    async def run_google_call(text: str, request_class: pii.PiiRequestClass):
+        return await pii.run_google(
+            text,
+            project="privacy-project",
+            location="global",
+            min_likelihood="POSSIBLE",
+            info_types=("EMAIL_ADDRESS",),
+            timeout_seconds=5.0,
+            request_class=request_class,
+        )
+
+    retrier = asyncio.create_task(
+        run_google_call(trigger_text, pii.PII_CLASS_BULK)
+    )
+    # Let the retrier make its first (failing) attempt, borrow-and-release
+    # the interactive slot, and enter its first backoff sleep.
+    await asyncio.sleep(0.02)
+
+    start = time.monotonic()
+    real_interactive = asyncio.create_task(
+        run_google_call("real interactive request", pii.PII_CLASS_INTERACTIVE)
+    )
+    await asyncio.wait_for(real_interactive, timeout=0.15)
+    interactive_elapsed = time.monotonic() - start
+
+    # The retrier has at least one more scripted failure + backoff sleep
+    # ahead of it (fail_times=2, only its first attempt has happened so far)
+    # - proof the interactive request did not wait for the retrier's full
+    # retry window to finish.
+    assert not retrier.done()
+    assert interactive_elapsed < 0.15
+
+    bulk_sem.release()  # release the manually-held slot from this test
+    retrier_result = await asyncio.wait_for(retrier, timeout=5)
+
+    assert retrier_result.data_classification == "none"
+    assert client.trigger_calls == 3  # 2 failures + 1 success - unchanged retry count
