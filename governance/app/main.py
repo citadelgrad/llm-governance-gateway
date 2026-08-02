@@ -197,7 +197,7 @@ async def pii_scan(
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
 
-    result = await pii_module.run(req.text)
+    result = await pii_module.run(req.text, pii_module.PII_CLASS_BULK)
 
     return PiiScanResponse(
         pii_findings=result.findings,
