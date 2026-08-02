@@ -155,6 +155,22 @@ def _split_pool_sizes(total: int) -> tuple[int, int, int]:
     return (home, home, total - 2 * home)
 
 
+# Why three pools and not one semaphore (ai-gateway-vzs code-review follow-up):
+# AC2 requires a genuine, *guaranteed* minimum concurrency floor per request
+# class under sustained dual contention — not merely "usually gets some
+# slots." A single shared asyncio.Semaphore has no notion of caller identity:
+# it hands out permits strictly in arrival order, so a sustained burst from
+# one class can occupy every permit indefinitely, leaving the other class
+# with zero enforced concurrency — that is a hard AC2 violation, not an edge
+# case. Only a semaphore reserved per class can make that floor a guarantee
+# rather than a coincidence of scheduling order, which is what the
+# `interactive`/`bulk` home pools below provide. The third, `shared` pool is
+# not part of that guarantee; it exists purely so an uncontended class can
+# still opportunistically reach the full aggregate N (AC4) instead of being
+# capped at its own reserved fraction. A single shared semaphore was
+# evaluated against AC1-AC5 and fails AC1 and AC2 for exactly this reason; a
+# naive fixed 50/50 split with no shared/borrow capacity was also evaluated
+# and fails AC4 — see the module-level comment above for that comparison.
 def _get_pools() -> tuple[asyncio.Semaphore, asyncio.Semaphore, asyncio.Semaphore]:
     global _interactive_semaphore, _bulk_semaphore, _shared_semaphore, _pool_sizes
     if _shared_semaphore is None:
