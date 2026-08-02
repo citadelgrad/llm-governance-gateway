@@ -23,10 +23,10 @@ default allow := false
 # equality check that closes that gap.
 entitlements := {
     "mcp-role:github-write": [
-        {"server": "github-mcp", "tool": "create_pr", "resource_pattern": "repo:org/*", "tenant_id": "tenant_acme"},
+        {"server": "github-mcp", "tool": "create_pr", "resource_pattern": "repo:org/*", "tenant_id": "acme-corp"},
     ],
     "mcp-role:read-only": [
-        {"server": "github-mcp", "tool": "list_prs", "resource_pattern": null, "tenant_id": "tenant_acme"},
+        {"server": "github-mcp", "tool": "list_prs", "resource_pattern": null, "tenant_id": "acme-corp"},
     ],
 }
 
