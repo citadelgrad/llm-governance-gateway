@@ -585,7 +585,15 @@ async def count_tokens(
             detail=error_envelope(routing_method, f"Cannot route model: {req.model}"),
         )
 
-    return {"input_tokens": count_tokens_approximate(req.messages, req.system)}
+    try:
+        input_tokens = count_tokens_approximate(req.messages, req.system)
+    except AnthropicCompatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope("unsupported_message_shape", str(exc)),
+        ) from exc
+
+    return {"input_tokens": input_tokens}
 
 
 @app.get("/v1/models")

@@ -171,25 +171,54 @@ async def test_messages_unknown_model_returns_400(messages_client):
     assert response.json()["detail"]["error"]["type"] == "model_not_found"
 
 
-async def test_messages_rejects_unsupported_tool_definitions(messages_client):
+async def test_messages_accepts_tool_definitions(messages_client):
     client, _ = messages_client
     body = {
         **_BASE_BODY,
-        "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+        "tools": [
+            {
+                "name": "lookup",
+                "description": "Look something up",
+                "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}},
+            }
+        ],
+        "tool_choice": {"type": "auto"},
     }
     response = await client.post("/v1/messages", json=body)
-    assert response.status_code == 422
-    assert response.json()["detail"]["error"]["type"] == "unsupported_message_shape"
+    assert response.status_code == 200
 
 
-async def test_messages_rejects_non_text_content_blocks(messages_client):
+async def test_messages_accepts_tool_result_content_blocks(messages_client):
+    client, _ = messages_client
+    body = {
+        "model": "claude-3-5-sonnet",
+        "messages": [
+            {"role": "user", "content": "What's the weather?"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "NYC"}}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "Sunny, 72F"}],
+            },
+        ],
+        "max_tokens": 50,
+    }
+    response = await client.post("/v1/messages", json=body)
+    assert response.status_code == 200
+
+
+async def test_messages_rejects_genuinely_unsupported_content_blocks(messages_client):
     client, _ = messages_client
     body = {
         "model": "claude-3-5-sonnet",
         "messages": [
             {
                 "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "done"}],
+                "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}}],
             }
         ],
         "max_tokens": 50,
