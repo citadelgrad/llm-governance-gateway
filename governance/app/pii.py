@@ -110,15 +110,19 @@ def _get_semaphore() -> asyncio.Semaphore:
 # (see `_split_pool_sizes` for the degenerate all-shared fallback when a
 # class has no home pool at all, e.g. N == 1).
 #
-# Documented wait bound (AC1): `_MAX_SCAN_SECONDS` below is this module's
+# Documented wait bound (AC1): `_max_scan_seconds` below is this module's
 # documented upper bound on any single scan/redact call's runtime. Because a
 # queued request is always the FIFO head of its own home pool (per the
 # waiter-check above), it waits for at most ONE currently-held permit in
-# that pool to free up — i.e. at most `_MAX_SCAN_SECONDS` — never for the
+# that pool to free up — i.e. at most `_max_scan_seconds` — never for the
 # depth of a burst on the other class's pool (which would be unbounded,
-# O(burst size)). If a future change makes a single call slower than this,
-# update the constant to match.
-_MAX_SCAN_SECONDS = 5.0
+# O(burst size)). For the Google backend a single call is itself bounded by
+# the configured `google_dlp_timeout_seconds` (up to 30s, see settings.py),
+# so `initialize()` sets this to that value instead of leaving it a fixed
+# constant that could silently fall out of sync with it. The presidio
+# backend has no per-call timeout knob, so it keeps the historical 5s
+# expectation.
+_max_scan_seconds = 5.0
 
 PiiRequestClass = Literal["interactive", "bulk"]
 PII_CLASS_INTERACTIVE: PiiRequestClass = "interactive"
@@ -232,7 +236,7 @@ async def initialize(
     global _analyzer, _anonymizer, _executor, _executor_max_workers
     global _backend_name, _google_client, _google_project, _google_location
     global _google_min_likelihood, _google_info_types, _google_timeout_seconds
-    global _initialized_backend
+    global _initialized_backend, _max_scan_seconds
     async with _get_lock():
         if _initialized_backend == backend:
             return  # already initialized (idempotent)
@@ -251,6 +255,7 @@ async def initialize(
             _google_min_likelihood = google_min_likelihood
             _google_info_types = google_info_types
             _google_timeout_seconds = google_timeout_seconds
+            _max_scan_seconds = google_timeout_seconds
             client_factory = (
                 partial(
                     dlp_v2.DlpServiceClient,

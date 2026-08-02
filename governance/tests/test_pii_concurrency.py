@@ -145,7 +145,7 @@ async def test_interactive_scan_bounded_wait_during_sustained_bulk_burst(fake_pr
     not make a concurrently-arriving interactive scan queue behind the
     burst's full depth. Per `_acquire_scan_slot`'s docstring, a queued
     request is always the FIFO head of its OWN home pool, so its wait is
-    bounded by `_MAX_SCAN_SECONDS` (one in-flight call draining) - never by
+    bounded by `_max_scan_seconds` (one in-flight call draining) - never by
     O(burst size * call delay), which is what the old single shared
     semaphore produced.
     """
@@ -162,7 +162,7 @@ async def test_interactive_scan_bounded_wait_during_sustained_bulk_burst(fake_pr
     interactive_call = asyncio.create_task(
         pii.scan("ingress inspect call", pii.PII_CLASS_INTERACTIVE)
     )
-    interactive_result = await asyncio.wait_for(interactive_call, timeout=pii._MAX_SCAN_SECONDS)
+    interactive_result = await asyncio.wait_for(interactive_call, timeout=pii._max_scan_seconds)
     interactive_elapsed = time.monotonic() - start
 
     assert interactive_result  # admitted and completed, not dropped or errored

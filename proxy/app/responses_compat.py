@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from proxy.app.anthropic_compat import _iter_sse_json
+
 
 class ResponsesCompatError(Exception):
     pass
@@ -242,7 +244,9 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
     Structurally mirrors ``openai_sse_to_anthropic_sse`` in ``anthropic_compat.py``, but
     targets the Responses protocol's flat ``data: {"type": ...}`` framing (no separate
     ``event:`` line) and its event vocabulary (``response.created``,
-    ``response.output_text.delta``, ``response.completed``, ...).
+    ``response.output_text.delta``, ``response.completed``, ...). Reuses
+    ``_iter_sse_json`` for parsing so a ``data:`` line split across two network
+    reads is reassembled instead of silently dropped.
     """
     response_id = f"resp_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
@@ -287,40 +291,28 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
         part={"type": "output_text", "text": "", "annotations": []},
     )
 
-    async for raw in body_iterator:
-        chunk = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-        for line in chunk.splitlines():
-            if not line.startswith("data:"):
-                continue
-            data_str = line[len("data:") :].strip()
-            if not data_str or data_str == "[DONE]":
-                continue
-            try:
-                event = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
+    async for event in _iter_sse_json(body_iterator):
+        if event.get("model"):
+            final_model = event["model"]
 
-            if event.get("model"):
-                final_model = event["model"]
+        choices = event.get("choices") or []
+        if not choices:
+            continue
+        delta = choices[0].get("delta", {})
+        chunk_finish_reason = choices[0].get("finish_reason")
+        if chunk_finish_reason:
+            finish_reason = chunk_finish_reason
 
-            choices = event.get("choices") or []
-            if not choices:
-                continue
-            delta = choices[0].get("delta", {})
-            chunk_finish_reason = choices[0].get("finish_reason")
-            if chunk_finish_reason:
-                finish_reason = chunk_finish_reason
-
-            text_delta = delta.get("content")
-            if text_delta:
-                text_fragments.append(text_delta)
-                yield _sse_frame(
-                    "response.output_text.delta",
-                    item_id=message_id,
-                    output_index=output_index,
-                    content_index=content_index,
-                    delta=text_delta,
-                )
+        text_delta = delta.get("content")
+        if text_delta:
+            text_fragments.append(text_delta)
+            yield _sse_frame(
+                "response.output_text.delta",
+                item_id=message_id,
+                output_index=output_index,
+                content_index=content_index,
+                delta=text_delta,
+            )
 
     final_text = "".join(text_fragments)
     status, incomplete_details = _status_from_finish_reason(finish_reason)

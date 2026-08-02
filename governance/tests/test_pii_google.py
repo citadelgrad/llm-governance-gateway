@@ -55,6 +55,7 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     monkeypatch.setattr(pii, "_google_client", None)
     monkeypatch.setattr(pii, "_executor_max_workers", 4)
     monkeypatch.setattr(pii, "_semaphore", None)
+    monkeypatch.setattr(pii, "_max_scan_seconds", 5.0)
     monkeypatch.setattr(pii.dlp_v2, "DlpServiceClient", fake_client_factory)
 
     await pii.initialize(
@@ -73,6 +74,10 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     assert client.calls[0]["request"]["parent"] == "projects/privacy-project/locations/us"
     assert client.calls[0]["request"]["inspect_config"]["min_likelihood"] == "LIKELY"
     assert client.calls[0]["timeout"] == 3.0
+    # ai-gateway review finding: the pool scheduler's documented wait bound
+    # must track the *configured* DLP timeout (up to 30s, settings.py), not
+    # a fixed constant that can silently fall out of sync with it.
+    assert pii._max_scan_seconds == 3.0
 
 
 @pytest.mark.asyncio
