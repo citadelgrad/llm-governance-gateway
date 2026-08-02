@@ -1,0 +1,21 @@
+policies/mcp/authz_test.rego
+  s_828d84a357b70f::t_f0c44569a5d939 85-166
+policies/mcp/authz.rego
+  s_828d84a357b70f::t_3c25b79301fa3a 14-23,26,29,41,53,66-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "dbeec12f1a41ecd062a5260aa9791744fda4d561",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
