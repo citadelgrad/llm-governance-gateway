@@ -1,0 +1,23 @@
+shared-pins.toml
+  s_828d84a357b70f::t_068f0fdeff9974 1-24
+governance/pyproject.toml
+  s_828d84a357b70f::t_909d28453d93de 32-37
+proxy/pyproject.toml
+  s_828d84a357b70f::t_c819f7aa589712 31-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "0a0a5da3ab51f8f175b28a8384f869466cc35e0f",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
