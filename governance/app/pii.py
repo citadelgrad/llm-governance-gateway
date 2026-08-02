@@ -10,7 +10,6 @@ from typing import Any, Literal, cast
 
 from google.api_core import exceptions as google_exceptions
 from google.api_core.client_options import ClientOptions
-from google.api_core.retry import Retry, if_exception_type
 from google.cloud import dlp_v2
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
@@ -474,6 +473,66 @@ def _redact_with_typed_markers(text: str, findings: list[dict]) -> str:
     return redacted
 
 
+# Backoff schedule for `_inspect_content_with_backoff`, replicated from the
+# `google.api_core.retry.Retry(initial=0.2, maximum=1.0, multiplier=2.0, ...)`
+# object this module used to hand the WHOLE inspect_content call (including
+# all retry sleeps) to. Kept as bare constants (rather than a Retry instance)
+# because the retry loop is now driven from the async side - see
+# `_inspect_content_with_backoff` for why.
+_GOOGLE_RETRY_INITIAL_SECONDS = 0.2
+_GOOGLE_RETRY_MAX_SECONDS = 1.0
+_GOOGLE_RETRY_MULTIPLIER = 2.0
+_GOOGLE_RETRYABLE_EXCEPTIONS = (
+    google_exceptions.DeadlineExceeded,
+    google_exceptions.ServiceUnavailable,
+)
+
+
+async def _inspect_content_with_backoff(
+    request: dict,
+    *,
+    timeout_seconds: float,
+    request_class: PiiRequestClass,
+) -> Any:
+    """Run one or more `inspect_content` attempts, retrying the same
+    transient-error set and backoff schedule this module previously
+    delegated to `google.api_core.retry.Retry` - but acquiring the
+    class-aware pool slot (`_acquire_scan_slot`) only for the duration of
+    EACH synchronous attempt, never across a backoff sleep.
+
+    Previously the `Retry` object wrapped the whole `inspect_content` call,
+    so its internal backoff sleeps ran *inside* the thread-pool worker while
+    the async pool slot stayed held for the entire retry/backoff window (up
+    to `timeout_seconds`). On a small pool (1-2 slots) that let one retrying
+    request hold its class's only slot through every backoff sleep, starving
+    the other request class of its guaranteed minimum (ai-gateway-ypb).
+    Releasing the slot here (by exiting `_acquire_scan_slot` before each
+    `asyncio.sleep`) lets a concurrent request of the other class claim its
+    home pool immediately during that wait, while the retryable-exception
+    set, backoff schedule, and overall `timeout_seconds` deadline are
+    unchanged from before.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    backoff = _GOOGLE_RETRY_INITIAL_SECONDS
+    while True:
+        try:
+            async with _acquire_scan_slot(request_class):
+                return await asyncio.to_thread(
+                    partial(
+                        _google_client.inspect_content,
+                        request=request,
+                        retry=None,
+                        timeout=timeout_seconds,
+                    )
+                )
+        except _GOOGLE_RETRYABLE_EXCEPTIONS:
+            if loop.time() >= deadline:
+                raise
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * _GOOGLE_RETRY_MULTIPLIER, _GOOGLE_RETRY_MAX_SECONDS)
+
+
 async def run_google(
     text: str,
     *,
@@ -488,16 +547,6 @@ async def run_google(
         raise RuntimeError("call initialize() first")
     if not text:
         return PiiResult(findings=[], data_classification="none", redacted_text="")
-    retry = Retry(
-        predicate=if_exception_type(
-            google_exceptions.DeadlineExceeded,
-            google_exceptions.ServiceUnavailable,
-        ),
-        initial=0.2,
-        maximum=1.0,
-        multiplier=2.0,
-        deadline=timeout_seconds,
-    )
     findings: list[dict] = []
     for codepoint_offset, chunk in _google_text_chunks(text):
         request = {
@@ -511,15 +560,11 @@ async def run_google(
             "item": {"value": chunk},
         }
         try:
-            async with _acquire_scan_slot(request_class):
-                response = await asyncio.to_thread(
-                    partial(
-                        _google_client.inspect_content,
-                        request=request,
-                        retry=retry,
-                        timeout=timeout_seconds,
-                    )
-                )
+            response = await _inspect_content_with_backoff(
+                request,
+                timeout_seconds=timeout_seconds,
+                request_class=request_class,
+            )
         except Exception:
             # Do not leak provider diagnostics or prompt content through API errors.
             raise PiiBackendError("Google DLP inspection failed") from None
