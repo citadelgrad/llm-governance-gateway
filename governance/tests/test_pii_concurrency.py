@@ -56,7 +56,6 @@ def fake_presidio(monkeypatch):
     monkeypatch.setattr(pii, "_analyzer", analyzer)
     monkeypatch.setattr(pii, "_anonymizer", _PassthroughAnonymizer())
     monkeypatch.setattr(pii, "_executor_max_workers", TEST_SEMAPHORE_SIZE)
-    monkeypatch.setattr(pii, "_semaphore", None)
     # Reset the class-aware pools too (ai-gateway-pvo) so each test builds a
     # fresh set sized off TEST_SEMAPHORE_SIZE instead of reusing whatever an
     # earlier test's _get_pools() call constructed.
@@ -91,23 +90,32 @@ class _ClassConcurrencyTracker:
                 self.current[request_class] -= 1
 
 
-def test_semaphore_sized_to_executor_worker_count(monkeypatch):
+def test_pools_sized_to_executor_worker_count(monkeypatch):
     monkeypatch.setattr(pii, "_executor_max_workers", 7)
-    monkeypatch.setattr(pii, "_semaphore", None)
+    monkeypatch.setattr(pii, "_interactive_semaphore", None)
+    monkeypatch.setattr(pii, "_bulk_semaphore", None)
+    monkeypatch.setattr(pii, "_shared_semaphore", None)
+    monkeypatch.setattr(pii, "_pool_sizes", None)
 
-    semaphore = pii._get_semaphore()
+    interactive, bulk, shared = pii._get_pools()
 
-    assert semaphore._value == 7
+    assert pii._pool_sizes == pii._split_pool_sizes(7)
+    assert interactive._value + bulk._value + shared._value == 7
 
 
-def test_get_semaphore_returns_the_same_instance(monkeypatch):
+def test_get_pools_returns_the_same_instances(monkeypatch):
     monkeypatch.setattr(pii, "_executor_max_workers", TEST_SEMAPHORE_SIZE)
-    monkeypatch.setattr(pii, "_semaphore", None)
+    monkeypatch.setattr(pii, "_interactive_semaphore", None)
+    monkeypatch.setattr(pii, "_bulk_semaphore", None)
+    monkeypatch.setattr(pii, "_shared_semaphore", None)
+    monkeypatch.setattr(pii, "_pool_sizes", None)
 
-    first = pii._get_semaphore()
-    second = pii._get_semaphore()
+    first_interactive, first_bulk, first_shared = pii._get_pools()
+    second_interactive, second_bulk, second_shared = pii._get_pools()
 
-    assert first is second
+    assert first_interactive is second_interactive
+    assert first_bulk is second_bulk
+    assert first_shared is second_shared
 
 
 @pytest.mark.asyncio
@@ -195,7 +203,6 @@ async def test_neither_class_can_starve_the_other_to_zero_slots(monkeypatch):
     monkeypatch.setattr(pii, "_analyzer", analyzer)
     monkeypatch.setattr(pii, "_anonymizer", _PassthroughAnonymizer())
     monkeypatch.setattr(pii, "_executor_max_workers", total)
-    monkeypatch.setattr(pii, "_semaphore", None)
     monkeypatch.setattr(pii, "_interactive_semaphore", None)
     monkeypatch.setattr(pii, "_bulk_semaphore", None)
     monkeypatch.setattr(pii, "_shared_semaphore", None)

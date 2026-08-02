@@ -12,7 +12,6 @@ from app.settings import settings
 async def test_entity_placeholders_are_visible_in_html_renderers(monkeypatch):
     monkeypatch.setattr(pii, "_anonymizer", AnonymizerEngine())
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     redacted = await pii.redact(
         "Scott emailed scott@example.com",

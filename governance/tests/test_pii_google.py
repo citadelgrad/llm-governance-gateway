@@ -54,7 +54,6 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     monkeypatch.setattr(pii, "_backend_name", "presidio")
     monkeypatch.setattr(pii, "_google_client", None)
     monkeypatch.setattr(pii, "_executor_max_workers", 4)
-    monkeypatch.setattr(pii, "_semaphore", None)
     monkeypatch.setattr(pii, "_max_scan_seconds", 5.0)
     monkeypatch.setattr(pii.dlp_v2, "DlpServiceClient", fake_client_factory)
 
@@ -91,7 +90,6 @@ async def test_google_backend_preserves_contract_and_request_policy(monkeypatch)
     )
     monkeypatch.setattr(pii, "_google_client", client)
     monkeypatch.setattr(pii, "_executor_max_workers", 2)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     result = await pii.run_google(
         text,
@@ -132,7 +130,6 @@ async def test_google_backend_converts_utf8_byte_offsets(monkeypatch):
     client = _FakeDlpClient([_finding("EMAIL_ADDRESS", start, end, byte_range=True)])
     monkeypatch.setattr(pii, "_google_client", client)
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     result = await pii.run_google(
         text,
@@ -153,7 +150,6 @@ async def test_google_backend_leaves_technical_query_intact_without_findings(mon
     text = "what is the latest version of Django web framework"
     monkeypatch.setattr(pii, "_google_client", _FakeDlpClient())
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     result = await pii.run_google(
         text,
@@ -192,7 +188,6 @@ async def test_google_backend_sanitizes_provider_failures(monkeypatch):
     client = _FakeDlpClient(error=ServiceUnavailable("upstream leaked detail"))
     monkeypatch.setattr(pii, "_google_client", client)
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     with pytest.raises(pii.PiiBackendError) as exc_info:
         await pii.run_google(
@@ -218,7 +213,6 @@ async def test_google_backend_fails_closed_on_truncated_findings(monkeypatch):
 
     monkeypatch.setattr(pii, "_google_client", TruncatedClient())
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     with pytest.raises(pii.PiiBackendError, match="incomplete findings"):
         await pii.run_google(
@@ -270,7 +264,6 @@ async def test_google_backend_chunks_large_unicode_text_with_overlap(monkeypatch
     monkeypatch.setattr(pii, "_GOOGLE_MAX_CONTENT_BYTES", 40)
     monkeypatch.setattr(pii, "_GOOGLE_CHUNK_OVERLAP_BYTES", 20)
     monkeypatch.setattr(pii, "_executor_max_workers", 1)
-    monkeypatch.setattr(pii, "_semaphore", None)
 
     result = await pii.run_google(
         text,

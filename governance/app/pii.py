@@ -32,7 +32,6 @@ _anonymizer: AnonymizerEngine | None = None
 _lock: asyncio.Lock | None = None
 _executor: ThreadPoolExecutor | None = None
 _executor_max_workers: int | None = None
-_semaphore: asyncio.Semaphore | None = None
 _google_client: Any | None = None
 _initialized_backend: str | None = None
 _backend_name = "presidio"
@@ -67,24 +66,17 @@ def _get_lock() -> asyncio.Lock:
         _lock = asyncio.Lock()
     return _lock
 
-def _get_semaphore() -> asyncio.Semaphore:
-    global _semaphore
-    if _semaphore is None:
-        assert _executor_max_workers is not None, "call initialize() first"
-        _semaphore = asyncio.Semaphore(_executor_max_workers)
-    return _semaphore
-
-
 # --- Class-aware concurrency scheduling (ai-gateway-pvo) --------------------
 #
-# `_get_semaphore()` above gates every call into scan()/redact()/run() with
-# ONE shared limit and no notion of caller identity. That means a sustained
-# burst of bulk/MCP-tool-response scans (app/main.py's /v1/dlp/pii-scan) can
-# occupy every permit and make a concurrent, latency-sensitive interactive
-# scan (app/pipeline.py's pii_stage(), part of /v1/inspect) queue behind the
-# full depth of that burst. `_get_semaphore()`/`_semaphore` are kept above,
-# unused by the logic below, only because existing tests assert their
-# init-order behavior directly.
+# A single shared asyncio.Semaphore gating every call into scan()/redact()/
+# run() with ONE limit and no notion of caller identity would mean a
+# sustained burst of bulk/MCP-tool-response scans (app/main.py's
+# /v1/dlp/pii-scan) can occupy every permit and make a concurrent,
+# latency-sensitive interactive scan (app/pipeline.py's pii_stage(), part of
+# /v1/inspect) queue behind the full depth of that burst. That single-limit
+# design (formerly `_get_semaphore()`/`_semaphore`) has been removed entirely
+# (ai-gateway-fob) now that the tests below assert against the pools
+# directly instead of that removed function.
 #
 # Design: split the executor's total worker count N (`_executor_max_workers`)
 # into three pools that always sum to exactly N — the aggregate concurrency
