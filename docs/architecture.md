@@ -73,6 +73,77 @@ Run policy tests with:
 make opa-test
 ```
 
+## Opa-sidecar Dockerfile hardening (distinct from tenant-isolation policy fix)
+
+Commit `738d15f` ("fix(opa-sidecar): use multi-platform static OPA binary on
+Alpine") and commit `dbeec12` ("fix(policies): enforce tenant_id scoping in
+mcp authz.rego (ai-gateway-hwl)") landed close together on the long-running
+`feat/ready-swarm` integration branch and are easy to mistake for one change.
+They are not: they touch different files, fix different problems, and are
+independently revertable. This section documents them separately, after the
+fact, so review/revert history isn't stuck treating them as one unit.
+
+**What the Dockerfile hardening does (`738d15f`, `opa-sidecar/Dockerfile`
+only).** Before this commit, the `opa-sidecar` image's final stage was
+`FROM openpolicyagent/opa:0.68.0-debug`, an amd64-only image, and ran as the
+image's default (root) user. The commit rewrites the final stage as a
+multi-stage build:
+
+- A new `opa` stage (`FROM openpolicyagent/opa:0.68.0-static AS opa`) supplies
+  a statically-linked, multi-platform OPA binary.
+- The final stage switches its base to plain `FROM alpine:3.20` and copies
+  the binary in (`COPY --from=opa /opa /opa`), instead of inheriting from the
+  debug image.
+- `USER 1000:1000` drops the process to a non-root user before the
+  `ENTRYPOINT`/`CMD` that runs `opa run --server`.
+- Alpine (rather than a fully-minimal `scratch`/distroless base) was kept
+  deliberately: its bundled BusyBox `wget` is what the Compose-level
+  healthcheck for this service uses (`docker-compose.yml`, `opa-sidecar`:
+  `wget -q -O /dev/null http://127.0.0.1:8181/health?bundles=true`).
+
+Why: the debug image's amd64-only manifest could not build or run natively on
+arm64 (e.g. Apple Silicon dev machines), which blocked local verification
+work. Switching to the static, multi-platform binary on Alpine fixes that,
+and dropping to a non-root user is an independent, additive hardening step
+taken at the same time. This change carries no policy logic of its own — it
+does not touch `policies/mcp/authz.rego`, the entitlement matrix, or any
+`allow`/`deny` rule.
+
+**What the tenant-isolation policy fix does (`dbeec12`,
+`policies/mcp/authz.rego` and `authz_test.rego`, ai-gateway-hwl).**
+`authz.rego`'s `allow` rules previously matched only on
+role/tool/resource-pattern and never checked `input.principal.tenant_id`, so
+a principal holding a matching role could reach another tenant's MCP
+resource through role/pattern match alone. The fix adds a `tenant_id` to
+every `entitlements` entry and a fail-closed `same_tenant()` helper: both the
+entitlement's and the principal's `tenant_id` must be present, non-null,
+non-empty strings and equal, or the helper is undefined, the `allow` rule
+falls through, and `default allow := false` applies. Seven new tests cover
+cross-tenant deny (both the resource-pattern and no-resource-pattern allow
+branches), the missing/null/empty `principal.tenant_id` boundary, and an
+entitlement entry with no tenant scope recorded. This change carries no
+container/build concerns of its own — it does not touch
+`opa-sidecar/Dockerfile` or any image/base-image choice.
+
+**Why they ended up together.** `738d15f`'s own commit message says the
+Dockerfile hardening was "needed to build/run the sidecar for verifying the
+ai-gateway-hwl tenant_id fix" — i.e. the Dockerfile change existed to let a
+developer build and exercise the sidecar locally while validating `dbeec12`.
+That is a practical/verification dependency, not a logical one: the two
+commits touch disjoint files (`opa-sidecar/Dockerfile` vs.
+`policies/mcp/authz.rego`/`authz_test.rego`), and per `git log`, `dbeec12`
+merged into `feat/ready-swarm` via merge commit `6a06e1a` well before
+`738d15f` was committed directly to the branch, separated by several
+unrelated merges in between. Neither is a merge commit that literally
+combines both diffs — both simply coexist, unmerged into `main`, on the same
+long-running `feat/ready-swarm` integration branch, which is the "single
+changeset" the two concerns risk being read as if that branch lands in
+`main` as one PR/merge without this note. Reverting the Dockerfile hardening
+does not reintroduce the cross-tenant authorization gap (that logic lives
+entirely in `authz.rego` and its tests); reverting the tenant-isolation fix
+does not require reverting the base-image/non-root change. See
+[auth-architecture.md](auth-architecture.md) for the full sidecar design.
+
 ## Routing model
 
 Model routing config lives in `config/models.yaml`.
