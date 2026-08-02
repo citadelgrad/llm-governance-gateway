@@ -1,0 +1,19 @@
+mcpproxy/tests/test_opa_authz_integration.py
+  s_828d84a357b70f::t_0d0742cc90c2a1 25-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "e906a52138c2b4e86d54f3f00d4c202cc900f86b",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
