@@ -1,0 +1,24 @@
+# shared-pins.toml (ai-gateway-8a3)
+#
+# Single source of truth for the exact-pinned ("==") dependencies that
+# governance/pyproject.toml and proxy/pyproject.toml currently have in
+# common. Neither project's actual dependency list is generated from this
+# file — uv has no mechanism to pull pins from an external file into
+# [project.dependencies], and there is no root-level uv workspace tying
+# governance/, proxy/, and mcpproxy/ together (each is independently
+# uv-managed with its own lockfile, on purpose, so the services stay
+# independently deployable).
+#
+# What this file IS for: one place to check both projects agree on the
+# version of a package they both exact-pin, and something a future CI
+# check/script can diff against. When bumping one of the packages below
+# in EITHER project's pyproject.toml (e.g. a Dependabot or manual security
+# bump), update this file AND both pyproject.toml files in the same change.
+#
+# History: both pins originated from ai-gateway-6bh (Dependabot
+# consolidation), which independently pinned the Dependabot-resolved
+# versions in each project. They happened to land on the same versions.
+
+[shared_exact_pins]
+cryptography = "48.0.1"  # exact-pinned in governance/pyproject.toml and proxy/pyproject.toml
+starlette    = "1.3.1"   # exact-pinned in governance/pyproject.toml and proxy/pyproject.toml

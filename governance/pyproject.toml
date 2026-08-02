@@ -29,6 +29,12 @@ dependencies = [
     # Dependabot-proposed resolved versions.
     "setuptools==83.0.0",
     "aiohttp==3.14.1",
+    # cryptography and starlette are also exact-pinned in
+    # proxy/pyproject.toml (both intentionally kept as separate,
+    # independently deployable services — no root-level uv workspace).
+    # ../shared-pins.toml (ai-gateway-8a3) is the single source of truth
+    # for these two shared versions; update it and BOTH pyproject.toml
+    # files together when bumping either package.
     "cryptography==48.0.1",
     "starlette==1.3.1",
 ]
