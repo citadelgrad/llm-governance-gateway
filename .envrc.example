@@ -30,6 +30,21 @@ export GATEWAY_MCPPROXY_PORT="18766"
 # Smaller deploy-friendly option: en_core_web_sm (~12MB)
 export SPACY_MODEL="en_core_web_lg"
 
+# PII backend: local fallback is Presidio; use Google in deployed environments
+# after enabling dlp.googleapis.com and configuring workload identity/ADC.
+export PII_BACKEND="presidio"
+export GOOGLE_CLOUD_PROJECT=""
+export GOOGLE_DLP_LOCATION="global"
+# Optional regional endpoint hostname when data must stay in-region in transit.
+export GOOGLE_DLP_API_ENDPOINT=""
+export GOOGLE_DLP_MIN_LIKELIHOOD="POSSIBLE"
+export GOOGLE_DLP_TIMEOUT_SECONDS="5"
+export GOOGLE_DLP_INFO_TYPES="EMAIL_ADDRESS,PHONE_NUMBER,US_SOCIAL_SECURITY_NUMBER,CREDIT_CARD_NUMBER,IP_ADDRESS,STREET_ADDRESS,DATE_OF_BIRTH"
+# Local Compose only: host ADC file mounted read-only into Governance.
+export GOOGLE_APPLICATION_CREDENTIALS_HOST=""
+# Add docker-compose.google-dlp.yml only when using local ADC in Compose.
+# export COMPOSE_FILE="docker-compose.yml:docker-compose.google-dlp.yml"
+
 # Mock providers let demos/tests run without real upstream LLM API keys.
 export MOCK_PROVIDERS="true"
 

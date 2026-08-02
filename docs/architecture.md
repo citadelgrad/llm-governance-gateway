@@ -42,12 +42,19 @@ This is the right default for a governance gateway. Availability loss is annoyin
 
 PII handling is designed so sensitive raw values do not leave the governance boundary unless tenant policy explicitly permits it.
 
-- Presidio/spaCy detect PII entities.
+- Google Sensitive Data Protection detects production PII entities through a
+  configurable, timeout-bounded `inspectContent` call. Presidio/spaCy remains
+  only as an explicitly selected local/migration rollback backend.
 - Detected values are replaced before provider dispatch when redaction is enabled.
 - Audit records include PII entity metadata such as type, offset, and score.
 - Audit records do not store the matched raw PII text.
 - Pseudonyms are HMAC-derived using `PSEUDONYM_HMAC_KEY`.
 - Right-to-erasure destroys the real-user-to-pseudonym link while keeping audit records for compliance.
+
+Google receives the raw text being inspected in memory, with `include_quote=false`;
+the gateway performs typed-marker replacement locally and never stores matched
+text in audit records. Scanner errors fail closed and never auto-fallback to
+Presidio. See [Google Sensitive Data Protection PII backend](google-sensitive-data-protection.md).
 
 ## Policy model
 

@@ -141,8 +141,17 @@ async def get_caller(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> CallerContext:
+    """Authenticate native and OpenAI-compatible routes.
+
+    OpenAI clients carry their configured API key as a bearer token, while
+    native callers may continue to use JWT, ApiKey, or bare-key auth.
+    """
     try:
-        return await authenticate(authorization, request.app.state.db_pool)
+        return await authenticate(
+            authorization,
+            request.app.state.db_pool,
+            allow_bearer_api_key_fallback=True,
+        )
     except AuthError as exc:
         raise HTTPException(
             status_code=401, detail=error_envelope("auth_error", "Invalid credentials")

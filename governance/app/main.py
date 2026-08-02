@@ -34,7 +34,16 @@ async def lifespan(app: FastAPI):
     from . import harm as harm_module
     from . import opa as opa_module
     from . import pii
-    await pii.initialize(settings.spacy_model)
+    await pii.initialize(
+        settings.spacy_model,
+        backend=settings.pii_backend,
+        google_project=settings.google_cloud_project,
+        google_location=settings.google_dlp_location,
+        google_api_endpoint=settings.google_dlp_api_endpoint,
+        google_min_likelihood=settings.google_dlp_min_likelihood,
+        google_info_types=settings.google_dlp_info_type_names,
+        google_timeout_seconds=settings.google_dlp_timeout_seconds,
+    )
     await asyncio.to_thread(harm_module.warm_up_scanners)  # warm up harm scanners at startup
     _ready = True
     yield

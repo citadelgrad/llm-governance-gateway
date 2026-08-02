@@ -11,11 +11,14 @@ class AnthropicCompatError(Exception):
     """Raised when a request uses an unsupported Anthropic Messages shape."""
 
 
+AnthropicContent = str | list[dict[str, Any]]
+
+
 class AnthropicMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: str
-    content: str | list[dict[str, Any]]
+    content: AnthropicContent
 
 
 class AnthropicMessagesRequest(BaseModel):
@@ -23,7 +26,7 @@ class AnthropicMessagesRequest(BaseModel):
 
     model: str
     messages: list[AnthropicMessage]
-    system: str | None = None
+    system: AnthropicContent | None = None
     max_tokens: int = 1024
     temperature: float | None = None
     stream: bool = False
@@ -39,10 +42,10 @@ class CountTokensRequest(BaseModel):
 
     model: str
     messages: list[AnthropicMessage]
-    system: str | None = None
+    system: AnthropicContent | None = None
 
 
-def _content_str(content: str | list[dict[str, Any]]) -> str:
+def _content_str(content: AnthropicContent) -> str:
     if isinstance(content, str):
         return content
 
@@ -69,7 +72,7 @@ def messages_to_chat_body(req: AnthropicMessagesRequest) -> dict:
 
     msgs: list[dict] = []
     if req.system:
-        msgs.append({"role": "system", "content": req.system})
+        msgs.append({"role": "system", "content": _content_str(req.system)})
     for index, msg in enumerate(req.messages):
         role = msg.role.lower()
         if role not in {"user", "assistant"}:
@@ -212,9 +215,12 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
                 yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
 
 
-def count_tokens_approximate(messages: list[AnthropicMessage], system: str | None = None) -> int:
+def count_tokens_approximate(
+    messages: list[AnthropicMessage],
+    system: AnthropicContent | None = None,
+) -> int:
     """Deterministic token approximation (~4 chars per token, plus per-message overhead)."""
-    total_chars = len(system) if system else 0
+    total_chars = len(_content_str(system)) if system else 0
     for msg in messages:
         total_chars += len(_content_str(msg.content))
     return max(1, (total_chars + 3) // 4 + len(messages) * 5)

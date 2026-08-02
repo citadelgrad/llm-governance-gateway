@@ -1,0 +1,6 @@
+services:
+  governance:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/gcp/adc.json
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS_HOST:?set GOOGLE_APPLICATION_CREDENTIALS_HOST to an ADC JSON file}:/var/run/gcp/adc.json:ro

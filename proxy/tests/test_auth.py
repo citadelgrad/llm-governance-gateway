@@ -43,6 +43,24 @@ async def test_api_key_valid(auth_client, api_key_creds):
     assert response.json()["user_id"] == "key-user"
 
 
+async def test_openai_compatible_bearer_api_key_valid(auth_client, api_key_creds):
+    """OpenAI-compatible clients send their configured API key as a bearer token."""
+    client, pool = auth_client
+    raw_key, key_hash = api_key_creds
+    conn = pool.acquire.return_value.__aenter__.return_value
+    conn.fetchrow.side_effect = [
+        {"hash": key_hash, "user_id": "key-user", "tenant_id": "test-tenant", "roles": ["user"]},
+        None,
+    ]
+
+    response = await client.get(
+        "/v1/me", headers={"Authorization": f"Bearer {raw_key}"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_id"] == "key-user"
+
+
 async def test_api_key_invalid(auth_client):
     """An API key with no matching DB row returns 401."""
     client, pool = auth_client

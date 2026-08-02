@@ -206,9 +206,20 @@ Important environment variables:
 | `ANTHROPIC_API_KEY` | Anthropic provider key |
 | `GEMINI_API_KEY` | Google Gemini provider key |
 | `OLLAMA_BASE_URL` | Ollama/OpenAI-compatible local base URL |
-| `SPACY_MODEL` | spaCy model used by Presidio PII detection |
+| `PII_BACKEND` | PII scanner: `google` for production, explicit `presidio` rollback/local fallback |
+| `GOOGLE_CLOUD_PROJECT` | GCP project used for Sensitive Data Protection inspection |
+| `GOOGLE_DLP_LOCATION` | DLP processing location; defaults to `global` |
+| `GOOGLE_DLP_API_ENDPOINT` | Optional regional endpoint hostname for in-transit residency |
+| `GOOGLE_DLP_MIN_LIKELIHOOD` | Minimum Google finding likelihood; defaults to `POSSIBLE` |
+| `GOOGLE_DLP_TIMEOUT_SECONDS` | DLP RPC timeout/retry deadline; defaults to 5 seconds |
+| `GOOGLE_DLP_INFO_TYPES` | Comma-separated Google detector allowlist |
+| `SPACY_MODEL` | spaCy model used only by the explicit Presidio rollback backend |
 
 Never commit real `.envrc`, `.env`, provider keys, JWT secrets, HMAC keys, or database credentials.
+
+See [Google Sensitive Data Protection PII backend](docs/google-sensitive-data-protection.md)
+for IAM, ADC/workload identity, regional processing, cost/quota, live smoke, and
+rollback instructions.
 
 ## Governance controls
 

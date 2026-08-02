@@ -1,35 +1,37 @@
-.PHONY: up down restart status logs migrate lint test test-integration opa-test provision onboard-help rotate-partitions demo help
+.PHONY: up down restart status logs migrate lint test test-integration smoke-live smoke-google-dlp opa-test provision onboard-help rotate-partitions demo help
 
 JWT_SECRET ?= local-dev-jwt-secret-for-compose-tests-only
 GOVERNANCE_INTERNAL_TOKEN ?= local-dev-governance-token
 PSEUDONYM_HMAC_KEY ?= local-dev-pseudonym-hmac-key-for-compose-tests-only
+PII_BACKEND ?= presidio
 GATEWAY_PROXY_PORT ?= 18765
 GATEWAY_POSTGRES_PORT ?= 15433
 GATEWAY_MCPPROXY_PORT ?= 18766
 GATEWAY_BASE_URL ?= http://localhost:$(GATEWAY_PROXY_PORT)
 DATABASE_URL ?= postgresql://gateway:gateway@localhost:$(GATEWAY_POSTGRES_PORT)/gateway
-export JWT_SECRET GOVERNANCE_INTERNAL_TOKEN PSEUDONYM_HMAC_KEY GATEWAY_PROXY_PORT GATEWAY_POSTGRES_PORT GATEWAY_MCPPROXY_PORT GATEWAY_BASE_URL DATABASE_URL
+export JWT_SECRET GOVERNANCE_INTERNAL_TOKEN PSEUDONYM_HMAC_KEY PII_BACKEND GATEWAY_PROXY_PORT GATEWAY_POSTGRES_PORT GATEWAY_MCPPROXY_PORT GATEWAY_BASE_URL DATABASE_URL
+DIRENV ?= direnv exec $(CURDIR)
 
 ## Service lifecycle
 up:
-	docker compose up -d --wait
+	$(DIRENV) docker compose up -d --wait
 
 down:
-	docker compose down
+	$(DIRENV) docker compose down
 
 restart:
 	$(MAKE) down
 	$(MAKE) up
 
 status:
-	docker compose ps
+	$(DIRENV) docker compose ps
 
 logs:
-	docker compose logs -f
+	$(DIRENV) docker compose logs -f
 
 ## Database
 migrate:
-	docker compose run --rm migrate
+	$(DIRENV) docker compose run --rm migrate
 
 ## Code quality
 lint:
@@ -39,13 +41,20 @@ lint:
 
 test:
 	cd proxy && uv --no-config run --extra dev python -m pytest tests/
-	cd governance && uv --no-config run --extra dev python -m pytest tests/
+	cd governance && PII_BACKEND=presidio uv --no-config run --extra dev python -m pytest tests/
 	cd mcpproxy && uv --no-config run --extra dev python -m pytest tests/
+	uv --no-config run --with pyyaml --with bcrypt --with pytest python -m pytest tests/ --ignore=tests/integration
 
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
 	cd proxy && INTEGRATION_TEST=1 uv --no-config run pytest ../tests/integration/ -v
+
+smoke-live:
+	$(DIRENV) uv --no-config run --with httpx scripts/live_smoke.py
+
+smoke-google-dlp:
+	cd governance && $(DIRENV) uv --no-config run python ../scripts/live_google_dlp.py
 
 ## OPA policy tests
 opa-test:
@@ -53,7 +62,7 @@ opa-test:
 
 ## Provisioning
 provision:
-	uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
+	$(DIRENV) uv --no-config run --with psycopg2-binary --with pyyaml --with bcrypt scripts/provision.py
 
 onboard-help:
 	uv --no-config run --with pyyaml scripts/onboard.py --help
@@ -79,6 +88,8 @@ help:
 	@echo "  lint                Run ruff + ty on both services"
 	@echo "  test                Run pytest on both services"
 	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
+	@echo "  smoke-live          Test live gateway/provider protocols (uses provider tokens)"
+	@echo "  smoke-google-dlp    Test Google DLP with ADC (uses billable API calls)"
 	@echo "  opa-test            Run OPA policy tests"
 	@echo "  provision           Run IaC provisioner (idempotent)"
 	@echo "  onboard-help        Show user/service-account onboarding CLI help"

@@ -41,7 +41,7 @@ class _FakeResult:
 
 
 class _PassthroughAnonymizer:
-    def anonymize(self, text, analyzer_results):
+    def anonymize(self, text, analyzer_results, operators=None):
         return _FakeAnonymizedResult(f"[REDACTED]{text}")
 
 

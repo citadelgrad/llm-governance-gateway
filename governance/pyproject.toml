@@ -23,6 +23,7 @@ dependencies = [
     "opa-python-client>=1.3",
     "transformers>=5.0.0rc3",
     "torch>=2.13.0",
+    "google-cloud-dlp>=3.38.0",
 ]
 
 [project.optional-dependencies]

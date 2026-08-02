@@ -58,6 +58,30 @@ async def test_messages_with_system_prompt(messages_client):
     assert response.status_code == 200
 
 
+async def test_messages_accepts_continue_system_content_blocks(messages_client):
+    client, _ = messages_client
+    body = {
+        "model": "claude-3-5-sonnet",
+        "system": [
+            {"type": "text", "text": "You are a coding assistant."},
+            {
+                "type": "text",
+                "text": "Edit carefully.",
+                "cache_control": {"type": "ephemeral"},
+            },
+        ],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Hello!"}]}
+        ],
+        "max_tokens": 50,
+        "stream": True,
+    }
+
+    response = await client.post("/v1/messages", json=body)
+
+    assert response.status_code == 200
+
+
 async def test_messages_content_block_text_has_string(messages_client):
     client, _ = messages_client
     response = await client.post("/v1/messages", json=_BASE_BODY)
@@ -257,6 +281,20 @@ async def test_count_tokens_basic(messages_client):
     assert "input_tokens" in resp
     assert isinstance(resp["input_tokens"], int)
     assert resp["input_tokens"] > 0
+
+
+async def test_count_tokens_accepts_continue_system_content_blocks(messages_client):
+    client, _ = messages_client
+    body = {
+        "model": "claude-3-5-sonnet",
+        "system": [{"type": "text", "text": "You are a coding assistant."}],
+        "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    response = await client.post("/v1/messages/count_tokens", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["input_tokens"] > 0
 
 
 async def test_count_tokens_more_with_system_prompt(messages_client):

@@ -15,6 +15,9 @@ from proxy.app.providers import (
 from proxy.app.providers import (
     ollama as ollama_provider,
 )
+from proxy.app.providers import (
+    openai as openai_provider,
+)
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 
 # ---------------------------------------------------------------------------
@@ -75,6 +78,135 @@ def test_extract_usage_missing_usage_returns_zero():
     assert extract_usage("openai", {}) == UsageMetrics.zero()
     assert extract_usage("anthropic", {}) == UsageMetrics.zero()
     assert extract_usage("gemini", {}) == UsageMetrics.zero()
+
+
+# ---------------------------------------------------------------------------
+# OpenAI — modern chat request compatibility and streaming errors
+# ---------------------------------------------------------------------------
+
+
+def test_openai_translates_max_tokens_for_gpt5_models():
+    body = {
+        "model": "gpt-5.6-luna",
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 128,
+    }
+
+    translated = openai_provider._translate_request(body)
+
+    assert translated["max_completion_tokens"] == 128
+    assert "max_tokens" not in translated
+    assert "max_tokens" in body  # caller-owned input is not mutated
+
+
+def test_openai_leaves_max_tokens_for_legacy_models():
+    body = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 128,
+    }
+
+    assert openai_provider._translate_request(body) == body
+
+
+def test_openai_disables_default_reasoning_for_gpt5_function_tools():
+    body = {
+        "model": "gpt-5.6-luna",
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{"type": "function", "function": {"name": "lookup"}}],
+    }
+
+    translated = openai_provider._translate_request(body)
+
+    assert translated["reasoning_effort"] == "none"
+
+
+def test_openai_preserves_explicit_reasoning_effort():
+    body = {
+        "model": "gpt-5.6-luna",
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{"type": "function", "function": {"name": "lookup"}}],
+        "reasoning_effort": "high",
+    }
+
+    assert openai_provider._translate_request(body)["reasoning_effort"] == "high"
+
+
+def test_openai_does_not_disable_reasoning_for_other_gpt5_models():
+    body = {
+        "model": "gpt-5",
+        "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{"type": "function", "function": {"name": "lookup"}}],
+    }
+
+    assert "reasoning_effort" not in openai_provider._translate_request(body)
+
+
+async def test_openai_streaming_propagates_upstream_error_status(httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.openai.com/v1/chat/completions",
+        status_code=400,
+        json={
+            "error": {
+                "message": "Unsupported parameter",
+                "type": "invalid_request_error",
+            }
+        },
+    )
+    client = openai_provider.make_client("test-key")
+    try:
+        response = await openai_provider.chat_completions(
+            client,
+            {
+                "model": "gpt-5.6-luna",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={"X-Audit-ID": "audit-1"},
+        )
+    finally:
+        await client.aclose()
+
+    assert response.status_code == 400
+    assert response.media_type == "application/json"
+    assert json.loads(response.body)["error"]["type"] == "invalid_request_error"
+    assert response.headers["x-audit-id"] == "audit-1"
+
+
+async def test_openai_streaming_forwards_valid_sse_and_translated_body(httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.openai.com/v1/chat/completions",
+        headers={"content-type": "text/event-stream"},
+        content=(
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'
+            b"data: [DONE]\n\n"
+        ),
+    )
+    client = openai_provider.make_client("test-key")
+    try:
+        response = await openai_provider.chat_completions(
+            client,
+            {
+                "model": "gpt-5.6-luna",
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 32,
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        content = b"".join([chunk async for chunk in response.body_iterator])
+    finally:
+        await client.aclose()
+
+    sent_body = json.loads(httpx_mock.get_requests()[0].content)
+    assert sent_body["max_completion_tokens"] == 32
+    assert "max_tokens" not in sent_body
+    assert b'"content":"ok"' in content
+    assert b"data: [DONE]" in content
 
 
 # ---------------------------------------------------------------------------

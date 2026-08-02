@@ -36,3 +36,8 @@ users:
   roles:
   - tier1
   initial_key: REPLACE_IN_PROVISIONER
+- id: continue-local
+  tenant_id: local-integration
+  roles:
+  - tier1
+  initial_key: REPLACE_IN_PROVISIONER

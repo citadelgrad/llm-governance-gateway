@@ -44,8 +44,9 @@ Agent compatibility today:
 | Agent | Native API it expects | Works with this gateway today? | Notes |
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
-| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | yes | The gateway natively implements `/v1/messages` and `/v1/messages/count_tokens`; point `ANTHROPIC_BASE_URL` at the gateway. |
-| Codex CLI | OpenAI Responses API: `/v1/responses` | yes | Use a custom provider with `wire_api = "responses"` and send the gateway API key via `GATEWAY_API_KEY`. |
+| Continue | OpenAI-compatible `/v1/chat/completions` | yes | Set `useResponsesApi: false`; the configurator does this automatically so streaming and Agent tools use Chat Completions. |
+| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | text-only | Basic chat and text streaming work; agent tool-use is not implemented yet. |
+| Codex CLI | OpenAI Responses API: `/v1/responses` | basic prompts only | Non-streaming text prompts work; normal streaming/tool-driven Codex sessions are not implemented yet. |
 
 ## Enrollment model
 
@@ -245,7 +246,7 @@ Useful headers to inspect with `curl -i`:
 
 ## Configure production endpoint snippets
 
-Use the onboarding CLI to generate copy/pasteable config for Hermes, Claude Code, and Codex without embedding a plaintext gateway key:
+Use the onboarding CLI to generate endpoint config for Hermes, Claude Code, Codex, and Continue without embedding a plaintext gateway key in the generated output:
 
 ```bash
 uv --no-config run --with pyyaml scripts/onboard.py agent-config \
@@ -255,7 +256,33 @@ uv --no-config run --with pyyaml scripts/onboard.py agent-config \
   --claude-model claude-3-5-sonnet
 ```
 
-The output includes macOS/Linux and Windows PowerShell environment snippets plus the Codex `config.toml` block. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
+The output includes macOS/Linux and Windows PowerShell environment snippets, the Codex `config.toml` block, and the command that writes Continue's user-level config. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
+
+## Configure Continue automatically
+
+Continue reads user-level model configuration from `~/.continue/config.yaml` on macOS/Linux and `%USERPROFILE%\.continue\config.yaml` on Windows. Do not use Continue's provider form for gateway onboarding; run the idempotent configurator so existing unrelated models and settings are preserved:
+
+macOS/Linux:
+
+```bash
+export GATEWAY_API_KEY="gw_user_key"
+uv --no-config run --with pyyaml scripts/onboard.py configure-continue \\
+  --gateway-url "https://llm-gateway.example.com" \\
+  --api-key-env GATEWAY_API_KEY \\
+  --model gpt-5.6-luna
+```
+
+Windows PowerShell:
+
+```powershell
+$env:GATEWAY_API_KEY = "gw_user_key"
+uv --no-config run --with pyyaml scripts/onboard.py configure-continue `
+  --gateway-url "https://llm-gateway.example.com" `
+  --api-key-env GATEWAY_API_KEY `
+  --model gpt-5.6-luna
+```
+
+The command preserves unrelated settings and models, creates a one-time `config.yaml.gateway-backup`, stores the key in Continue's required local model configuration, sets `useResponsesApi: false`, sets both files to owner-only permissions where supported, and never prints the key. Restart the IDE after configuration. Continue uses OpenAI-compatible bearer authentication against `/v1/chat/completions`; forcing Chat Completions is required because Continue's streaming and Agent-tool requests are broader than the gateway's intentionally limited Codex-oriented `/v1/responses` subset.
 
 ## Configure Hermes
 
@@ -317,7 +344,7 @@ anthropic-beta
 anthropic-version
 ```
 
-This repository does not currently expose those paths, so the commands below are for a future Anthropic-compatible gateway endpoint or a shim in front of this gateway.
+This repository exposes both paths natively for basic text chat, so Claude Code can point directly at the gateway without a compatibility shim. Tool definitions, `tool_use`, and `tool_result` blocks are not implemented yet, so do not treat this as full Claude Code agent compatibility.
 
 macOS/Linux:
 
@@ -353,7 +380,7 @@ Current Codex CLI custom providers require the OpenAI Responses API wire protoco
 POST /v1/responses
 ```
 
-This repository exposes `/v1/responses` for Codex-compatible basic prompt traffic. The compatibility layer reuses the same auth, model allowlist, rate limit, governance, provider dispatch, and audit path as `/v1/chat/completions`.
+This repository exposes `/v1/responses` for Codex-compatible basic non-streaming prompt traffic. The compatibility layer reuses the same auth, model allowlist, rate limit, governance, provider dispatch, and audit path as `/v1/chat/completions`. Normal Codex agent traffic also requires Responses streaming, tools, and continuation state; those are not implemented yet.
 
 Create or edit `~/.codex/config.toml` on macOS/Linux, or `%USERPROFILE%\.codex\config.toml` on Windows:
 
