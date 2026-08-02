@@ -377,6 +377,22 @@ async def test_run_google_retry_backoff_releases_slot_for_other_class(monkeypatc
     interactive request that arrives while that borrower is mid-backoff must
     still get its home slot promptly, not wait for the borrower's entire
     retry window.
+
+    ai-gateway-4hb: synchronization is deterministic, not wall-clock-based.
+    `asyncio.sleep` (the only sleep `_inspect_content_with_backoff` reaches
+    for) is monkeypatched so entering a backoff sleep signals
+    `backoff_entered` and then parks on `release_backoff` until the test
+    lets it continue - no real time ever elapses. Because
+    `_acquire_scan_slot`'s `finally: held.release()` runs synchronously,
+    with no `await` in between, before `_inspect_content_with_backoff`
+    reaches its `await asyncio.sleep(backoff)` call, observing
+    `backoff_entered` is proof the slot was already released - regardless
+    of how long that actually took on the clock. And because
+    `release_backoff` is deliberately left unset while we assert the
+    interactive call's outcome, a regression that holds the slot across the
+    sleep would deadlock the interactive call right here (caught by the
+    `wait_for` hang-guard below) instead of racing it against a tuned
+    timeout.
     """
     total = 2
     monkeypatch.setattr(pii, "_executor_max_workers", total)
@@ -397,6 +413,19 @@ async def test_run_google_retry_backoff_releases_slot_for_other_class(monkeypatc
     # home slot instead of using its own (busy) home pool.
     await bulk_sem.acquire()
 
+    backoff_entered = asyncio.Event()
+    release_backoff = asyncio.Event()
+
+    async def fake_backoff_sleep(delay, result=None):
+        # Replaces the real backoff wait with a controllable signal instead
+        # of consuming real wall-clock time. See the test docstring for why
+        # this call happening at all proves the slot was already released.
+        backoff_entered.set()
+        await release_backoff.wait()
+        return result
+
+    monkeypatch.setattr(asyncio, "sleep", fake_backoff_sleep)
+
     async def run_google_call(text: str, request_class: pii.PiiRequestClass):
         return await pii.run_google(
             text,
@@ -411,24 +440,31 @@ async def test_run_google_retry_backoff_releases_slot_for_other_class(monkeypatc
     retrier = asyncio.create_task(
         run_google_call(trigger_text, pii.PII_CLASS_BULK)
     )
-    # Let the retrier make its first (failing) attempt, borrow-and-release
-    # the interactive slot, and enter its first backoff sleep.
-    await asyncio.sleep(0.02)
+    # Deterministically wait for the retrier to make its first (failing)
+    # attempt, borrow-and-release the interactive slot, and enter its first
+    # backoff sleep - no fixed-duration guess at how long that takes.
+    await asyncio.wait_for(backoff_entered.wait(), timeout=5)
 
-    start = time.monotonic()
     real_interactive = asyncio.create_task(
         run_google_call("real interactive request", pii.PII_CLASS_INTERACTIVE)
     )
-    await asyncio.wait_for(real_interactive, timeout=0.15)
-    interactive_elapsed = time.monotonic() - start
+    # `release_backoff` is still unset here, so the retrier cannot progress
+    # past its backoff sleep. This `wait_for` timeout is a hang guard for a
+    # regressed/deadlocked test run, not a race margin: it is far larger
+    # than anything this call should ever need, and the test's actual proof
+    # is the ordering assertion below, not how fast this returns.
+    await asyncio.wait_for(real_interactive, timeout=5)
 
     # The retrier has at least one more scripted failure + backoff sleep
-    # ahead of it (fail_times=2, only its first attempt has happened so far)
-    # - proof the interactive request did not wait for the retrier's full
-    # retry window to finish.
+    # ahead of it (fail_times=2, only its first attempt has happened so
+    # far). Asserting this *before* releasing the backoff is the proof the
+    # interactive request completed independently of - and without waiting
+    # for - the retrier's full retry window: if the slot-release-before-
+    # sleep behavior regressed, `real_interactive` above would have
+    # deadlocked instead of reaching this line at all.
     assert not retrier.done()
-    assert interactive_elapsed < 0.15
 
+    release_backoff.set()  # let the retrier's remaining scripted work run
     bulk_sem.release()  # release the manually-held slot from this test
     retrier_result = await asyncio.wait_for(retrier, timeout=5)
 
