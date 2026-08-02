@@ -8,7 +8,7 @@ import data.mcp.authz
 
 test_resource_pattern_match_allow if {
     authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:github-write"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "repo:org/name", "prior_calls_this_session": 4},
     }
@@ -18,7 +18,7 @@ test_resource_pattern_match_allow if {
 
 test_resource_pattern_match_allow_case_and_trailing_slash_insensitive if {
     authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:github-write"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "REPO:ORG/Name/", "prior_calls_this_session": 4},
     }
@@ -28,7 +28,7 @@ test_resource_pattern_match_allow_case_and_trailing_slash_insensitive if {
 
 test_resource_pattern_match_allow_multiple_trailing_slashes if {
     authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:github-write"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "repo:org/name///", "prior_calls_this_session": 4},
     }
@@ -38,7 +38,7 @@ test_resource_pattern_match_allow_multiple_trailing_slashes if {
 
 test_resource_pattern_mismatch_deny if {
     not authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:github-write"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:github-write"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "otherorg/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "repo:otherorg/name", "prior_calls_this_session": 4},
     }
@@ -49,7 +49,7 @@ test_resource_pattern_mismatch_deny if {
 
 test_no_resource_pattern_declared_allow if {
     authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:read-only"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:read-only"]},
         "tool": {"server": "github-mcp", "name": "list_prs", "arguments": {}},
         "context": {"environment": "prod", "resource": "repo:anything/whatever", "prior_calls_this_session": 1},
     }
@@ -57,7 +57,7 @@ test_no_resource_pattern_declared_allow if {
 
 test_no_resource_pattern_declared_allow_missing_resource if {
     authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:read-only"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:read-only"]},
         "tool": {"server": "github-mcp", "name": "list_prs", "arguments": {}},
         "context": {"environment": "prod", "prior_calls_this_session": 1},
     }
@@ -67,7 +67,7 @@ test_no_resource_pattern_declared_allow_missing_resource if {
 
 test_role_without_entitlement_deny if {
     not authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:read-only"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:read-only"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "repo:org/name", "prior_calls_this_session": 4},
     }
@@ -77,7 +77,7 @@ test_role_without_entitlement_deny if {
 
 test_unknown_role_deny if {
     not authz.allow with input as {
-        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "tenant_acme", "roles": ["mcp-role:unknown"]},
+        "principal": {"user_id": "user_01HXKP2M", "tenant_id": "acme-corp", "roles": ["mcp-role:unknown"]},
         "tool": {"server": "github-mcp", "name": "create_pr", "arguments": {"repo": "org/name", "base": "main"}},
         "context": {"environment": "prod", "resource": "repo:org/name", "prior_calls_this_session": 4},
     }
