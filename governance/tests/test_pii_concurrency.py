@@ -380,7 +380,6 @@ async def test_run_google_retry_backoff_releases_slot_for_other_class(monkeypatc
     """
     total = 2
     monkeypatch.setattr(pii, "_executor_max_workers", total)
-    monkeypatch.setattr(pii, "_semaphore", None)
     monkeypatch.setattr(pii, "_interactive_semaphore", None)
     monkeypatch.setattr(pii, "_bulk_semaphore", None)
     monkeypatch.setattr(pii, "_shared_semaphore", None)
