@@ -31,7 +31,7 @@ def test_extract_entitlements_reads_real_authz_rego():
                 "server": "github-mcp",
                 "tool": "create_pr",
                 "resource_pattern": "repo:org/*",
-                "tenant_id": "tenant_acme",
+                "tenant_id": "acme-corp",
             },
         ],
         "mcp-role:read-only": [
@@ -39,7 +39,7 @@ def test_extract_entitlements_reads_real_authz_rego():
                 "server": "github-mcp",
                 "tool": "list_prs",
                 "resource_pattern": None,
-                "tenant_id": "tenant_acme",
+                "tenant_id": "acme-corp",
             },
         ],
     }
