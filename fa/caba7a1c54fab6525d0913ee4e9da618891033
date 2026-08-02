@@ -1,0 +1,21 @@
+governance/app/pii.py
+  s_828d84a357b70f::t_5f0c052fecbfb1 192-204,206
+governance/tests/test_pii_concurrency.py
+  s_828d84a357b70f::t_8605c64fb44d4a 113-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "facaba7a1c54fab6525d0913ee4e9da618891033",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
