@@ -131,9 +131,52 @@ Current pricing and quota values are deliberately linked rather than copied beca
 2. Run `make smoke-google-dlp` against the intended project/location.
 3. Compare Google and Presidio on the structured-positive and technical-proper-noun corpus.
 4. Enable `PII_BACKEND=google` in a non-production environment and observe errors, latency, quota, and cost.
-5. Roll out to production and complete the agreed soak.
+5. Roll out to production and complete the agreed soak (record evidence in "Production soak evidence" below as it becomes available; do not wait until the end of the soak to start filling it in).
 6. If rollback is required, explicitly set `PII_BACKEND=presidio` and restart Governance. Never auto-fallback after a Google failure.
-7. Remove Presidio, spaCy, model downloads, and rollback configuration after the soak gate is accepted in a separate cleanup change.
+7. Remove Presidio, spaCy, model downloads, and rollback configuration after the soak gate is accepted in a separate cleanup change (tracked as `ai-gateway-fcr`), and only once every field in "Production soak evidence" below is filled in with real data and the rollback approval is signed off.
+
+## Production soak evidence (required before removal — `ai-gateway-fcr`)
+
+This section is the sign-off gate for `ai-gateway-fcr` ("Remove Presidio and
+spaCy after Google DLP production soak"). Presidio, spaCy, the model
+download (`governance/Dockerfile`), local recognizers, and the
+`PII_BACKEND=presidio` rollback path must not be removed until every field
+below holds real, dated, observed data — not placeholders, not estimates,
+not implementation-time smoke-test results — and the rollback approval is
+completed.
+
+As of this writing, this table has never been filled in: the Google
+Sensitive Data Protection backend was implemented and live-verified against
+a one-time evaluation corpus (`ai-gateway-ohg`), but no production soak
+window has started or been recorded. Do not treat `ai-gateway-ohg`'s
+live-corpus verification as soak evidence — it is a pre-rollout smoke check,
+not an elapsed production observation window.
+
+**Soak status:** NOT STARTED (update this line to `IN PROGRESS` or `COMPLETE`
+as the soak proceeds, with the date of the update)
+
+| Field | Value | Source / how to obtain it | Filled in by |
+|---|---|---|---|
+| Soak window (start -> end, UTC) | _TBD_ | Deployment/rollout log or change-ticket timestamps for the production cutover to `PII_BACKEND=google` | Deploy owner / on-call |
+| Minimum soak duration agreed vs. met | _TBD_ | State the duration the team agreed to before starting, and whether it was met | Deploy owner / on-call |
+| p50 / p95 / p99 `inspectContent` latency | _TBD_ | Governance metrics/dashboards for the soak window (see "Cost, quota, and monitoring" above) | SRE / on-call |
+| Availability (success rate; error budget) | _TBD_ | Same dashboards; include counts of `RESOURCE_EXHAUSTED`, authentication failures, and sustained fail-closed responses | SRE / on-call |
+| Quota utilization | _TBD_ | Cloud DLP quota console for the soak window | SRE / on-call |
+| Cost (billable bytes inspected; spend) | _TBD_ | Cloud Billing export for the soak window | SRE / on-call or finance |
+| Structured-PII recall | _TBD_ | Re-run the evaluation corpus (`EMAIL_ADDRESS`, `PHONE_NUMBER`, `US_SOCIAL_SECURITY_NUMBER`, etc.) against soak-period traffic or a repeat corpus pass; report a recall number, not a pass/fail | Engineer who owns the PII backend |
+| Technical-name false-positive results | _TBD_ | Repeat the technical-proper-noun corpus check (Django, Flask, FastAPI, PostgreSQL, Kubernetes, React, Gemini, Claude, etc.) against the live Google backend during the soak; report any regressions found | Engineer who owns the PII backend |
+| Incidents / rollbacks during soak | _TBD_ | Note every time `PII_BACKEND` was switched back to `presidio` in production during the soak, and why | Deploy owner / on-call |
+
+**Rollback approval (must be explicit; silence or an unfilled table does not count as approval)**
+
+- Approver name: _TBD_
+- Approval date: _TBD_
+- Explicit statement (paste verbatim once signed): "I have reviewed the production soak evidence above and approve removing Presidio, spaCy, the model download, local recognizers, and the `PII_BACKEND=presidio` rollback configuration."
+
+Until every `_TBD_` above is replaced with real observed data and the
+approval fields are completed, `ai-gateway-fcr`'s removal work (deleting
+Presidio/spaCy code, dependencies, the model download, and the rollback
+configuration) is out of scope and must not be started.
 
 ## Official references
 
