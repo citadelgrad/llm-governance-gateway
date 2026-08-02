@@ -1,0 +1,19 @@
+tests/test_onboard_cli.py
+  s_12a6b6605fbc61::t_cab96971aa3156 3,14-18,22,24,133,150-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "97155959efd1a729d252ebd32b7662c959d5516f",
+  "prompts": {},
+  "sessions": {
+    "s_12a6b6605fbc61": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2c6f09d-8aee-4975-bb20-d46ba0cbe52e",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
