@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from starlette.responses import Response as StarletteResponse
+
 from proxy.app.config import settings as app_settings
 from proxy.app.governance_client import GovernanceError, InspectResponse
 from proxy.app.main import app
+from proxy.app.providers import mock as mock_provider
 from proxy.app.rate_limit import RateLimitResult
 
 _CLEAN_BODY = {
@@ -123,6 +126,43 @@ async def test_pii_redaction_headers(async_client):
     assert response.status_code == 200
     assert response.headers.get("x-gateway-pii-redacted") == "true"
     assert "SSN" in response.headers.get("x-gateway-pii-types", "")
+
+
+async def test_technical_query_reaches_provider_unmodified(async_client, monkeypatch):
+    """ai-gateway-qi5 end-to-end coverage: governance no longer flags ordinary
+    technical/product proper nouns (e.g. "Django") as PERSON, so pii_findings
+    is empty and main.py's redaction branch (`if inspect_resp.pii_findings: ...
+    msg["content"] = inspect_resp.redacted_text`) never fires. Assert the
+    mocked upstream provider receives the exact original text, not a
+    [PERSON]-substituted version."""
+    monkeypatch.setattr(app_settings, "mock_mode", True)
+    client, gov_mock = async_client
+    gov_mock.inspect.return_value = InspectResponse(
+        decision="allow",
+        redacted_text="",
+        pii_findings=[],
+        harm_score=0.0,
+        violations=[],
+        audit_id="django-audit-id",
+    )
+
+    received: dict = {}
+
+    async def fake_chat_completions(body, extra_headers):
+        received["body"] = body
+        return StarletteResponse(
+            content="{}", media_type="application/json", headers=extra_headers
+        )
+
+    monkeypatch.setattr(mock_provider, "chat_completions", fake_chat_completions)
+
+    text = "what is the latest version of Django web framework"
+    body = {"model": "gpt-5.6-luna", "messages": [{"role": "user", "content": text}]}
+    response = await client.post("/v1/chat/completions", json=body)
+
+    assert response.status_code == 200
+    assert received["body"]["messages"][-1]["content"] == text
+    assert "[PERSON]" not in received["body"]["messages"][-1]["content"]
 
 
 async def test_phi_block_via_mock_provider(async_client, monkeypatch):

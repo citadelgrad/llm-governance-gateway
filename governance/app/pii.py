@@ -154,10 +154,25 @@ def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
         )
     )
 
+# Presidio's spaCy NER recognizer classifies ordinary technical/product proper
+# nouns (Django, Gemini, Claude, ...) as PERSON with high confidence, which
+# would corrupt search and tool-dispatch queries before they ever reach a
+# provider. Mirror the Google DLP backend's policy decision (see the
+# "PERSON_NAME is intentionally not enabled by default" note in
+# docs/google-sensitive-data-protection.md) and exclude PERSON from the
+# default detection set entirely rather than special-casing individual terms.
+# Every other supported entity type (US_SSN, EMAIL_ADDRESS, PHONE_NUMBER,
+# CREDIT_CARD, ...) is unaffected. Filtering the results (rather than passing
+# an `entities=` allowlist into analyze()) keeps this independent of the
+# analyzer's supported-entity introspection.
+_DISABLED_PRESIDIO_ENTITIES = frozenset({"PERSON"})
+
+
 async def scan(text: str) -> list[RecognizerResult]:
     assert _analyzer is not None, "call initialize() first"
     async with _get_semaphore():
-        return await asyncio.to_thread(_analyzer.analyze, text=text, language="en")
+        results = await asyncio.to_thread(_analyzer.analyze, text=text, language="en")
+    return [r for r in results if r.entity_type not in _DISABLED_PRESIDIO_ENTITIES]
 
 async def redact(text: str, results: list[RecognizerResult]) -> str:
     assert _anonymizer is not None, "call initialize() first"
