@@ -118,6 +118,27 @@ def test_get_pools_returns_the_same_instances(monkeypatch):
     assert first_shared is second_shared
 
 
+# ai-gateway-98o: `_can_acquire_immediately` used to read the private
+# `_value`/`_waiters` asyncio.Semaphore fields directly. It now goes through
+# the public `Semaphore.locked()` API instead; this test exercises the
+# boolean it reports across a pool with 0, 1, and N-1 of N slots free.
+@pytest.mark.asyncio
+async def test_can_acquire_immediately_reflects_free_slot_count():
+    n = 4
+    sem = asyncio.Semaphore(n)
+
+    for _ in range(n):
+        await sem.acquire()
+    assert pii._can_acquire_immediately(sem) is False  # 0 of N free
+
+    sem.release()
+    assert pii._can_acquire_immediately(sem) is True  # 1 of N free
+
+    for _ in range(n - 2):
+        sem.release()
+    assert pii._can_acquire_immediately(sem) is True  # N-1 of N free
+
+
 @pytest.mark.asyncio
 async def test_burst_of_scans_queues_beyond_semaphore_size(fake_presidio):
     burst = TEST_SEMAPHORE_SIZE * 3
