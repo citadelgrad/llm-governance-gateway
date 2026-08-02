@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from proxy.app.governance_client import InspectResponse
 from proxy.app.main import app
 from proxy.app.responses_compat import translate_responses_request
@@ -191,3 +193,48 @@ async def test_responses_rejects_tools_instead_of_silently_dropping(async_client
     )
     assert response.status_code == 422
     assert response.json()["detail"]["error"]["type"] == "unsupported_response_shape"
+
+
+def test_responses_translation_forwards_stream_flag_without_raising():
+    body = translate_responses_request({**_RESPONSES_BODY, "stream": True})
+    assert body["stream"] is True
+
+
+async def test_responses_streaming_returns_responses_sse(async_client):
+    client, _ = async_client
+    response = await client.post(
+        "/v1/responses",
+        json={**_RESPONSES_BODY, "stream": True},
+    )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    content = response.content.decode()
+
+    created_index = content.index('"type": "response.created"')
+    delta_index = content.index('"type": "response.output_text.delta"')
+    completed_index = content.index('"type": "response.completed"')
+    assert created_index < delta_index < completed_index
+
+
+async def test_responses_streaming_matches_non_streaming_text(async_client):
+    client, _ = async_client
+
+    streaming_response = await client.post(
+        "/v1/responses",
+        json={**_RESPONSES_BODY, "stream": True},
+    )
+    non_streaming_response = await client.post("/v1/responses", json=_RESPONSES_BODY)
+
+    assert streaming_response.status_code == 200
+    assert non_streaming_response.status_code == 200
+
+    streamed_text = ""
+    for line in streaming_response.content.decode().splitlines():
+        if not line.startswith("data:"):
+            continue
+        payload = json.loads(line[len("data:"):].strip())
+        if payload.get("type") == "response.output_text.delta":
+            streamed_text += payload["delta"]
+
+    assert streamed_text == non_streaming_response.json()["output_text"]

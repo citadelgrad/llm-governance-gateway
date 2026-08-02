@@ -39,6 +39,7 @@ from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.responses_compat import (
     ResponsesCompatError,
+    openai_sse_to_responses_sse,
     translate_chat_response,
     translate_responses_request,
 )
@@ -467,15 +468,12 @@ async def responses(
             detail=error_envelope("unsupported_response_shape", str(exc)),
         ) from exc
 
-    response, _ = await _run_gateway_pipeline(request, caller, translated_body)
+    response, extra_headers = await _run_gateway_pipeline(request, caller, translated_body)
     if isinstance(response, StreamingResponse):
-        raise HTTPException(
-            status_code=422,
-            detail=error_envelope(
-                "unsupported_response_shape",
-                "Streaming responses are not supported on /v1/responses",
-            ),
+        translated = openai_sse_to_responses_sse(
+            response.body_iterator, translated_body.get("model", "")
         )
+        return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
     if response.status_code >= 400:
         return response
 

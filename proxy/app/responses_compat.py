@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -50,7 +52,7 @@ class ResponsesOutputText(BaseModel):
 class ResponsesOutputMessage(BaseModel):
     id: str
     type: Literal["message"] = "message"
-    status: Literal["completed"] = "completed"
+    status: Literal["completed", "incomplete"] = "completed"
     role: Literal["assistant"] = "assistant"
     content: list[ResponsesOutputText]
 
@@ -63,17 +65,35 @@ class ResponsesUsage(BaseModel):
     output_tokens_details: dict[str, int] = Field(default_factory=lambda: {"reasoning_tokens": 0})
 
 
+class ResponsesIncompleteDetails(BaseModel):
+    reason: str
+
+
 class ResponsesCreateResponse(BaseModel):
     id: str
     object: Literal["response"] = "response"
     created_at: int
-    status: Literal["completed"] = "completed"
+    status: Literal["completed", "incomplete"] = "completed"
     model: str
     output: list[ResponsesOutputMessage]
     output_text: str = ""
     error: None = None
-    incomplete_details: None = None
+    incomplete_details: ResponsesIncompleteDetails | None = None
     usage: ResponsesUsage = Field(default_factory=ResponsesUsage)
+
+
+def _status_from_finish_reason(
+    finish_reason: str | None,
+) -> tuple[Literal["completed", "incomplete"], ResponsesIncompleteDetails | None]:
+    """Map an OpenAI chat-completions finish_reason to a truthful Responses status.
+
+    Only ``length`` (max output tokens hit) currently downgrades the response to
+    ``incomplete`` — every other finish_reason (including tool_calls, which this
+    compat layer does not yet emit output for) is reported as ``completed``.
+    """
+    if finish_reason == "length":
+        return "incomplete", ResponsesIncompleteDetails(reason="max_output_tokens")
+    return "completed", None
 
 
 def _parts_to_text(parts: list[ResponsesTextPart], *, field_name: str) -> str:
@@ -107,8 +127,6 @@ def translate_responses_request(payload: dict) -> dict:
             "Request body does not match the supported OpenAI Responses subset"
         ) from exc
 
-    if req.stream:
-        raise ResponsesCompatError("Streaming is not supported on /v1/responses")
     if req.tools:
         raise ResponsesCompatError("Responses tools are not supported yet")
     if req.tool_choice is not None:
@@ -153,7 +171,7 @@ def translate_responses_request(payload: dict) -> dict:
     body: dict[str, Any] = {
         "model": req.model,
         "messages": messages,
-        "stream": False,
+        "stream": req.stream,
     }
     if req.max_output_tokens is not None:
         body["max_tokens"] = req.max_output_tokens
@@ -186,18 +204,24 @@ def translate_chat_response(body: dict) -> dict:
     message_id = response_id.replace("resp_", "msg_", 1)
     assistant_text = _assistant_text_from_chat_response(body)
     usage = body.get("usage", {})
+    choices = body.get("choices") or []
+    finish_reason = choices[0].get("finish_reason") if choices else None
+    status, incomplete_details = _status_from_finish_reason(finish_reason)
 
     response = ResponsesCreateResponse(
         id=response_id,
         created_at=int(body.get("created") or datetime.now(UTC).timestamp()),
+        status=status,
         model=str(body.get("model") or ""),
         output=[
             ResponsesOutputMessage(
                 id=message_id,
+                status=status,
                 content=[ResponsesOutputText(text=assistant_text)],
             )
         ],
         output_text=assistant_text,
+        incomplete_details=incomplete_details,
         usage=ResponsesUsage(
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
@@ -205,3 +229,133 @@ def translate_chat_response(body: dict) -> dict:
         ),
     )
     return response.model_dump()
+
+
+def _sse_frame(event_type: str, **fields: Any) -> str:
+    payload = {"type": event_type, **fields}
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+async def openai_sse_to_responses_sse(body_iterator, model: str):
+    """Translate upstream OpenAI chat-completions SSE chunks into Responses API SSE events.
+
+    Structurally mirrors ``openai_sse_to_anthropic_sse`` in ``anthropic_compat.py``, but
+    targets the Responses protocol's flat ``data: {"type": ...}`` framing (no separate
+    ``event:`` line) and its event vocabulary (``response.created``,
+    ``response.output_text.delta``, ``response.completed``, ...).
+    """
+    response_id = f"resp_{uuid4().hex}"
+    message_id = f"msg_{uuid4().hex}"
+    created_at = int(datetime.now(UTC).timestamp())
+    output_index = 0
+    content_index = 0
+    final_model = model
+    finish_reason: str | None = None
+    text_fragments: list[str] = []
+
+    yield _sse_frame(
+        "response.created",
+        response={
+            "id": response_id,
+            "object": "response",
+            "created_at": created_at,
+            "status": "in_progress",
+            "model": model,
+            "output": [],
+            "output_text": "",
+            "error": None,
+            "incomplete_details": None,
+            "usage": None,
+        },
+    )
+    yield _sse_frame(
+        "response.output_item.added",
+        output_index=output_index,
+        item={
+            "id": message_id,
+            "type": "message",
+            "status": "in_progress",
+            "role": "assistant",
+            "content": [],
+        },
+    )
+    yield _sse_frame(
+        "response.content_part.added",
+        item_id=message_id,
+        output_index=output_index,
+        content_index=content_index,
+        part={"type": "output_text", "text": "", "annotations": []},
+    )
+
+    async for raw in body_iterator:
+        chunk = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+        for line in chunk.splitlines():
+            if not line.startswith("data:"):
+                continue
+            data_str = line[len("data:") :].strip()
+            if not data_str or data_str == "[DONE]":
+                continue
+            try:
+                event = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            if event.get("model"):
+                final_model = event["model"]
+
+            choices = event.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta", {})
+            chunk_finish_reason = choices[0].get("finish_reason")
+            if chunk_finish_reason:
+                finish_reason = chunk_finish_reason
+
+            text_delta = delta.get("content")
+            if text_delta:
+                text_fragments.append(text_delta)
+                yield _sse_frame(
+                    "response.output_text.delta",
+                    item_id=message_id,
+                    output_index=output_index,
+                    content_index=content_index,
+                    delta=text_delta,
+                )
+
+    final_text = "".join(text_fragments)
+    status, incomplete_details = _status_from_finish_reason(finish_reason)
+
+    yield _sse_frame(
+        "response.output_text.done",
+        item_id=message_id,
+        output_index=output_index,
+        content_index=content_index,
+        text=final_text,
+    )
+
+    final_output_text = ResponsesOutputText(text=final_text)
+    yield _sse_frame(
+        "response.content_part.done",
+        item_id=message_id,
+        output_index=output_index,
+        content_index=content_index,
+        part=final_output_text.model_dump(),
+    )
+
+    final_message = ResponsesOutputMessage(id=message_id, status=status, content=[final_output_text])
+    yield _sse_frame(
+        "response.output_item.done",
+        output_index=output_index,
+        item=final_message.model_dump(),
+    )
+
+    final_response = ResponsesCreateResponse(
+        id=response_id,
+        created_at=created_at,
+        status=status,
+        model=final_model,
+        output=[final_message],
+        output_text=final_text,
+        incomplete_details=incomplete_details,
+    )
+    yield _sse_frame("response.completed", response=final_response.model_dump())
