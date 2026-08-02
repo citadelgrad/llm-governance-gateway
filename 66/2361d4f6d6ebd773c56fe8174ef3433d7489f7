@@ -1,0 +1,23 @@
+policies/mcp/authz_test.rego
+  s_828d84a357b70f::t_84a61b612fa06f 11,21,31,41,52,60,70,80
+opa-sidecar/verify_fixtures.sh
+  s_828d84a357b70f::t_905134612184a3 29,33,37,41,45,49,53
+mcpproxy/tests/test_opa_authz_integration.py
+  s_828d84a357b70f::t_7c54a7ddc3a1f2 1-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "662361d4f6d6ebd773c56fe8174ef3433d7489f7",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
