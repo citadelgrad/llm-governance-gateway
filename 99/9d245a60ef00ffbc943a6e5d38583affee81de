@@ -1,0 +1,30 @@
+governance/app/pii.py
+  s_828d84a357b70f::t_7170efae322fdb 40-183
+  s_828d84a357b70f::t_8ae284ec111fca 6,8
+  s_828d84a357b70f::t_cfa69433afd411 227-229,231,234-238,240,248-251,254
+governance/app/pipeline.py
+  s_828d84a357b70f::t_48d0a53ea7dcbe 17
+governance/app/main.py
+  s_828d84a357b70f::t_1077eabc603efb 200
+governance/tests/test_pii_concurrency.py
+  s_828d84a357b70f::t_683e8f9c670580 128-157,159,161-179,181-216,219-220,224-230,232-303
+  s_828d84a357b70f::t_be1f347ba09137 70-91
+  s_828d84a357b70f::t_43aebfefe058c8 60-66
+  s_828d84a357b70f::t_e3f4d69cbc05b6 92-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "999d245a60ef00ffbc943a6e5d38583affee81de",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
