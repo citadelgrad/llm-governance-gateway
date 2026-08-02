@@ -1,0 +1,25 @@
+proxy/pyproject.toml
+  s_828d84a357b70f::t_dae78e0c4f27dd 20,27-32
+governance/pyproject.toml
+  s_828d84a357b70f::t_76f5fa47c920a9 14,26-32
+governance/uv.lock
+  s_828d84a357b70f::t_c01f6f462ab4af 42,54-137,580,585-628,667-668,671,674-675,678,681,684,687-690,693-694,697,700,703,894,897,907,910,927,930,938,944,947,2090,2097,2099,2417,2419,2421,2606,2612,2614
+proxy/uv.lock
+  s_828d84a357b70f::t_7eb1d813905deb 240,245-288,575,578,586,612,616,623,628,643,645,647,844,846,848,1014,1020,1022
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.19",
+  "base_commit_sha": "286316cb787a3bae186e6764be514f2d162f3d3b",
+  "prompts": {},
+  "sessions": {
+    "s_828d84a357b70f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72d398a8-9e1a-4b86-8577-33f020f35dab",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
