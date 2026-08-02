@@ -26,31 +26,31 @@ check() {
 }
 
 check "resource_pattern_match_allow" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
   true
 
 check "resource_pattern_match_allow_case_and_trailing_slash_insensitive" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"REPO:ORG/Name/","prior_calls_this_session":4}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"REPO:ORG/Name/","prior_calls_this_session":4}}' \
   true
 
 check "resource_pattern_mismatch_deny" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"otherorg/name","base":"main"}},"context":{"environment":"prod","resource":"repo:otherorg/name","prior_calls_this_session":4}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:github-write"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"otherorg/name","base":"main"}},"context":{"environment":"prod","resource":"repo:otherorg/name","prior_calls_this_session":4}}' \
   false
 
 check "no_resource_pattern_declared_allow" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"list_prs","arguments":{}},"context":{"environment":"prod","resource":"repo:anything/whatever","prior_calls_this_session":1}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"list_prs","arguments":{}},"context":{"environment":"prod","resource":"repo:anything/whatever","prior_calls_this_session":1}}' \
   true
 
 check "no_resource_pattern_declared_allow_missing_resource" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"list_prs","arguments":{}},"context":{"environment":"prod","prior_calls_this_session":1}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"list_prs","arguments":{}},"context":{"environment":"prod","prior_calls_this_session":1}}' \
   true
 
 check "role_without_entitlement_deny" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:read-only"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
   false
 
 check "unknown_role_deny" \
-  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"tenant_acme","roles":["mcp-role:unknown"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
+  '{"principal":{"user_id":"user_01HXKP2M","tenant_id":"acme-corp","roles":["mcp-role:unknown"]},"tool":{"server":"github-mcp","name":"create_pr","arguments":{"repo":"org/name","base":"main"}},"context":{"environment":"prod","resource":"repo:org/name","prior_calls_this_session":4}}' \
   false
 
 exit $fail
