@@ -1,0 +1,16 @@
+governance/app/harm.py
+  h_12ee2b2686c122 21-22,51,55
+governance/tests/test_harm.py
+  h_12ee2b2686c122 62-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "a1cc18bfbd44d0b88faf0b229ec089c799bbb76c",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
