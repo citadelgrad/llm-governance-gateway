@@ -1,0 +1,18 @@
+docs/onboarding.md
+  h_12ee2b2686c122 47,285
+scripts/onboard.py
+  h_12ee2b2686c122 132
+tests/test_onboard_cli.py
+  h_12ee2b2686c122 198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1d51b35326d202d01c3cde27ac7e3682a71261a5",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
