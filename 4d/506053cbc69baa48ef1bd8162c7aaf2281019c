@@ -1,0 +1,31 @@
+.github/workflows/ci.yml
+  s_7f88f382945c8c::t_a55c0ca5f3676d 40-44,54-56
+docker-compose.yml
+  s_1022bd064c6909::t_47235795435cb6 63
+docs/google-sensitive-data-protection.md
+  s_7f88f382945c8c::t_167ea9211cccc5 47,51-54,106-129,132-134,137-172,175-184,187-189,191-235,237,240,243-248,251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "4d506053cbc69baa48ef1bd8162c7aaf2281019c",
+  "prompts": {},
+  "sessions": {
+    "s_1022bd064c6909": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7138a6bd-8f1b-4a20-8049-cb41c47ae564",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_7f88f382945c8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5331f913-43b8-474e-938c-4e9966405325",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
