@@ -1,4 +1,4 @@
-.PHONY: up down restart status logs migrate lint test test-integration smoke-live smoke-google-dlp google-adc-login google-adc-renew google-adc-keychain-renew google-adc-preflight google-adc-keychain-store google-adc-keychain-materialize terraform-fmt terraform-validate terraform-policy-test terraform-check opa-test provision onboard-help rotate-partitions demo help
+.PHONY: up down restart watch status logs migrate lint test test-integration smoke-live smoke-google-dlp google-adc-login google-adc-renew google-adc-keychain-renew google-adc-preflight google-adc-keychain-store google-adc-keychain-materialize terraform-fmt terraform-validate terraform-policy-test terraform-check opa-test provision onboard-help rotate-partitions demo help
 
 JWT_SECRET ?= local-dev-jwt-secret-for-compose-tests-only
 GOVERNANCE_INTERNAL_TOKEN ?= local-dev-governance-token
@@ -22,6 +22,9 @@ down:
 restart:
 	$(MAKE) down
 	$(MAKE) up
+
+watch:
+	$(DIRENV) docker compose watch
 
 status:
 	$(DIRENV) docker compose ps
@@ -116,6 +119,7 @@ help:
 	@echo "  up                  Start all services (detached)"
 	@echo "  down                Stop all services"
 	@echo "  restart             Restart all services"
+	@echo "  watch               Auto-restart only services affected by code changes"
 	@echo "  status              Show service status"
 	@echo "  logs                Follow service logs"
 	@echo "  migrate             Run database migrations"

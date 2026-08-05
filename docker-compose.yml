@@ -79,6 +79,19 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./governance/app
+          target: /app/app
+          ignore:
+            - __pycache__/
+        - action: rebuild
+          path: ./governance/pyproject.toml
+        - action: rebuild
+          path: ./governance/uv.lock
+        - action: rebuild
+          path: ./governance/Dockerfile
 
   proxy:
     build: ./proxy
@@ -110,6 +123,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./proxy/app
+          target: /workspace/proxy/app
+          ignore:
+            - __pycache__/
+        - action: restart
+          path: ./config
+        - action: rebuild
+          path: ./proxy/pyproject.toml
+        - action: rebuild
+          path: ./proxy/uv.lock
+        - action: rebuild
+          path: ./proxy/Dockerfile
 
   mcpproxy:
     build: ./mcpproxy
@@ -126,6 +154,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./mcpproxy/app
+          target: /workspace/mcpproxy/app
+          ignore:
+            - __pycache__/
+        - action: rebuild
+          path: ./mcpproxy/pyproject.toml
+        - action: rebuild
+          path: ./mcpproxy/uv.lock
+        - action: rebuild
+          path: ./mcpproxy/Dockerfile
 
   # Tool-call-boundary OPA process, colocated per MCP Reverse Proxy replica
   # per docs/auth-architecture.md ("two evaluation points, two separate OPA
@@ -165,6 +206,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    develop:
+      watch:
+        - action: rebuild
+          path: ./policies/mcp/authz.rego
+        - action: rebuild
+          path: ./opa-sidecar
 
 volumes:
   postgres_data:
