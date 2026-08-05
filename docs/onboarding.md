@@ -44,7 +44,7 @@ Agent compatibility today:
 | Agent | Native API it expects | Works with this gateway today? | Notes |
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
-| Continue | OpenAI-compatible `/v1/chat/completions` | yes | Set `useResponsesApi: false`; the configurator does this automatically so streaming and Agent tools use Chat Completions. |
+| Continue | OpenAI Responses `/v1/responses` for GPT-5/reasoning models; Chat Completions otherwise | yes | The configurator sets `useResponsesApi: true` so GPT-5 reasoning and Agent tools use the compatible Responses path. |
 | Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | yes with Anthropic routing; subset elsewhere | Native Anthropic routing preserves Messages tools, thinking, headers, JSON, and SSE. Cross-provider routes reject unsupported semantics. |
 | Codex CLI | OpenAI Responses API: `/v1/responses` | yes with OpenAI routing; subset elsewhere | Native OpenAI routing preserves Responses tools/state, headers, JSON, and SSE. Cross-provider translation supports text and function-call lifecycles only. |
 
@@ -282,7 +282,7 @@ uv --no-config run --with pyyaml scripts/onboard.py configure-continue `
   --model gpt-5.6-luna
 ```
 
-The command preserves unrelated settings and models, creates a one-time `config.yaml.gateway-backup`, stores the key in Continue's required local model configuration, sets `useResponsesApi: false`, sets both files to owner-only permissions where supported, and never prints the key. Restart the IDE after configuration. Continue uses OpenAI-compatible bearer authentication against `/v1/chat/completions`; forcing Chat Completions is required because Continue's streaming and Agent-tool requests are broader than the gateway's intentionally limited Codex-oriented `/v1/responses` subset.
+The command preserves unrelated settings and models, creates a one-time `config.yaml.gateway-backup`, stores the key in Continue's required local model configuration, sets `useResponsesApi: true`, sets both files to owner-only permissions where supported, and never prints the key. Restart the IDE after configuration. Continue 2.x uses `/v1/responses` for GPT-5/reasoning models when this flag is enabled; that is required when Agent mode combines function tools with non-none reasoning effort. Other models may continue to use `/v1/chat/completions`.
 
 ## Configure Hermes
 

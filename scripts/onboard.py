@@ -129,7 +129,7 @@ def configure_continue(
         "model": model,
         "apiBase": _gateway_v1_url(gateway_url),
         "apiKey": api_key,
-        "useResponsesApi": False,
+        "useResponsesApi": True,
         "roles": ["chat", "edit", "apply"],
     }
     matching_indexes = [

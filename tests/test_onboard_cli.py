@@ -195,7 +195,7 @@ models:
             "model": "gpt-5.6-luna",
             "apiBase": "https://gateway.example.com/v1",
             "apiKey": "gw_test_key_not_a_real_secret",
-            "useResponsesApi": False,
+            "useResponsesApi": True,
             "roles": ["chat", "edit", "apply"],
         }
     ]
