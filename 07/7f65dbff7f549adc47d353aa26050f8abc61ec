@@ -1,0 +1,16 @@
+docs/llm-protocol-foundation.md
+  h_12ee2b2686c122 1-229
+docs/onboarding.md
+  h_12ee2b2686c122 48-49,347,371,383,488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "077f65dbff7f549adc47d353aa26050f8abc61ec",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
