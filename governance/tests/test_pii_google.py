@@ -46,8 +46,9 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     client = _FakeDlpClient([_finding("EMAIL_ADDRESS", 0, 17)])
     created_with = {}
 
-    def fake_client_factory(*, client_options: Any = None):
+    def fake_client_factory(*, credentials: Any = None, client_options: Any = None):
         created_with["endpoint"] = client_options.api_endpoint
+        created_with["credentials"] = credentials
         return client
 
     monkeypatch.setattr(pii, "_initialized_backend", None)
@@ -55,6 +56,12 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     monkeypatch.setattr(pii, "_google_client", None)
     monkeypatch.setattr(pii, "_executor_max_workers", 4)
     monkeypatch.setattr(pii, "_max_scan_seconds", 5.0)
+    credential = object()
+    monkeypatch.setattr(
+        pii,
+        "preflight",
+        lambda **_kwargs: SimpleNamespace(credentials=credential),
+    )
     monkeypatch.setattr(pii.dlp_v2, "DlpServiceClient", fake_client_factory)
 
     await pii.initialize(
@@ -68,7 +75,10 @@ async def test_initialize_google_wires_runtime_and_regional_endpoint(monkeypatch
     )
     result = await pii.run("scott@example.com")
 
-    assert created_with == {"endpoint": "us-dlp.googleapis.com"}
+    assert created_with == {
+        "endpoint": "us-dlp.googleapis.com",
+        "credentials": credential,
+    }
     assert result.redacted_text == "[EMAIL_ADDRESS]"
     assert client.calls[0]["request"]["parent"] == "projects/privacy-project/locations/us"
     assert client.calls[0]["request"]["inspect_config"]["min_likelihood"] == "LIKELY"

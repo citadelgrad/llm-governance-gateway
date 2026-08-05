@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from . import pipeline as pipeline_module
 from . import retention
 from .context import PipelineContext
 from .db import get_session, get_session_factory
+from .google_credential_sentinel import credentials_ready
 from .settings import settings
 
 _ready = False
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
         google_project=settings.google_cloud_project,
         google_location=settings.google_dlp_location,
         google_api_endpoint=settings.google_dlp_api_endpoint,
+        google_expected_service_account=settings.google_dlp_expected_service_account,
         google_min_likelihood=settings.google_dlp_min_likelihood,
         google_info_types=settings.google_dlp_info_type_names,
         google_timeout_seconds=settings.google_dlp_timeout_seconds,
@@ -52,6 +54,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Gateway Governance", lifespan=lifespan)
+
+
+@app.exception_handler(pii_module.PiiBackendError)
+async def pii_backend_unavailable(_request: Request, _exc: pii_module.PiiBackendError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "PII inspection temporarily unavailable"},
+        headers={"Retry-After": str(settings.google_adc_retry_after_seconds)},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -99,6 +110,15 @@ app.add_middleware(BodySizeLimitMiddleware)
 async def health():
     if not _ready:
         return Response(status_code=503, content="starting")
+    if not credentials_ready(
+        settings.google_adc_status_path,
+        max_age_seconds=settings.google_adc_status_max_age_seconds,
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "reason": "google credentials unavailable"},
+            headers={"Retry-After": str(settings.google_adc_retry_after_seconds)},
+        )
     try:
         factory = get_session_factory()
         async with factory() as session:
@@ -112,6 +132,11 @@ async def health():
             content=json.dumps({"status": "degraded", "reason": f"database unreachable: {exc}"}),
             media_type="application/json",
         )
+    return {"status": "ok"}
+
+
+@app.get("/live")
+async def live():
     return {"status": "ok"}
 
 
@@ -144,6 +169,11 @@ async def inspect(
 ) -> InspectResponse:
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+    if not credentials_ready(
+        settings.google_adc_status_path,
+        max_age_seconds=settings.google_adc_status_max_age_seconds,
+    ):
+        raise pii_module.PiiBackendError("Google credentials unavailable")
 
     ctx = PipelineContext(
         text=req.text,
@@ -205,6 +235,11 @@ async def pii_scan(
 ) -> PiiScanResponse:
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
+    if not credentials_ready(
+        settings.google_adc_status_path,
+        max_age_seconds=settings.google_adc_status_max_age_seconds,
+    ):
+        raise pii_module.PiiBackendError("Google credentials unavailable")
 
     result = await pii_module.run(req.text, pii_module.PII_CLASS_BULK)
 

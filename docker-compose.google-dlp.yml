@@ -1,6 +1,43 @@
 services:
+  google-credential-sentinel:
+    build:
+      context: ./governance
+      args:
+        SPACY_MODEL: ${SPACY_MODEL:-en_core_web_lg}
+    command: ["/app/.venv/bin/python", "-m", "app.google_credential_sentinel"]
+    read_only: true
+    restart: unless-stopped
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/gcp/adc.json
+      GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT: ${GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT:?set GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT to the impersonated DLP service account}
+      GOOGLE_ADC_STATUS_PATH: /var/run/google-auth/status.json
+      GOOGLE_ADC_PROBE_INTERVAL_SECONDS: ${GOOGLE_ADC_PROBE_INTERVAL_SECONDS:-30}
+      GOOGLE_ADC_STATUS_MAX_AGE_SECONDS: ${GOOGLE_ADC_STATUS_MAX_AGE_SECONDS:-90}
+    volumes:
+      - ${GOOGLE_APPLICATION_CREDENTIALS_HOST:?set GOOGLE_APPLICATION_CREDENTIALS_HOST to an ADC JSON file}:/var/run/gcp/adc.json:ro
+      - google_auth_status:/var/run/google-auth
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-m", "app.google_credential_sentinel", "--check"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
+      start_period: 15s
+
   governance:
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /var/run/gcp/adc.json
+      GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT: ${GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT:?set GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT to the impersonated DLP service account}
+      GOOGLE_ADC_STATUS_PATH: /var/run/google-auth/status.json
+      GOOGLE_ADC_STATUS_MAX_AGE_SECONDS: ${GOOGLE_ADC_STATUS_MAX_AGE_SECONDS:-90}
+      GOOGLE_ADC_RETRY_AFTER_SECONDS: ${GOOGLE_ADC_RETRY_AFTER_SECONDS:-60}
     volumes:
       - ${GOOGLE_APPLICATION_CREDENTIALS_HOST:?set GOOGLE_APPLICATION_CREDENTIALS_HOST to an ADC JSON file}:/var/run/gcp/adc.json:ro
+      - google_auth_status:/var/run/google-auth:ro
+    depends_on:
+      google-credential-sentinel:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/live || exit 1"]
+
+volumes:
+  google_auth_status:

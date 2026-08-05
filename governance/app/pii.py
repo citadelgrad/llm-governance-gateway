@@ -15,6 +15,8 @@ from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, Recogn
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
+from .google_credentials import GoogleCredentialPreflightError, preflight
+
 
 @dataclass
 class PiiResult:
@@ -244,6 +246,7 @@ async def initialize(
     google_project: str | None = None,
     google_location: str = "global",
     google_api_endpoint: str | None = None,
+    google_expected_service_account: str | None = None,
     google_min_likelihood: str = "POSSIBLE",
     google_info_types: tuple[str, ...] = (),
     google_timeout_seconds: float = 5.0,
@@ -271,13 +274,24 @@ async def initialize(
             _google_info_types = google_info_types
             _google_timeout_seconds = google_timeout_seconds
             _max_scan_seconds = google_timeout_seconds
+            try:
+                credential_preflight = await asyncio.to_thread(
+                    preflight,
+                    expected_service_account=google_expected_service_account,
+                )
+            except GoogleCredentialPreflightError as exc:
+                raise PiiBackendError(str(exc)) from None
             client_factory = (
                 partial(
                     dlp_v2.DlpServiceClient,
+                    credentials=credential_preflight.credentials,
                     client_options=ClientOptions(api_endpoint=google_api_endpoint),
                 )
                 if google_api_endpoint
-                else dlp_v2.DlpServiceClient
+                else partial(
+                    dlp_v2.DlpServiceClient,
+                    credentials=credential_preflight.credentials,
+                )
             )
             _google_client = await asyncio.to_thread(client_factory)
             _initialized_backend = backend

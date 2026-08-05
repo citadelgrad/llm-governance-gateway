@@ -44,10 +44,14 @@ Any authentication, quota, timeout, transport, malformed-range, or provider erro
 | `GOOGLE_CLOUD_PROJECT` | with Google | Project billed for and authorizing DLP calls |
 | `GOOGLE_DLP_LOCATION` | no | Processing location in the request parent; default `global` |
 | `GOOGLE_DLP_API_ENDPOINT` | no | Regional endpoint hostname when in-transit residency requires one |
+| `GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT` | local impersonation | Effective service-account identity required by local preflight |
 | `GOOGLE_DLP_MIN_LIKELIHOOD` | no | `VERY_UNLIKELY` through `VERY_LIKELY`; default `POSSIBLE` |
 | `GOOGLE_DLP_TIMEOUT_SECONDS` | no | Per-call timeout/retry deadline, 0-30 seconds; default 5 |
 | `GOOGLE_DLP_INFO_TYPES` | no | Comma-separated detector allowlist |
-| `GOOGLE_APPLICATION_CREDENTIALS_HOST` | local Compose only | Host ADC path mounted read-only into Governance |
+| `GOOGLE_APPLICATION_CREDENTIALS_HOST` | local Compose only | Host impersonated-ADC path mounted read-only into Governance |
+| `GOOGLE_ADC_STATUS_PATH` | local Compose override | Metadata-only credential-sentinel status consumed by Governance readiness |
+| `GOOGLE_ADC_STATUS_MAX_AGE_SECONDS` | no | Maximum sentinel age before fail-closed; default 90 seconds |
+| `GOOGLE_ADC_RETRY_AFTER_SECONDS` | no | `Retry-After` returned while DLP credentials are unavailable; default 60 seconds |
 
 The default detector set is:
 
@@ -99,36 +103,152 @@ Revisit this if a specific tenant requests name detection **and** the Google DLP
 
 ## GCP setup
 
-Enable the API in the dedicated privacy project:
-
-```bash
-gcloud services enable dlp.googleapis.com --project "$GOOGLE_CLOUD_PROJECT"
-```
-
-Grant the Governance runtime service account the predefined DLP User role:
-
-```bash
-gcloud projects add-iam-policy-binding "$GOOGLE_CLOUD_PROJECT" \
-  --member="serviceAccount:$GOVERNANCE_SERVICE_ACCOUNT" \
-  --role="roles/dlp.user"
-```
+The dedicated developer impersonation path is managed by the standalone
+Terraform root at `infra/terraform/google-dlp-dev-access`. It enables
+`dlp.googleapis.com`, grants the existing keyless Governance service account
+`roles/dlp.user`, and grants a dedicated developer a custom role containing
+only `iam.serviceAccounts.getAccessToken` on that exact service account. Follow
+that root's README for remote-state bootstrap, import, plan, live proof, and the
+Terraform-managed removal of the old administrator TokenCreator member. Do not
+make these IAM changes with `gcloud`.
 
 `roles/dlp.user` is the least-privilege predefined role intended to inspect, redact, and de-identify content. Do not grant `roles/dlp.admin` or `roles/dlp.editor` to the runtime.
 
 ### Local ADC
 
-Authenticate application code separately from the `gcloud` CLI:
+Use service-account impersonation for local DLP calls. This produces short-lived
+service-account access tokens backed by the developer's source login; it does
+not create a service-account private key. The dedicated source account needs
+the Terraform-managed custom token-minter role on the exact target service
+account, and the target service account needs `roles/dlp.user` on the DLP
+project.
+The DLP request parent (`GOOGLE_CLOUD_PROJECT`) supplies the billing/quota
+project; `gcloud auth application-default set-quota-project` is intentionally
+not used because gcloud rejects that command for impersonated ADC.
+
+Set the intended identity in `.envrc`, then create impersonated ADC:
 
 ```bash
-gcloud auth application-default login
-gcloud auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
-PII_BACKEND=google make smoke-google-dlp
+export GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT="gateway-dlp@PROJECT_ID.iam.gserviceaccount.com"
+make google-adc-login
+make google-adc-preflight
 ```
 
-The live smoke makes billable API calls and checks both an email positive control and the exact Django false-positive regression. Unit/contract tests use a fake client and require no cloud credentials.
+`google-adc-preflight` refreshes credentials and verifies the effective identity
+without making a DLP call. It reports only the service-account email and token
+expiry. Missing ADC, personal-user ADC, the wrong impersonation target, and
+expired source credentials fail with sanitized diagnostics. A developer source
+login can still expire and require interactive reauthentication; impersonation
+does not make a user login permanently unattended.
+
+The impersonated service-account access token is intentionally short-lived and
+normally expires after one hour. ADC refreshes it automatically; extending that
+token does not remove interactive login. Google permits at most 12 hours only
+for service accounts admitted by the
+[`constraints/iam.allowServiceAccountCredentialLifetimeExtension`](https://cloud.google.com/iam/docs/create-short-lived-credentials-direct)
+organization policy, and the gcloud CLI does not support requesting that longer
+lifetime. Do not use that exception for this gateway.
+
+The login boundary is the developer's Google Workspace Cloud session. Google
+Cloud session control allows only **1 through 24 hours**, so it cannot provide a
+seven-day ADC session. User-backed ADC is covered by that policy and requires
+interactive reauthentication when the configured session expires. See Google's
+[Cloud session control documentation](https://support.google.com/a/answer/7576830).
+
+For a local developer who must avoid daily login, the pragmatic one-time admin
+change is to identify the OAuth application/client used by ADC in Workspace Apps
+access control and add it to the **Trusted apps** list. Google documents this as
+a temporary exemption from Cloud session-length constraints for applications
+that cannot reauthenticate interactively. This broadens the lifetime of that
+user refresh credential, so scope the exemption to the developer's group/OU,
+review it explicitly, and retain the sentinel/revocation controls below. It does
+not make credentials permanent: administrator revocation, user revocation, or
+Google security events can still invalidate them.
+
+For an unattended shared cluster, do not exempt personal ADC. Use Workload
+Identity Federation or a platform-attached runtime service account so a
+non-human workload identity continuously obtains short-lived credentials.
+
+Verify the IAM bindings without changing them:
+
+```bash
+gcloud projects get-iam-policy "$GOOGLE_CLOUD_PROJECT" \
+  --flatten='bindings[].members' \
+  --filter="bindings.role:roles/dlp.user AND bindings.members:serviceAccount:$GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT" \
+  --format='table(bindings.role,bindings.members)'
+
+gcloud iam service-accounts get-iam-policy "$GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT" \
+  --project "$GOOGLE_CLOUD_PROJECT" \
+  --flatten='bindings[].members' \
+  --filter='bindings.role:roles/iam.serviceAccountTokenCreator' \
+  --format='table(bindings.role,bindings.members)'
+```
+
+The live smoke makes billable API calls and checks both an email positive control
+and the exact Django false-positive regression. Unit/contract tests use fake
+credentials and a fake DLP client.
+
+#### Optional macOS Keychain storage
+
+macOS Keychain can hold the impersonated ADC JSON as a generic-password blob,
+but Google ADC and Docker Compose still require a filesystem path. The helper
+stores the durable copy without putting JSON in shell arguments, then
+materializes a mode-0600 cache file for `.envrc`/Compose:
+
+```bash
+make google-adc-keychain-store
+```
+
+The Make target verifies Keychain readback before unlinking gcloud's generated
+ADC source file. A later `make google-adc-login` recreates that source if needed.
+
+Then use this in `.envrc`:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS_HOST="$(scripts/google_adc_keychain.py materialize \
+  --expected-service-account "$GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT")"
+export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS_HOST"
+```
+
+The cache file lives under `~/Library/Caches/ai-gateway/`, not in the repository,
+and is mounted read-only. This is a necessary plaintext materialization while
+the Linux container uses ADC; Keychain cannot be mounted directly into Docker.
+Remove the cache file when local Google-backed containers no longer need it.
+
+The Google Compose override also starts `google-credential-sentinel`. Every 30
+seconds it loads the same read-only ADC, verifies that the credential is the
+expected impersonated service account, refreshes it through Google IAM, and
+atomically publishes a metadata-only status file. It never writes access tokens,
+refresh tokens, ADC JSON, or provider diagnostics to the status file or logs.
+Governance mounts that status read-only and makes `/health` fail readiness when
+it is missing, failed, or stale. The Google Compose override uses `/live` for the
+container health check so Swarm/Compose lifecycle management does not create a
+credential-failure restart loop. DLP-backed requests fail closed with a
+sanitized `503` and `Retry-After`; the proxy does not dispatch uninspected
+content upstream.
+
+The sentinel detects and contains expiration; it cannot bypass Google's demand
+for interactive reauthentication. If plain gcloud ADC needs renewal, run:
+
+```bash
+make google-adc-renew
+```
+
+For the Keychain-backed workflow configured above, run:
+
+```bash
+make google-adc-keychain-renew
+```
+
+The plain target leaves gcloud's mode-0600 ADC in its normal configuration path.
+The Keychain target verifies and replaces the Keychain copy, removes gcloud's
+source file, and explicitly supplies the newly materialized cache path to
+Compose. Both recreate the sentinel and Governance containers because a
+bind-mounted file can remain pinned to the old inode after an atomic host-side
+replacement.
 
 Docker Compose deliberately defaults to `PII_BACKEND=presidio`. For a Google-backed
-local container test, set `GOOGLE_APPLICATION_CREDENTIALS_HOST` to the host ADC
+local container test, set `GOOGLE_APPLICATION_CREDENTIALS_HOST` to the host impersonated ADC
 JSON path and add the opt-in override with
 `COMPOSE_FILE=docker-compose.yml:docker-compose.google-dlp.yml`. The override
 mounts ADC read-only at `/var/run/gcp/adc.json`. Never copy ADC JSON into the

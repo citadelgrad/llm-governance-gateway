@@ -19,10 +19,14 @@ class Settings(BaseSettings):
     )
     google_dlp_location: str = "global"
     google_dlp_api_endpoint: str | None = None
+    google_dlp_expected_service_account: str | None = None
     google_dlp_min_likelihood: Literal[
         "VERY_UNLIKELY", "UNLIKELY", "POSSIBLE", "LIKELY", "VERY_LIKELY"
     ] = "POSSIBLE"
     google_dlp_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    google_adc_status_path: str | None = None
+    google_adc_status_max_age_seconds: float = Field(default=90.0, gt=0)
+    google_adc_retry_after_seconds: int = Field(default=60, gt=0, le=3600)
     google_dlp_info_types: str = (
         "EMAIL_ADDRESS,PHONE_NUMBER,US_SOCIAL_SECURITY_NUMBER,CREDIT_CARD_NUMBER,"
         "IP_ADDRESS,STREET_ADDRESS,DATE_OF_BIRTH"

@@ -37,6 +37,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
       - name: Secret scan
         run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest detect --source=/repo --redact --no-banner
 
@@ -45,6 +50,9 @@ jobs:
 
       - name: Unit tests
         run: make test
+
+      - name: Terraform validation and policy tests
+        run: make terraform-check
 
       - name: OPA policy tests
         run: make opa-test

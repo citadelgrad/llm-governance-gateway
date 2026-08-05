@@ -1,0 +1,7 @@
+developer_principal  = "user:ai-gateway-dev@happyherbivore.com"
+state_bucket_name     = "prod-meal-mentor-llm-governance-tfstate-replace-with-unique-suffix"
+state_bucket_location = "US"
+
+# Fail closed: this preserves the imported legacy member. Use the exact removal
+# phrase documented in README.md only after dedicated-principal live proof.
+legacy_admin_removal_approval = "PRESERVE"

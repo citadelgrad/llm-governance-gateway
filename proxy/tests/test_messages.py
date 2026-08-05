@@ -366,9 +366,10 @@ async def test_messages_pii_headers_present(messages_client):
 
 async def test_messages_governance_unavailable_503(messages_client):
     client, gov_mock = messages_client
-    gov_mock.inspect.side_effect = GovernanceError("governance down")
+    gov_mock.inspect.side_effect = GovernanceError("governance down", retry_after="120")
     response = await client.post("/v1/messages", json=_BASE_BODY)
     assert response.status_code == 503
+    assert response.headers["retry-after"] == "120"
     assert response.json()["detail"]["error"]["type"] == "governance_unavailable"
 
 

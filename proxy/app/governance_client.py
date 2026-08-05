@@ -8,7 +8,9 @@ from proxy.app.config import settings
 
 
 class GovernanceError(Exception):
-    pass
+    def __init__(self, message: str, *, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 @dataclass
@@ -88,7 +90,15 @@ class GovernanceClient:
         try:
             return await _call()
         except (httpx.RequestError, httpx.HTTPStatusError) as exc:
-            raise GovernanceError(f"Governance unreachable after retries: {exc}") from exc
+            retry_after = (
+                exc.response.headers.get("Retry-After")
+                if isinstance(exc, httpx.HTTPStatusError)
+                else None
+            )
+            raise GovernanceError(
+                f"Governance unreachable after retries: {exc}",
+                retry_after=retry_after,
+            ) from exc
 
 
 def make_governance_client(client: httpx.AsyncClient) -> GovernanceClient:

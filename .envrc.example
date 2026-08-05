@@ -37,13 +37,23 @@ export GOOGLE_CLOUD_PROJECT=""
 export GOOGLE_DLP_LOCATION="global"
 # Optional regional endpoint hostname when data must stay in-region in transit.
 export GOOGLE_DLP_API_ENDPOINT=""
+export GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT=""
 export GOOGLE_DLP_MIN_LIKELIHOOD="POSSIBLE"
 export GOOGLE_DLP_TIMEOUT_SECONDS="5"
 export GOOGLE_DLP_INFO_TYPES="EMAIL_ADDRESS,PHONE_NUMBER,US_SOCIAL_SECURITY_NUMBER,CREDIT_CARD_NUMBER,IP_ADDRESS,STREET_ADDRESS,DATE_OF_BIRTH"
-# Local Compose only: host ADC file mounted read-only into Governance.
+# Local Compose only: impersonated ADC file mounted read-only into Governance.
 export GOOGLE_APPLICATION_CREDENTIALS_HOST=""
+# Optional macOS Keychain source. Keychain cannot be mounted into Docker, so
+# this writes a mode-0600 cache file and exports that path for Compose/ADC.
+# export GOOGLE_APPLICATION_CREDENTIALS_HOST="$(scripts/google_adc_keychain.py materialize --expected-service-account "$GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT")"
+# export GOOGLE_APPLICATION_CREDENTIALS="$GOOGLE_APPLICATION_CREDENTIALS_HOST"
 # Add docker-compose.google-dlp.yml only when using local ADC in Compose.
 # export COMPOSE_FILE="docker-compose.yml:docker-compose.google-dlp.yml"
+# The Google override runs a credential sentinel every 30 seconds. Governance
+# treats a missing, failed, or older-than-90-second signal as unavailable.
+# export GOOGLE_ADC_PROBE_INTERVAL_SECONDS="30"
+# export GOOGLE_ADC_STATUS_MAX_AGE_SECONDS="90"
+# export GOOGLE_ADC_RETRY_AFTER_SECONDS="60"
 
 # Mock providers let demos/tests run without real upstream LLM API keys.
 export MOCK_PROVIDERS="true"

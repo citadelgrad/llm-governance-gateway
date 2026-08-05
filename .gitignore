@@ -30,6 +30,16 @@ __pycache__/
 # Docker
 .docker/
 
+# Terraform local state and operator inputs
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+backend.hcl
+terraform.tfvars
+.terraform.tfstate.lock.info
+crash.log
+
 # Editor
 .DS_Store
 *.swp

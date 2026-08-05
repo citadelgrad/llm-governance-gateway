@@ -22,11 +22,19 @@ async def main() -> int:
 
     location = os.environ.get("GOOGLE_DLP_LOCATION", "global")
     endpoint = os.environ.get("GOOGLE_DLP_API_ENDPOINT") or None
+    expected_service_account = os.environ.get("GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT")
+    if not expected_service_account:
+        print(
+            "ERROR: set GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT before running this live smoke",
+            file=sys.stderr,
+        )
+        return 2
     await pii.initialize(
         backend="google",
         google_project=project,
         google_location=location,
         google_api_endpoint=endpoint,
+        google_expected_service_account=expected_service_account,
         google_min_likelihood="POSSIBLE",
         google_info_types=(
             "EMAIL_ADDRESS",

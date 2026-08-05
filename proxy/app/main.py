@@ -371,6 +371,7 @@ async def _run_gateway_pipeline(
         raise HTTPException(
             status_code=503,
             detail=error_envelope("governance_unavailable", "Governance service unavailable"),
+            headers={"Retry-After": exc.retry_after or "60"},
         ) from exc
 
     extra_headers: dict[str, str] = {**rl_hdrs}
