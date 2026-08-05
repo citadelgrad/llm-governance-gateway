@@ -52,6 +52,23 @@ def _parse_openai_sse(lines: list[str]) -> tuple[str, bool, list[dict]]:
     return "".join(text), done, errors
 
 
+def _responses_output_text(body: dict) -> str:
+    convenience_text = body.get("output_text")
+    if isinstance(convenience_text, str) and convenience_text:
+        return convenience_text
+    text_parts: list[str] = []
+    for item in body.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict) or content.get("type") != "output_text":
+                continue
+            text = content.get("text")
+            if isinstance(text, str):
+                text_parts.append(text)
+    return "".join(text_parts)
+
+
 async def _collect_stream(
     client: httpx.AsyncClient,
     path: str,
@@ -123,7 +140,8 @@ async def run(args: argparse.Namespace) -> int:
                     ],
                     "stream": True,
                     "stream_options": {"include_usage": True},
-                    "max_tokens": 128,
+                    "max_completion_tokens": 128,
+                    "reasoning_effort": "none",
                     "tools": [
                         {
                             "type": "function",
@@ -160,8 +178,9 @@ async def run(args: argparse.Namespace) -> int:
             _require(response.status_code == 200, f"HTTP {response.status_code}: {response.text[:200]}")
             body = response.json()
             _require(body.get("object") == "response", "wrong response object")
-            _require(bool(body.get("output_text", "").strip()), "response has no output_text")
-            return f"Responses envelope valid, {len(body['output_text'])} text chars"
+            output_text = _responses_output_text(body)
+            _require(bool(output_text.strip()), "response has no output text")
+            return f"Responses envelope valid, {len(output_text)} text chars"
 
         async def anthropic_count_tokens() -> str:
             response = await client.post(
