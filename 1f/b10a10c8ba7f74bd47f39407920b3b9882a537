@@ -1,0 +1,14 @@
+governance/app/pii.py
+  h_12ee2b2686c122 530-532,541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.20",
+  "base_commit_sha": "1fb10a10c8ba7f74bd47f39407920b3b9882a537",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
