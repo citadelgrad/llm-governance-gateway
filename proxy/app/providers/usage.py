@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
+
+from proxy.app.protocol_types import JsonObject
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,32 +17,44 @@ class UsageMetrics:
         return cls(0, 0, 0)
 
 
-def extract_usage(provider: str, response_json: dict) -> UsageMetrics:
-    """Extract token usage from a provider response. Returns zero metrics if absent."""
+def _usage_object(value: object) -> JsonObject:
+    if not isinstance(value, dict):
+        return {}
+    return cast(JsonObject, value)
+
+
+def _token_count(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def extract_usage(provider: str, response_json: JsonObject) -> UsageMetrics:
     if not isinstance(response_json, dict):
         return UsageMetrics.zero()
-
     match provider:
         case "openai" | "ollama" | "generic":
-            # OpenAI-shape: {"usage": {"prompt_tokens", "completion_tokens", "total_tokens"}}
-            usage = response_json.get("usage") or {}
-            prompt = int(usage.get("prompt_tokens", 0) or 0)
-            completion = int(usage.get("completion_tokens", 0) or 0)
-            reported = int(usage.get("total_tokens", 0) or 0)
+            # Chat uses prompt/completion; Responses uses input/output token names.
+            usage = _usage_object(response_json.get("usage"))
+            prompt = _token_count(
+                usage.get("prompt_tokens", usage.get("input_tokens", 0))
+            )
+            completion = _token_count(
+                usage.get("completion_tokens", usage.get("output_tokens", 0))
+            )
+            reported = _token_count(usage.get("total_tokens", 0))
             total = max(reported, prompt + completion)
             return UsageMetrics(prompt, completion, total)
         case "anthropic":
             # Anthropic-shape: {"usage": {"input_tokens", "output_tokens"}}
-            usage = response_json.get("usage") or {}
-            prompt = int(usage.get("input_tokens", 0) or 0)
-            completion = int(usage.get("output_tokens", 0) or 0)
+            usage = _usage_object(response_json.get("usage"))
+            prompt = _token_count(usage.get("input_tokens", 0))
+            completion = _token_count(usage.get("output_tokens", 0))
             return UsageMetrics(prompt, completion, prompt + completion)
         case "gemini":
             # Gemini-shape: usageMetadata keys are promptTokenCount / candidatesTokenCount
-            usage = response_json.get("usageMetadata") or {}
-            prompt = int(usage.get("promptTokenCount", 0) or 0)
-            completion = int(usage.get("candidatesTokenCount", 0) or 0)
-            reported = int(usage.get("totalTokenCount", 0) or 0)
+            usage = _usage_object(response_json.get("usageMetadata"))
+            prompt = _token_count(usage.get("promptTokenCount", 0))
+            completion = _token_count(usage.get("candidatesTokenCount", 0))
+            reported = _token_count(usage.get("totalTokenCount", 0))
             total = max(reported, prompt + completion)
             return UsageMetrics(prompt, completion, total)
         case _:

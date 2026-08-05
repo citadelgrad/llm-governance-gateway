@@ -14,11 +14,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from proxy.app.anthropic_compat import (
     AnthropicCompatError,
+    AnthropicGatewayPayload,
     AnthropicMessagesRequest,
     CountTokensRequest,
     chat_response_to_anthropic,
     count_tokens_approximate,
-    messages_to_chat_body,
     openai_sse_to_anthropic_sse,
 )
 from proxy.app.auth import AuthError, CallerContext, authenticate, authenticate_compat
@@ -26,9 +26,17 @@ from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
 from proxy.app.db import jsonb_list as _jsonb_list
 from proxy.app.governance_client import GovernanceError, InspectRequest, make_governance_client
-from proxy.app.governance_client import extract_user_message as _extract_user_message
 from proxy.app.headers import error_envelope, pii_headers, rate_limit_headers, retry_headers
 from proxy.app.middleware import BodySizeLimitMiddleware
+from proxy.app.protocol_types import (
+    GatewayPayload,
+    OpenAIChatPayload,
+    OpenAIChatRequest,
+    ProtocolTranslationError,
+    WireProtocol,
+    format_validation_location,
+)
+from proxy.app.provider_capabilities import unsupported_chat_fields
 from proxy.app.providers import anthropic as anthropic_provider
 from proxy.app.providers import gemini as gemini_provider
 from proxy.app.providers import generic as generic_provider
@@ -38,13 +46,13 @@ from proxy.app.providers import openai as openai_provider
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
 from proxy.app.responses_compat import (
-    ResponsesCompatError,
+    ResponsesCreateRequest,
+    ResponsesGatewayPayload,
     openai_sse_to_responses_sse,
     translate_chat_response,
-    translate_responses_request,
 )
 from proxy.app.routing import load_models_yaml, resolve_provider
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -130,6 +138,7 @@ app.add_middleware(
         "x-api-key",
         "anthropic-version",
         "anthropic-beta",
+        "openai-beta",
     ],
 )
 
@@ -309,12 +318,12 @@ def _enforce_act_claim(caller: CallerContext) -> None:
 async def _run_gateway_pipeline(
     request: Request,
     caller: CallerContext,
-    body: dict,
-) -> tuple[Response | StreamingResponse, dict[str, str]]:
+    payload: GatewayPayload,
+) -> tuple[Response | StreamingResponse, dict[str, str], WireProtocol]:
     _enforce_act_claim(caller)
 
-    model_id = body.get("model", "")
-    stream = body.get("stream", False)
+    model_id = payload.model
+    stream = payload.stream
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
@@ -346,7 +355,7 @@ async def _run_gateway_pipeline(
             headers={**retry_headers(rl_result.retry_after_seconds), **rl_hdrs},
         )
 
-    user_text = _extract_user_message(body)
+    user_text = payload.governance_text()
     try:
         inspect_resp = await request.app.state.governance_client.inspect(
             InspectRequest(
@@ -386,27 +395,81 @@ async def _run_gateway_pipeline(
             pii_headers(pii_types, tenant["pii_redaction_notification"])
         )
         if inspect_resp.redacted_text:
-            messages = body.get("messages", [])
-            for msg in reversed(messages):
-                if msg.get("role") == "user":
-                    msg["content"] = inspect_resp.redacted_text
-                    break
+            payload = payload.with_redacted_text(inspect_resp.redacted_text)
+
+    native_dispatch = not settings.mock_mode and provider in payload.native_providers
+    try:
+        body = payload.native_body() if native_dispatch else payload.to_chat_body()
+    except ProtocolTranslationError as exc:
+        error_type = {
+            "anthropic_messages": "unsupported_message_shape",
+            "openai_responses": "unsupported_response_shape",
+        }.get(payload.protocol, "unsupported_protocol_translation")
+        raise HTTPException(
+            status_code=422,
+            detail=error_envelope(error_type, str(exc)),
+            headers=extra_headers,
+        ) from exc
+
+    if not native_dispatch and not settings.mock_mode:
+        capability_provider = "gemini" if provider == "google" else provider
+        if capability_provider not in {"anthropic", "gemini", "openai", "ollama"}:
+            capability_provider = "generic"
+        unsupported = unsupported_chat_fields(capability_provider, body)
+        if unsupported:
+            raise HTTPException(
+                status_code=422,
+                detail=error_envelope(
+                    "unsupported_protocol_translation",
+                    f"Provider {provider} cannot preserve Chat fields: "
+                    + ", ".join(unsupported),
+                    details={"provider": provider, "fields": unsupported},
+                ),
+                headers=extra_headers,
+            )
 
     response: Response | StreamingResponse
     effective_provider: str
+    response_protocol: WireProtocol = "openai_chat"
     match provider:
         case _ if settings.mock_mode:
             response = await mock_provider.chat_completions(body, extra_headers)
             effective_provider = "openai"  # mock uses OpenAI-shaped responses
         case "openai":
-            response = await openai_provider.chat_completions(
-                request.app.state.openai_client, body, stream, extra_headers
-            )
+            if native_dispatch and payload.protocol == "openai_responses":
+                response = await openai_provider.responses(
+                    request.app.state.openai_client,
+                    body,
+                    stream,
+                    extra_headers,
+                    upstream_headers={
+                        key: value for key, value in lower_headers.items() if key == "openai-beta"
+                    },
+                )
+                response_protocol = "openai_responses"
+            else:
+                response = await openai_provider.chat_completions(
+                    request.app.state.openai_client, body, stream, extra_headers
+                )
             effective_provider = "openai"
         case "anthropic":
-            response = await anthropic_provider.chat_completions(
-                request.app.state.anthropic_client, body, stream, extra_headers
-            )
+            if native_dispatch and payload.protocol == "anthropic_messages":
+                response = await anthropic_provider.messages(
+                    request.app.state.anthropic_client,
+                    body,
+                    stream,
+                    extra_headers,
+                    upstream_headers={
+                        key: value
+                        for key, value in lower_headers.items()
+                        if key in {"anthropic-beta", "anthropic-version"}
+                    },
+                )
+                response_protocol = "anthropic_messages"
+            else:
+                response = await anthropic_provider.chat_completions(
+                    request.app.state.anthropic_client, body, stream, extra_headers
+                )
             effective_provider = "anthropic"
         case "gemini" | "google":
             response = await gemini_provider.chat_completions(
@@ -435,6 +498,11 @@ async def _run_gateway_pipeline(
                     detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
                 )
 
+    # Every compatibility adapter serializes Chat-shaped usage; only native
+    # responses retain their provider's usage schema.
+    if response_protocol == "openai_chat":
+        effective_provider = "openai"
+
     if (
         not stream
         and isinstance(response, Response)
@@ -443,7 +511,7 @@ async def _run_gateway_pipeline(
     ):
         _attach_usage(response, effective_provider, request)
 
-    return response, extra_headers
+    return response, extra_headers, response_protocol
 
 
 @app.get("/health")
@@ -459,7 +527,34 @@ async def chat_completions(
     caller: CallerContext = Depends(get_caller),
 ):
     body = await _parse_json_body(request)
-    response, _ = await _run_gateway_pipeline(request, caller, body)
+    try:
+        chat_request = OpenAIChatRequest.model_validate(body)
+    except ValidationError as exc:
+        violations = sorted(
+            [
+                {
+                    "field": format_validation_location(error["loc"]),
+                    "type": error["type"],
+                    "message": error["msg"],
+                }
+                for error in exc.errors(include_url=False, include_input=False)
+            ],
+            key=lambda violation: violation["field"].count("."),
+            reverse=True,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=error_envelope(
+                "invalid_request",
+                "Request body is not a valid OpenAI Chat Completions request",
+                details={"violations": violations},
+            ),
+        ) from exc
+    response, _, _ = await _run_gateway_pipeline(
+        request,
+        caller,
+        OpenAIChatPayload(chat_request),
+    )
     return response
 
 
@@ -470,17 +565,23 @@ async def responses(
 ):
     body = await _parse_json_body(request)
     try:
-        translated_body = translate_responses_request(body)
-    except ResponsesCompatError as exc:
+        req = ResponsesCreateRequest.model_validate(body)
+    except ValidationError as exc:
         raise HTTPException(
-            status_code=422,
-            detail=error_envelope("unsupported_response_shape", str(exc)),
+            status_code=400,
+            detail=error_envelope(
+                "invalid_request", "Request body is not a valid OpenAI Responses request"
+            ),
         ) from exc
 
-    response, extra_headers = await _run_gateway_pipeline(request, caller, translated_body)
+    response, extra_headers, response_protocol = await _run_gateway_pipeline(
+        request, caller, ResponsesGatewayPayload(req)
+    )
+    if response_protocol == "openai_responses":
+        return response
     if isinstance(response, StreamingResponse):
         translated = openai_sse_to_responses_sse(
-            response.body_iterator, translated_body.get("model", "")
+            response.body_iterator, req.model
         )
         return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
     if response.status_code >= 400:
@@ -515,11 +616,24 @@ async def messages(
 ):
     try:
         req = AnthropicMessagesRequest.model_validate(await request.json())
-        body = messages_to_chat_body(req)
-    except AnthropicCompatError as exc:
+    except ValidationError as exc:
+        violations = [
+            {
+                "field": ".".join(str(part) for part in error["loc"]),
+                "type": error["type"],
+                "message": error["msg"],
+            }
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
         raise HTTPException(
-            status_code=422,
-            detail=error_envelope("unsupported_message_shape", str(exc)),
+            status_code=400,
+            detail={
+                **error_envelope(
+                    "invalid_request",
+                    "Request body is not a valid Anthropic Messages request",
+                ),
+                "violations": violations,
+            },
         ) from exc
     except Exception:
         raise HTTPException(
@@ -527,7 +641,12 @@ async def messages(
             detail=error_envelope("invalid_request", "Request body is not a valid Anthropic Messages request"),
         ) from None
 
-    response, extra_headers = await _run_gateway_pipeline(request, caller, body)
+    response, extra_headers, response_protocol = await _run_gateway_pipeline(
+        request, caller, AnthropicGatewayPayload(req)
+    )
+
+    if response_protocol == "anthropic_messages":
+        return response
 
     if req.stream and isinstance(response, StreamingResponse):
         translated = openai_sse_to_anthropic_sse(response.body_iterator, req.model)
@@ -563,6 +682,22 @@ async def count_tokens(
 ):
     try:
         req = CountTokensRequest.model_validate(await request.json())
+    except ValidationError as exc:
+        violations = [
+            {
+                "field": ".".join(str(part) for part in error["loc"]),
+                "type": error["type"],
+                "message": error["msg"],
+            }
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
+        raise HTTPException(
+            status_code=400,
+            detail={
+                **error_envelope("invalid_request", "Request body is not valid"),
+                "violations": violations,
+            },
+        ) from exc
     except Exception:
         raise HTTPException(
             status_code=400,

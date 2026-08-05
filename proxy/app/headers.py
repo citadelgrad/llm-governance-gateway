@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from datetime import datetime
 
+from proxy.app.protocol_types import JsonObject
+
 
 def rate_limit_headers(
     limit: int,
@@ -39,8 +41,9 @@ def error_envelope(
     violations: Sequence[str] = (),
     required_roles: Sequence[str] = (),
     approved_providers_for_classification: Sequence[str] = (),
-) -> dict:
-    body: dict = {
+    details: JsonObject | None = None,
+) -> JsonObject:
+    body: JsonObject = {
         "type": error_type,
         "message": message,
         "violations": list(violations),
@@ -49,4 +52,6 @@ def error_envelope(
         body["required_roles"] = list(required_roles)
     if approved_providers_for_classification:
         body["approved_providers_for_classification"] = list(approved_providers_for_classification)
+    if details is not None:
+        body["details"] = details
     return {"error": body}

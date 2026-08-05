@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 from proxy.app.providers.errors import sanitize_upstream_error
+from proxy.app.providers.native import open_checked_stream
 from starlette.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -140,15 +141,29 @@ async def chat_completions(
     auth_headers = {"Authorization": f"Bearer {safe_key}"} if safe_key else {}
 
     if stream:
+        upstream, error_response = await open_checked_stream(
+            client,
+            "POST",
+            url,
+            body=body,
+            extra_headers=extra_headers,
+            provider="generic",
+            upstream_headers=auth_headers,
+        )
+        if error_response is not None:
+            return error_response
+        assert upstream is not None
+
         async def _stream_body():
             try:
-                async with client.stream("POST", url, json=body, headers=auth_headers) as upstream:
-                    async for chunk in upstream.aiter_bytes():
-                        yield chunk
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
             except httpx.TimeoutException:
                 yield b'data: {"error": {"type": "upstream_timeout"}}\n\n'
             except httpx.RequestError:
                 yield b'data: {"error": {"type": "upstream_connection_error"}}\n\n'
+            finally:
+                await upstream.aclose()
 
         return StreamingResponse(
             _stream_body(),

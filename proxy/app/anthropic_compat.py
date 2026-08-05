@@ -2,23 +2,104 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from codecs import getincrementaldecoder
+from dataclasses import dataclass
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from proxy.app.protocol_types import (
+    JsonObject,
+    JsonSchema,
+    OpenAIChatCompletionChunk,
+    OpenAIChatResponse,
+    ProtocolTranslationError,
+    WireProtocol,
+    redistribute_redacted_text,
+)
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 
-class AnthropicCompatError(Exception):
+class AnthropicCompatError(ProtocolTranslationError):
     """Raised when a request uses an unsupported Anthropic Messages shape."""
 
 
-AnthropicContent = str | list[dict[str, Any]]
+AnthropicContent = str | list[JsonObject]
 
 
 class AnthropicMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    role: str
+    role: Literal["user", "assistant", "system"]
     content: AnthropicContent
+
+
+class AnthropicThinkingEnabled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["enabled"]
+    budget_tokens: int = Field(ge=1024)
+    display: Literal["summarized", "omitted"] | None = None
+
+
+class AnthropicThinkingDisabled(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["disabled"]
+
+
+class AnthropicThinkingAdaptive(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["adaptive"]
+    display: Literal["summarized", "omitted"] | None = None
+
+
+AnthropicThinking = Annotated[
+    AnthropicThinkingEnabled | AnthropicThinkingDisabled | AnthropicThinkingAdaptive,
+    Field(discriminator="type"),
+]
+
+
+class AnthropicCacheControl(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ephemeral"]
+    ttl: Literal["5m", "1h"] | None = None
+
+
+class AnthropicMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str | None = None
+
+
+class AnthropicJsonOutputFormat(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["json_schema"]
+    schema_: JsonSchema = Field(alias="schema")
+
+
+class AnthropicOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    format: AnthropicJsonOutputFormat | None = None
+
+
+class AnthropicToolChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["auto", "any", "tool", "none"]
+    name: str | None = None
+    disable_parallel_tool_use: bool | None = None
+
+    @model_validator(mode="after")
+    def require_tool_name(self) -> AnthropicToolChoice:
+        if self.type == "tool" and not self.name:
+            raise ValueError("tool_choice type 'tool' requires name")
+        if self.type != "tool" and self.name is not None:
+            raise ValueError("tool_choice name is only valid for type 'tool'")
+        return self
 
 
 class AnthropicMessagesRequest(BaseModel):
@@ -27,14 +108,42 @@ class AnthropicMessagesRequest(BaseModel):
     model: str
     messages: list[AnthropicMessage]
     system: AnthropicContent | None = None
-    max_tokens: int = 1024
-    temperature: float | None = None
+    max_tokens: int = Field(ge=1)
+    cache_control: AnthropicCacheControl | None = None
+    container: str | None = None
+    inference_geo: str | None = None
+    temperature: float | None = Field(default=None, ge=0, le=1)
     stream: bool = False
-    top_p: float | None = None
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    top_k: int | None = Field(default=None, ge=0)
     stop_sequences: list[str] | None = None
-    tools: list[dict[str, Any]] | None = None
-    tool_choice: dict[str, Any] | str | None = None
-    metadata: dict[str, Any] | None = None
+    tools: list[JsonObject] | None = None
+    tool_choice: AnthropicToolChoice | None = None
+    metadata: AnthropicMetadata | None = None
+    thinking: AnthropicThinking | None = None
+    output_config: AnthropicOutputConfig | None = None
+    service_tier: Literal["auto", "standard_only"] | None = None
+    user_profile_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_conditional_fields(self) -> AnthropicMessagesRequest:
+        if (
+            isinstance(self.thinking, AnthropicThinkingEnabled)
+            and self.tool_choice is not None
+            and self.tool_choice.type in {"any", "tool"}
+        ):
+            raise ValueError("manual thinking only supports tool_choice types 'auto' and 'none'")
+        if self.tool_choice is not None and self.tool_choice.type in {"any", "tool"} and not self.tools:
+            raise ValueError(f"tool_choice type '{self.tool_choice.type}' requires tools")
+        if self.tool_choice is not None and self.tool_choice.type == "tool":
+            tool_names = {
+                name
+                for tool in self.tools or []
+                if isinstance((name := tool.get("name")), str)
+            }
+            if self.tool_choice.name not in tool_names:
+                raise ValueError("tool_choice name must reference a supplied tool")
+        return self
 
 
 class CountTokensRequest(BaseModel):
@@ -42,10 +151,77 @@ class CountTokensRequest(BaseModel):
 
     model: str
     messages: list[AnthropicMessage]
+    cache_control: AnthropicCacheControl | None = None
+    output_config: AnthropicOutputConfig | None = None
     system: AnthropicContent | None = None
+    thinking: AnthropicThinking | None = None
+    tool_choice: AnthropicToolChoice | None = None
+    tools: list[JsonObject] | None = None
+    user_profile_id: str | None = None
 
 
-def _tool_result_content_str(content: Any) -> str:
+def _governance_content_text(content: AnthropicContent) -> str:
+    if isinstance(content, str):
+        return content
+    fragments: list[str] = []
+    for block in content:
+        block_type = block.get("type")
+        if block_type == "text" and isinstance(block.get("text"), str):
+            fragments.append(str(block["text"]))
+        elif block_type == "tool_result":
+            fragments.append(_tool_result_content_str(block.get("content")))
+    return "".join(fragments)
+
+
+@dataclass(frozen=True)
+class AnthropicGatewayPayload:
+    request: AnthropicMessagesRequest
+    protocol: WireProtocol = "anthropic_messages"
+    native_providers: frozenset[str] = frozenset({"anthropic"})
+
+    @property
+    def model(self) -> str:
+        return self.request.model
+
+    @property
+    def stream(self) -> bool:
+        return self.request.stream
+
+    def governance_text(self) -> str:
+        for message in reversed(self.request.messages):
+            if message.role == "user":
+                return _governance_content_text(message.content)
+        return ""
+
+    def with_redacted_text(self, redacted_text: str) -> AnthropicGatewayPayload:
+        request = self.request.model_copy(deep=True)
+        for message in reversed(request.messages):
+            if message.role != "user":
+                continue
+            if isinstance(message.content, str):
+                message.content = redacted_text
+            else:
+                text_blocks = [
+                    block
+                    for block in message.content
+                    if block.get("type") == "text" and isinstance(block.get("text"), str)
+                ]
+                replacements = redistribute_redacted_text(
+                    [str(block["text"]) for block in text_blocks], redacted_text
+                )
+                for block, replacement in zip(text_blocks, replacements, strict=True):
+                    block["text"] = replacement
+            break
+        return AnthropicGatewayPayload(request=request)
+
+    def native_body(self) -> JsonObject:
+        return self.request.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    def to_chat_body(self) -> JsonObject:
+        return messages_to_chat_body(self.request)
+
+
+def _tool_result_content_str(content: JsonValue) -> str:
     """Flatten a tool_result block's `content` (str or list of content blocks) to text."""
     if content is None:
         return ""
@@ -55,7 +231,10 @@ def _tool_result_content_str(content: Any) -> str:
         fragments: list[str] = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
-                fragments.append(block.get("text", ""))
+                text = block.get("text")
+                if not isinstance(text, str):
+                    raise AnthropicCompatError("tool_result text blocks must include string text")
+                fragments.append(text)
             elif isinstance(block, dict):
                 fragments.append(json.dumps(block))
             else:
@@ -94,31 +273,32 @@ def _content_str(content: AnthropicContent) -> str:
     return "".join(fragments)
 
 
-def _tool_result_to_message(block: dict[str, Any], index: int) -> dict:
-    """Translate an Anthropic tool_result block to an OpenAI role:"tool" message.
-
-    OpenAI tool messages have no dedicated error flag, so an `is_error: true` result
-    is represented by prefixing the flattened content with "Error: " — the same
-    convention used by OpenAI-ecosystem agent frameworks (e.g. LangChain's
-    ToolMessage) to surface tool failures to the model without a separate field.
-    """
+def _tool_result_to_message(block: JsonObject, index: int) -> JsonObject:
+    """Translate a representable Anthropic tool_result to an OpenAI tool message."""
+    unsupported = sorted(set(block) - {"type", "tool_use_id", "content", "is_error"})
+    if unsupported:
+        raise AnthropicCompatError(
+            f"tool_result block at index {index} has unsupported fields: {', '.join(unsupported)}"
+        )
     tool_use_id = block.get("tool_use_id")
     if not isinstance(tool_use_id, str) or not tool_use_id:
         raise AnthropicCompatError(f"tool_result block at index {index} is missing tool_use_id")
-    text = _tool_result_content_str(block.get("content"))
     if block.get("is_error"):
-        text = f"Error: {text}" if text else "Error"
+        raise AnthropicCompatError(
+            f"tool_result block at index {index} has is_error=true, which Chat cannot preserve"
+        )
+    text = _tool_result_content_str(block.get("content"))
     return {"role": "tool", "tool_call_id": tool_use_id, "content": text}
 
 
-def _expand_user_content_blocks(content: list[dict[str, Any]], index: int) -> list[dict]:
+def _expand_user_content_blocks(content: list[JsonObject], index: int) -> list[JsonObject]:
     """Translate a user message's content blocks into one or more OpenAI messages.
 
     Contiguous text blocks become a single user message; each tool_result block
     becomes its own role:"tool" message, in the same order they appear so a
     conversation with interleaved text/tool_result blocks preserves ordering.
     """
-    messages: list[dict] = []
+    messages: list[JsonObject] = []
     text_buffer: list[str] = []
 
     def _flush_text() -> None:
@@ -131,6 +311,11 @@ def _expand_user_content_blocks(content: list[dict[str, Any]], index: int) -> li
             raise AnthropicCompatError(f"Unsupported content block at index {index}")
         block_type = block.get("type")
         if block_type == "text":
+            unsupported = sorted(set(block) - {"type", "text"})
+            if unsupported:
+                raise AnthropicCompatError(
+                    f"text block at index {index} has unsupported fields: {', '.join(unsupported)}"
+                )
             text = block.get("text")
             if not isinstance(text, str):
                 raise AnthropicCompatError("Text content blocks must include string text")
@@ -147,21 +332,31 @@ def _expand_user_content_blocks(content: list[dict[str, Any]], index: int) -> li
     return messages
 
 
-def _assistant_content_to_message(content: list[dict[str, Any]], index: int) -> dict:
+def _assistant_content_to_message(content: list[JsonObject], index: int) -> JsonObject:
     """Translate an assistant message's content blocks (text + tool_use) to OpenAI shape."""
     text_fragments: list[str] = []
-    tool_calls: list[dict] = []
+    tool_calls: list[JsonObject] = []
 
     for block in content:
         if not isinstance(block, dict):
             raise AnthropicCompatError(f"Unsupported content block at index {index}")
         block_type = block.get("type")
         if block_type == "text":
+            unsupported = sorted(set(block) - {"type", "text"})
+            if unsupported:
+                raise AnthropicCompatError(
+                    f"text block at index {index} has unsupported fields: {', '.join(unsupported)}"
+                )
             text = block.get("text")
             if not isinstance(text, str):
                 raise AnthropicCompatError("Text content blocks must include string text")
             text_fragments.append(text)
         elif block_type == "tool_use":
+            unsupported = sorted(set(block) - {"type", "id", "name", "input"})
+            if unsupported:
+                raise AnthropicCompatError(
+                    f"tool_use block at index {index} has unsupported fields: {', '.join(unsupported)}"
+                )
             tool_id = block.get("id")
             name = block.get("name")
             if not isinstance(tool_id, str) or not tool_id:
@@ -178,18 +373,23 @@ def _assistant_content_to_message(content: list[dict[str, Any]], index: int) -> 
         else:
             raise AnthropicCompatError(f"Unsupported content block type: {block_type}")
 
-    message: dict = {"role": "assistant", "content": "".join(text_fragments)}
+    message: JsonObject = {"role": "assistant", "content": "".join(text_fragments)}
     if tool_calls:
         message["tool_calls"] = tool_calls
     return message
 
 
-def _tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _tools_to_openai(tools: list[JsonObject]) -> list[JsonObject]:
     """Translate Anthropic tool definitions to OpenAI function-tool schema."""
-    openai_tools: list[dict[str, Any]] = []
+    openai_tools: list[JsonObject] = []
     for index, tool in enumerate(tools):
         if not isinstance(tool, dict):
             raise AnthropicCompatError(f"Unsupported tool definition at index {index}")
+        unsupported = sorted(set(tool) - {"name", "description", "input_schema"})
+        if unsupported:
+            raise AnthropicCompatError(
+                f"Tool definition at index {index} has unsupported fields: {', '.join(unsupported)}"
+            )
         name = tool.get("name")
         if not isinstance(name, str) or not name:
             raise AnthropicCompatError(f"Tool definition at index {index} is missing a name")
@@ -206,18 +406,13 @@ def _tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return openai_tools
 
 
-def _tool_choice_to_openai(tool_choice: dict[str, Any] | str) -> Any:
+def _tool_choice_to_openai(tool_choice: AnthropicToolChoice) -> str | JsonObject:
     """Translate Anthropic tool_choice to its OpenAI chat-completions equivalent.
 
     Anthropic shapes: {"type": "auto"}, {"type": "any"}, {"type": "none"},
-    {"type": "tool", "name": "X"} (also accepted as a bare shortcut string).
+    {"type": "tool", "name": "X"}.
     """
-    if isinstance(tool_choice, str):
-        tool_choice = {"type": tool_choice}
-    if not isinstance(tool_choice, dict):
-        raise AnthropicCompatError("Unsupported tool_choice shape")
-
-    choice_type = tool_choice.get("type")
+    choice_type = tool_choice.type
     if choice_type == "auto":
         return "auto"
     if choice_type == "any":
@@ -225,31 +420,33 @@ def _tool_choice_to_openai(tool_choice: dict[str, Any] | str) -> Any:
     if choice_type == "none":
         return "none"
     if choice_type == "tool":
-        name = tool_choice.get("name")
-        if not isinstance(name, str) or not name:
+        name = tool_choice.name
+        if not name:
             raise AnthropicCompatError("tool_choice of type 'tool' must include a name")
         return {"type": "function", "function": {"name": name}}
     raise AnthropicCompatError(f"Unsupported tool_choice type: {choice_type}")
 
 
-def messages_to_chat_body(req: AnthropicMessagesRequest) -> dict:
+def messages_to_chat_body(req: AnthropicMessagesRequest) -> JsonObject:
     """Translate Anthropic Messages request to internal chat completion body."""
-    msgs: list[dict] = []
+    msgs: list[JsonObject] = []
     if req.system:
         msgs.append({"role": "system", "content": _content_str(req.system)})
     for index, msg in enumerate(req.messages):
         role = msg.role.lower()
-        if role not in {"user", "assistant"}:
+        if role not in {"user", "assistant", "system"}:
             raise AnthropicCompatError(f"Unsupported message role at index {index}: {msg.role}")
         content = msg.content
-        if isinstance(content, str):
+        if role == "system":
+            msgs.append({"role": "system", "content": _content_str(content)})
+        elif isinstance(content, str):
             msgs.append({"role": role, "content": content})
         elif role == "assistant":
             msgs.append(_assistant_content_to_message(content, index))
         else:
             msgs.extend(_expand_user_content_blocks(content, index))
 
-    body: dict = {
+    body: JsonObject = {
         "model": req.model,
         "messages": msgs,
         "max_tokens": req.max_tokens,
@@ -259,12 +456,32 @@ def messages_to_chat_body(req: AnthropicMessagesRequest) -> dict:
         body["temperature"] = req.temperature
     if req.top_p is not None:
         body["top_p"] = req.top_p
+    if req.top_k is not None:
+        body["top_k"] = req.top_k
     if req.stop_sequences:
         body["stop"] = req.stop_sequences
     if req.tools:
         body["tools"] = _tools_to_openai(req.tools)
     if req.tool_choice is not None:
         body["tool_choice"] = _tool_choice_to_openai(req.tool_choice)
+        if req.tool_choice.disable_parallel_tool_use:
+            body["parallel_tool_calls"] = False
+    native_only_fields = (
+        "cache_control",
+        "container",
+        "inference_geo",
+        "metadata",
+        "output_config",
+        "service_tier",
+        "thinking",
+        "user_profile_id",
+    )
+    unsupported = [key for key in native_only_fields if getattr(req, key) is not None]
+    if unsupported:
+        raise AnthropicCompatError(
+            "Anthropic fields cannot be translated to Chat without loss: "
+            + ", ".join(unsupported)
+        )
     return body
 
 
@@ -275,8 +492,8 @@ _FINISH_TO_STOP: dict[str, str] = {
 }
 
 
-def _tool_calls_to_blocks(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
+def _tool_calls_to_blocks(tool_calls: list[JsonObject]) -> list[JsonObject]:
+    blocks: list[JsonObject] = []
     for call in tool_calls:
         function = call.get("function") if isinstance(call, dict) else None
         if not isinstance(function, dict):
@@ -297,36 +514,45 @@ def _tool_calls_to_blocks(tool_calls: list[dict[str, Any]]) -> list[dict[str, An
     return blocks
 
 
-def chat_response_to_anthropic(chat_json: dict, model: str) -> dict:
+def chat_response_to_anthropic(chat_json: JsonObject, model: str) -> JsonObject:
     """Translate OpenAI chat completion JSON to Anthropic Messages API response shape."""
-    choices = chat_json.get("choices") or [{}]
-    choice = choices[0]
-    message = choice.get("message", {})
-    finish_reason = choice.get("finish_reason", "stop")
-    stop_reason = _FINISH_TO_STOP.get(finish_reason, "end_turn")
-    usage = chat_json.get("usage", {})
+    try:
+        chat_response = OpenAIChatResponse.model_validate(chat_json)
+    except ValidationError as exc:
+        raise AnthropicCompatError("Chat response does not match the supported envelope") from exc
+    if not chat_response.choices:
+        raise AnthropicCompatError("Chat response must include at least one choice")
+    choice = chat_response.choices[0]
+    message = choice.message
+    stop_reason = _FINISH_TO_STOP.get(choice.finish_reason or "stop", "end_turn")
 
-    content: list[dict[str, Any]] = []
-    text = message.get("content") or ""
-    if text:
-        content.append({"type": "text", "text": text})
-    tool_calls = message.get("tool_calls") or []
-    if isinstance(tool_calls, list):
-        content.extend(_tool_calls_to_blocks(tool_calls))
+    content: list[JsonObject] = []
+    message_content = message.content
+    if isinstance(message_content, str) and message_content:
+        content.append({"type": "text", "text": message_content})
+    elif isinstance(message_content, list):
+        for block in message_content:
+            if block.get("type") != "text" or not isinstance(block.get("text"), str):
+                raise AnthropicCompatError(
+                    "Only assistant text content can be translated to Anthropic Messages"
+                )
+            content.append({"type": "text", "text": block["text"]})
+    if message.tool_calls:
+        content.extend(_tool_calls_to_blocks(message.tool_calls))
     if not content:
         content.append({"type": "text", "text": ""})
 
     return {
-        "id": chat_json.get("id", "msg_compat"),
+        "id": chat_response.id,
         "type": "message",
         "role": "assistant",
         "content": content,
-        "model": chat_json.get("model", model),
+        "model": chat_response.model or model,
         "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
+            "input_tokens": chat_response.usage.prompt_tokens,
+            "output_tokens": chat_response.usage.completion_tokens,
         },
     }
 
@@ -339,8 +565,24 @@ async def _iter_sse_json(body_iterator):
     silently failing json.loads on a half-line and dropping the event.
     """
     buffer = ""
+    decoder = getincrementaldecoder("utf-8")(errors="strict")
+
+    def stream_error(message: str) -> JsonObject:
+        return {"error": {"type": "invalid_upstream_stream", "message": message}}
+
     async for raw in body_iterator:
-        buffer += raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+        try:
+            if isinstance(raw, bytes):
+                buffer += decoder.decode(raw, final=False)
+            else:
+                pending, _ = decoder.getstate()
+                if pending:
+                    yield stream_error("Provider stream changed chunk type during UTF-8 sequence")
+                    return
+                buffer += raw
+        except UnicodeDecodeError:
+            yield stream_error("Provider stream contained invalid UTF-8")
+            return
         while "\n" in buffer:
             line, buffer = buffer.split("\n", 1)
             line = line.rstrip("\r")
@@ -350,9 +592,20 @@ async def _iter_sse_json(body_iterator):
             if not data_str or data_str == "[DONE]":
                 continue
             try:
-                yield json.loads(data_str)
+                payload = json.loads(data_str)
             except json.JSONDecodeError:
-                continue
+                yield stream_error("Provider stream contained malformed JSON")
+                return
+            if not isinstance(payload, dict):
+                yield stream_error("Provider stream event was not a JSON object")
+                return
+            yield payload
+
+    try:
+        buffer += decoder.decode(b"", final=True)
+    except UnicodeDecodeError:
+        yield stream_error("Provider stream ended with incomplete UTF-8")
+        return
 
     # Upstream may close without a trailing newline after the last data: line.
     line = buffer.rstrip("\r")
@@ -360,9 +613,32 @@ async def _iter_sse_json(body_iterator):
         data_str = line[len("data:"):].strip()
         if data_str and data_str != "[DONE]":
             try:
-                yield json.loads(data_str)
+                payload = json.loads(data_str)
             except json.JSONDecodeError:
-                pass
+                yield stream_error("Provider stream ended with malformed JSON")
+                return
+            if not isinstance(payload, dict):
+                yield stream_error("Provider stream event was not a JSON object")
+                return
+            yield payload
+
+
+async def _iter_openai_chat_events(body_iterator):
+    """Decode Chat SSE into strict chunks or one sanitized terminal error."""
+    async for event in _iter_sse_json(body_iterator):
+        if "error" in event and "choices" not in event:
+            yield event
+            return
+        try:
+            yield OpenAIChatCompletionChunk.model_validate(event)
+        except ValidationError:
+            yield {
+                "error": {
+                    "type": "invalid_upstream_stream",
+                    "message": "Provider stream chunk did not match the Chat protocol",
+                }
+            }
+            return
 
 
 def _message_start_event(message_id: str, model: str) -> str:
@@ -413,24 +689,17 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
     event (emitted by provider adapters on upstream timeout/connection failure) is
     surfaced as an Anthropic `error` SSE event instead of being silently dropped.
     """
-    message_id = "msg_compat"
+    message_id = ""
     message_started = False
     open_block_indices: list[int] = []
     tool_index_by_openai_index: dict[int, int] = {}
     next_block_index = 1  # index 0 is reserved for the text block
     output_tokens = 0
+    finish_reason: str | None = None
 
-    async for event in _iter_sse_json(body_iterator):
-        if not message_started:
-            message_id = event.get("id") or message_id
-            yield _message_start_event(message_id, model)
-            yield _content_block_start_text_event()
-            open_block_indices.append(0)
-            message_started = True
-
-        choices = event.get("choices") or []
-        raw_error = event.get("error")
-        if raw_error is not None and not choices:
+    async for event in _iter_openai_chat_events(body_iterator):
+        if isinstance(event, dict):
+            raw_error = event.get("error")
             error_info = raw_error if isinstance(raw_error, dict) else {"message": str(raw_error)}
             _error = {
                 "type": "error",
@@ -442,30 +711,57 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
             yield f"event: error\ndata: {json.dumps(_error)}\n\n"
             return
 
-        usage = event.get("usage")
-        if isinstance(usage, dict) and "completion_tokens" in usage:
-            output_tokens = usage["completion_tokens"]
+        if not message_started:
+            message_id = event.id
+            yield _message_start_event(message_id, model)
+            yield _content_block_start_text_event()
+            open_block_indices.append(0)
+            message_started = True
 
-        if not choices:
+        if event.usage is not None:
+            output_tokens = event.usage.completion_tokens
+
+        if not event.choices:
             continue
-        delta = choices[0].get("delta") or {}
-        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            _error = {
+                "type": "error",
+                "error": {
+                    "type": "invalid_upstream_stream",
+                    "message": "Provider emitted content after a terminal finish reason",
+                },
+            }
+            yield f"event: error\ndata: {json.dumps(_error)}\n\n"
+            return
+        choice = event.choices[0]
+        delta = choice.delta
+        chunk_finish_reason = choice.finish_reason
+        if chunk_finish_reason is not None:
+            finish_reason = chunk_finish_reason
 
-        if delta.get("content"):
+        if delta.content:
             _delta = {
                 "type": "content_block_delta", "index": 0,
-                "delta": {"type": "text_delta", "text": delta["content"]},
+                "delta": {"type": "text_delta", "text": delta.content},
             }
             yield f"event: content_block_delta\ndata: {json.dumps(_delta)}\n\n"
 
-        tool_call_deltas = delta.get("tool_calls")
-        if isinstance(tool_call_deltas, list):
+        tool_call_deltas = delta.tool_calls
+        if tool_call_deltas is not None:
             for tool_call in tool_call_deltas:
-                if not isinstance(tool_call, dict):
-                    continue
-                openai_index = tool_call.get("index", 0)
-                function = tool_call.get("function") or {}
+                openai_index = tool_call.index
+                function = tool_call.function
                 if openai_index not in tool_index_by_openai_index:
+                    if not tool_call.id or function is None or not function.name:
+                        _error = {
+                            "type": "error",
+                            "error": {
+                                "type": "invalid_upstream_stream",
+                                "message": "Initial tool-call chunk is missing id or function name",
+                            },
+                        }
+                        yield f"event: error\ndata: {json.dumps(_error)}\n\n"
+                        return
                     block_index = next_block_index
                     next_block_index += 1
                     tool_index_by_openai_index[openai_index] = block_index
@@ -474,8 +770,8 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
                         "index": block_index,
                         "content_block": {
                             "type": "tool_use",
-                            "id": tool_call.get("id") or f"toolu_compat_{block_index}",
-                            "name": function.get("name") or "",
+                            "id": tool_call.id,
+                            "name": function.name,
                             "input": {},
                         },
                     }
@@ -484,7 +780,7 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
                 else:
                     block_index = tool_index_by_openai_index[openai_index]
 
-                arguments_fragment = function.get("arguments")
+                arguments_fragment = function.arguments if function is not None else None
                 if arguments_fragment:
                     _delta = {
                         "type": "content_block_delta",
@@ -493,26 +789,22 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
                     }
                     yield f"event: content_block_delta\ndata: {json.dumps(_delta)}\n\n"
 
-        if finish_reason:
-            stop_reason = _FINISH_TO_STOP.get(finish_reason, "end_turn")
-            for index in open_block_indices:
-                yield _content_block_stop_event(index)
-            open_block_indices.clear()
-            yield _message_delta_event(stop_reason, output_tokens)
-            yield _message_stop_event()
-            return
-
-    if not message_started:
-        # Upstream closed without emitting a single parseable event.
-        yield _message_start_event(message_id, model)
-        yield _content_block_start_text_event()
-        open_block_indices.append(0)
-
-    if open_block_indices:
+    if finish_reason is not None:
+        stop_reason = _FINISH_TO_STOP.get(finish_reason, "end_turn")
         for index in open_block_indices:
             yield _content_block_stop_event(index)
-        yield _message_delta_event("end_turn", output_tokens)
+        yield _message_delta_event(stop_reason, output_tokens)
         yield _message_stop_event()
+        return
+
+    _error = {
+        "type": "error",
+        "error": {
+            "type": "incomplete_upstream_stream",
+            "message": "Provider stream ended without a terminal finish reason",
+        },
+    }
+    yield f"event: error\ndata: {json.dumps(_error)}\n\n"
 
 
 def count_tokens_approximate(

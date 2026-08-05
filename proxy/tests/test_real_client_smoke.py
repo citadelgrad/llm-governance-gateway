@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import json
 
-from starlette.responses import Response as StarletteResponse
-
 from proxy.app.providers import mock as mock_provider
+from starlette.responses import Response as StarletteResponse
 
 # ---------------------------------------------------------------------------
 # 1. Bearer API-key model discovery (Codex CLI / OpenAI-compatible clients)

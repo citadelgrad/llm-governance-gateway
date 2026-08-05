@@ -1,10 +1,10 @@
 import httpx
+from proxy.app.protocol_types import JsonObject
 from proxy.app.providers.errors import sanitize_upstream_error
+from proxy.app.providers.native import forward_native
 from starlette.responses import Response, StreamingResponse
 
 OPENAI_BASE = "https://api.openai.com/v1"
-_MAX_COMPLETION_TOKEN_MODELS = ("gpt-5", "o1", "o3", "o4")
-_TOOLS_REQUIRE_NO_REASONING_MODELS = ("gpt-5.6-luna",)
 
 
 def make_client(api_key: str) -> httpx.AsyncClient:
@@ -17,33 +17,33 @@ def make_client(api_key: str) -> httpx.AsyncClient:
     )
 
 
-def _translate_request(body: dict) -> dict:
-    """Translate legacy Chat Completions controls for newer OpenAI models."""
-    translated = dict(body)
-    model = str(translated.get("model", "")).lower()
-    if (
-        model.startswith(_MAX_COMPLETION_TOKEN_MODELS)
-        and "max_tokens" in translated
-        and "max_completion_tokens" not in translated
-    ):
-        translated["max_completion_tokens"] = translated.pop("max_tokens")
-    if (
-        model.startswith(_TOOLS_REQUIRE_NO_REASONING_MODELS)
-        and translated.get("tools")
-        and "reasoning_effort" not in translated
-    ):
-        translated["reasoning_effort"] = "none"
-    return translated
+async def responses(
+    client: httpx.AsyncClient,
+    body: JsonObject,
+    stream: bool,
+    extra_headers: dict[str, str],
+    upstream_headers: dict[str, str] | None = None,
+) -> Response | StreamingResponse:
+    """Forward a validated OpenAI Responses request without Chat translation."""
+    return await forward_native(
+        client,
+        path="/responses",
+        body=body,
+        stream=stream,
+        extra_headers=extra_headers,
+        provider="openai",
+        upstream_headers=upstream_headers,
+    )
 
 
 async def chat_completions(
     client: httpx.AsyncClient,
-    body: dict,
+    body: JsonObject,
     stream: bool,
     extra_headers: dict[str, str],
 ) -> Response | StreamingResponse:
     """Forward to OpenAI. Returns a Starlette Response."""
-    upstream_body = _translate_request(body)
+    upstream_body = body
     if stream:
         request = client.build_request("POST", "/chat/completions", json=upstream_body)
         try:

@@ -1,15 +1,257 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
 
+from proxy.app.config import settings
 from proxy.app.governance_client import InspectResponse
 from proxy.app.main import app
-from proxy.app.responses_compat import translate_responses_request
+from proxy.app.providers import openai as openai_provider
+from proxy.app.responses_compat import (
+    openai_sse_to_responses_sse,
+    translate_chat_response,
+    translate_responses_request,
+)
+from starlette.responses import Response
 
 _RESPONSES_BODY = {
     "model": "gpt-5.6-luna",
     "input": "Reply with gateway-ok only.",
 }
+
+
+async def _sse_chunks(*chunks: bytes):
+    for chunk in chunks:
+        yield chunk
+
+
+async def _responses_events(*chunks: bytes) -> list[dict]:
+    frames = [
+        frame
+        async for frame in openai_sse_to_responses_sse(
+            _sse_chunks(*chunks), "translated-model"
+        )
+    ]
+    return [json.loads(frame.removeprefix("data: ").strip()) for frame in frames]
+
+
+def _chat_sse(payload: dict) -> bytes:
+    event = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "translated-model",
+        **payload,
+    }
+    return f"data: {json.dumps(event)}\n\n".encode()
+
+
+def test_chat_tool_call_response_preserves_responses_call_identity():
+    response = translate_chat_response(
+        {
+            "id": "chatcmpl_1",
+            "created": 1,
+            "model": "translated-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_weather_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "weather",
+                                    "arguments": '{"city":"Portland"}',
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+        }
+    )
+
+    assert response["output"] == [
+        {
+            "id": "fc_call_weather_1",
+            "type": "function_call",
+            "status": "completed",
+            "call_id": "call_weather_1",
+            "name": "weather",
+            "arguments": '{"city":"Portland"}',
+        }
+    ]
+
+
+async def test_chat_tool_stream_preserves_arguments_usage_and_terminal_order():
+    events = await _responses_events(
+        _chat_sse(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "weather", "arguments": '{"city":'},
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        ),
+        _chat_sse(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '"Portland"}'}}
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        ),
+        _chat_sse(
+            {
+                "choices": [],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+            }
+        ),
+        b"data: [DONE]\n\n",
+    )
+
+    event_types = [event["type"] for event in events]
+    assert event_types == [
+        "response.created",
+        "response.output_item.added",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+        "response.completed",
+    ]
+    completed = events[-1]["response"]
+    assert completed["output"][0]["call_id"] == "call_1"
+    assert completed["output"][0]["name"] == "weather"
+    assert completed["output"][0]["arguments"] == '{"city":"Portland"}'
+    assert completed["usage"]["total_tokens"] == 8
+
+
+async def test_chat_stream_error_emits_failed_terminal_event():
+    events = await _responses_events(
+        b'data: {"error":{"type":"upstream_error","message":"generation failed"}}\n\n'
+    )
+
+    assert [event["type"] for event in events] == ["response.created", "response.failed"]
+    assert events[-1]["response"]["error"] == {
+        "type": "upstream_error",
+        "message": "generation failed",
+    }
+
+
+async def test_chat_stream_malformed_json_emits_failed_terminal_event():
+    events = await _responses_events(b'data: {"choices": [}\n\n')
+
+    assert [event["type"] for event in events] == ["response.created", "response.failed"]
+    assert events[-1]["response"]["error"]["type"] == "invalid_upstream_stream"
+
+
+async def test_chat_stream_missing_terminal_reason_preserves_partial_text_in_failure():
+    events = await _responses_events(
+        _chat_sse(
+            {
+                "choices": [
+                    {"index": 0, "delta": {"content": "partial"}, "finish_reason": None}
+                ]
+            }
+        ),
+        b"data: [DONE]\n\n",
+    )
+
+    assert events[-1]["type"] == "response.failed"
+    assert events[-1]["response"]["output_text"] == "partial"
+    assert events[-1]["response"]["output"][0]["status"] == "incomplete"
+
+
+async def test_chat_stream_rejects_missing_initial_tool_identity():
+    events = await _responses_events(
+        _chat_sse(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {"index": 0, "function": {"arguments": '{"city":"Camas"}'}}
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        )
+    )
+
+    assert events[-1]["type"] == "response.failed"
+    assert events[-1]["response"]["error"]["type"] == "invalid_upstream_stream"
+    assert events[-1]["response"]["output"] == []
+
+
+async def test_chat_stream_rejects_unknown_finish_reason():
+    events = await _responses_events(
+        _chat_sse(
+            {
+                "choices": [
+                    {"index": 0, "delta": {}, "finish_reason": "provider_magic"}
+                ]
+            }
+        )
+    )
+
+    assert events[-1]["type"] == "response.failed"
+    assert events[-1]["response"]["error"]["type"] == "invalid_upstream_stream"
+
+
+async def test_chat_stream_rejects_negative_tool_index():
+    events = await _responses_events(
+        _chat_sse(
+            {
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": -1,
+                                    "id": "call_bad",
+                                    "type": "function",
+                                    "function": {"name": "lookup", "arguments": "{}"},
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        )
+    )
+
+    assert events[-1]["type"] == "response.failed"
+    assert events[-1]["response"]["error"]["type"] == "invalid_upstream_stream"
 
 
 async def test_responses_accepts_bearer_api_key(auth_client, api_key_creds):
@@ -181,6 +423,32 @@ def test_responses_translation_forwards_generation_options():
     assert body["top_p"] == 0.9
 
 
+async def test_responses_rejects_conflicting_lifecycle_state(async_client):
+    client, _ = async_client
+    response = await client.post(
+        "/v1/responses",
+        json={
+            **_RESPONSES_BODY,
+            "previous_response_id": "resp_previous",
+            "conversation": "conv_123",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["type"] == "invalid_request"
+
+
+async def test_responses_rejects_stream_options_without_stream(async_client):
+    client, _ = async_client
+    response = await client.post(
+        "/v1/responses",
+        json={**_RESPONSES_BODY, "stream_options": {"include_obfuscation": True}},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["type"] == "invalid_request"
+
+
 async def test_responses_rejects_tools_instead_of_silently_dropping(async_client):
     client, _ = async_client
     response = await client.post(
@@ -193,6 +461,52 @@ async def test_responses_rejects_tools_instead_of_silently_dropping(async_client
     )
     assert response.status_code == 422
     assert response.json()["detail"]["error"]["type"] == "unsupported_response_shape"
+
+
+async def test_responses_uses_lossless_native_openai_dispatch(async_client, monkeypatch):
+    client, _ = async_client
+    native_responses = AsyncMock(
+        return_value=Response(
+            content=b'{"id":"resp_native","object":"response","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}',
+            status_code=200,
+            media_type="application/json",
+        )
+    )
+    translated_chat = AsyncMock(side_effect=AssertionError("chat translation must not run"))
+    monkeypatch.setattr(settings, "mock_mode", False)
+    monkeypatch.setattr(openai_provider, "responses", native_responses)
+    monkeypatch.setattr(openai_provider, "chat_completions", translated_chat)
+
+    response = await client.post(
+        "/v1/responses",
+        headers={"openai-beta": "responses=v1"},
+        json={
+            **_RESPONSES_BODY,
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "lookup",
+                    "description": "Lookup a value",
+                    "parameters": {"type": "object", "properties": {}},
+                }
+            ],
+            "previous_response_id": "resp_previous",
+            "reasoning": {"effort": "high", "summary": "auto"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "resp_native"
+    assert response.headers["x-usage-prompt-tokens"] == "1"
+    assert response.headers["x-usage-completion-tokens"] == "1"
+    forwarded = native_responses.await_args_list[0].args[1]
+    assert forwarded["previous_response_id"] == "resp_previous"
+    assert forwarded["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert forwarded["tools"][0]["name"] == "lookup"
+    assert native_responses.await_args_list[0].kwargs["upstream_headers"] == {
+        "openai-beta": "responses=v1"
+    }
+    translated_chat.assert_not_awaited()
 
 
 def test_responses_translation_forwards_stream_flag_without_raising():

@@ -26,6 +26,7 @@ async def _stream_sse(text: str, model: str, delay_ms: int):
             {
                 "id": "chatcmpl-mock",
                 "object": "chat.completion.chunk",
+                "created": 0,
                 "model": model,
                 "choices": [
                     {"index": 0, "delta": {"content": chunk}, "finish_reason": None}
@@ -40,6 +41,7 @@ async def _stream_sse(text: str, model: str, delay_ms: int):
         {
             "id": "chatcmpl-mock",
             "object": "chat.completion.chunk",
+            "created": 0,
             "model": model,
             "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
         }

@@ -6,7 +6,7 @@ Each test group targets a specific invariant class from the plan:
   P2  Missing required fields           → 422 with OpenAI error envelope shape
   P3  MAX_BODY_SIZE boundary            → 1 MB-1 passes; 1 MB+1 → 413
   P4  Unicode / encoding content        → governance pipeline does not crash
-  P5  Extra / unknown fields            → silently ignored, 200 returned
+  P5  Extra / unknown fields            → rejected with field diagnostics
   P6  Duplicate auth-like header values → deterministic outcome, never 500
 
 Unit-layer properties (no HTTP round-trip):
@@ -40,6 +40,7 @@ from proxy.app.governance_client import extract_user_message as _extract_user_me
 from proxy.app.headers import error_envelope
 from proxy.app.main import _me_cache, _tenant_cache, app, get_caller
 from proxy.app.middleware import MAX_BODY_SIZE
+from proxy.app.provider_capabilities import OPENAI_CHAT_FIELDS
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.routing import resolve_provider
 from proxy.tests.helpers import make_gov_mock, make_mock_pool, make_mock_rate_limiter
@@ -426,21 +427,21 @@ async def test_p4_control_characters_do_not_crash(content):
 
 
 # ---------------------------------------------------------------------------
-# P5 — Extra / unknown fields: silently ignored, 200 returned
+# P5 — Extra / unknown fields: rejected with explicit field diagnostics
 #
 # Property type: Metamorphic
 # The transformation: add arbitrary extra top-level keys to a valid body.
-# Expected output change: none — status code remains 200.
+# Expected output change: status 400 with the unknown field path.
 #
-# Why it matters: OpenAI SDK clients often include extra fields (e.g. 'user',
-# 'logit_bias', custom telemetry keys). Rejecting them would break real clients.
+# Why it matters: silently accepting misspelled or newly introduced semantics
+# makes vendor switching lossy and impossible to diagnose.
 # ---------------------------------------------------------------------------
 
 _EXTRA_KEY = st.text(
     alphabet=string.ascii_lowercase + "_",
     min_size=1,
     max_size=30,
-).filter(lambda k: k not in ("model", "messages", "stream", "temperature", "max_tokens"))
+).filter(lambda key: key not in OPENAI_CHAT_FIELDS)
 
 _EXTRA_VALUE: st.SearchStrategy[Any] = st.one_of(
     st.text(max_size=50),
@@ -456,8 +457,8 @@ _EXTRA_FIELDS = st.dictionaries(_EXTRA_KEY, _EXTRA_VALUE, min_size=1, max_size=5
 @pytest.mark.asyncio
 @given(extra=_EXTRA_FIELDS)
 @_FAST
-async def test_p5_extra_fields_silently_ignored(extra):
-    """Valid body with extra unknown top-level fields returns 200 (not 422)."""
+async def test_p5_extra_fields_are_rejected_with_paths(extra):
+    """Unknown top-level fields fail closed and identify every rejected key."""
     _setup_app()
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -467,10 +468,9 @@ async def test_p5_extra_fields_silently_ignored(extra):
                 **extra,
             }
             response = await client.post("/v1/chat/completions", json=body)
-        assert response.status_code == 200, (
-            f"Extra fields should be silently ignored, got {response.status_code}. "
-            f"Extra keys: {list(extra.keys())}"
-        )
+        assert response.status_code == 400
+        violations = response.json()["detail"]["error"]["details"]["violations"]
+        assert {violation["field"] for violation in violations} == set(extra)
     finally:
         _teardown_app()
 

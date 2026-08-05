@@ -2,6 +2,7 @@
 
 import httpx
 from proxy.app.providers.errors import sanitize_upstream_error
+from proxy.app.providers.native import open_checked_stream
 from starlette.responses import Response, StreamingResponse
 
 
@@ -22,15 +23,28 @@ async def chat_completions(
 ) -> Response | StreamingResponse:
     """Forward to Ollama. Returns a Starlette Response."""
     if stream:
+        upstream, error_response = await open_checked_stream(
+            client,
+            "POST",
+            "/chat/completions",
+            body=body,
+            extra_headers=extra_headers,
+            provider="ollama",
+        )
+        if error_response is not None:
+            return error_response
+        assert upstream is not None
+
         async def _stream_body():
             try:
-                async with client.stream("POST", "/chat/completions", json=body) as upstream:
-                    async for chunk in upstream.aiter_bytes():
-                        yield chunk
+                async for chunk in upstream.aiter_bytes():
+                    yield chunk
             except httpx.TimeoutException:
                 yield b'data: {"error": {"type": "upstream_timeout"}}\n\n'
             except httpx.RequestError:
                 yield b'data: {"error": {"type": "upstream_connection_error"}}\n\n'
+            finally:
+                await upstream.aclose()
 
         return StreamingResponse(
             _stream_body(),

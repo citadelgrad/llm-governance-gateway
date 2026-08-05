@@ -1,10 +1,15 @@
 """Tests for POST /v1/messages and POST /v1/messages/count_tokens."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import bcrypt
+from proxy.app.config import settings
 from proxy.app.governance_client import GovernanceError, InspectResponse
 from proxy.app.main import app
+from proxy.app.providers import anthropic as anthropic_provider
 from proxy.app.rate_limit import RateLimitResult
+from starlette.responses import Response
 
 # Pre-computed for compat-auth tests; low rounds so tests stay fast
 _COMPAT_KEY = "compat-fixture-token-for-messages-tests"
@@ -80,6 +85,78 @@ async def test_messages_accepts_continue_system_content_blocks(messages_client):
     response = await client.post("/v1/messages", json=body)
 
     assert response.status_code == 200
+
+
+async def test_messages_rejects_extended_thinking_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+    body = {
+        **_BASE_BODY,
+        "max_tokens": 2048,
+        "stream": True,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+    }
+
+    response = await client.post("/v1/messages", json=body)
+
+    assert response.status_code == 422
+    assert "thinking" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_forced_tool_choice_with_manual_thinking(messages_client):
+    client, _ = messages_client
+    response = await client.post(
+        "/v1/messages",
+        json={
+            **_BASE_BODY,
+            "max_tokens": 2048,
+            "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+            "tool_choice": {"type": "tool", "name": "lookup"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["type"] == "invalid_request"
+
+
+async def test_messages_uses_lossless_native_anthropic_dispatch(messages_client, monkeypatch):
+    client, _ = messages_client
+    native_messages = AsyncMock(
+        return_value=Response(
+            content=b'{"id":"msg_native","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}',
+            status_code=200,
+            media_type="application/json",
+        )
+    )
+    translated_messages = AsyncMock(side_effect=AssertionError("chat translation must not run"))
+    monkeypatch.setattr(settings, "mock_mode", False)
+    monkeypatch.setattr(anthropic_provider, "messages", native_messages)
+    monkeypatch.setattr(anthropic_provider, "chat_completions", translated_messages)
+
+    response = await client.post(
+        "/v1/messages",
+        headers={"anthropic-version": "2023-06-01", "anthropic-beta": "context-1m-2025-08-07"},
+        json={
+            **_BASE_BODY,
+            "max_tokens": 2048,
+            "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "output_config": {"effort": "high"},
+            "service_tier": "auto",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "msg_native"
+    forwarded = native_messages.await_args_list[0].args[1]
+    assert forwarded["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+    assert forwarded["output_config"] == {"effort": "high"}
+    assert forwarded["service_tier"] == "auto"
+    assert native_messages.await_args_list[0].kwargs["upstream_headers"] == {
+        "anthropic-beta": "context-1m-2025-08-07",
+        "anthropic-version": "2023-06-01",
+    }
+    translated_messages.assert_not_awaited()
 
 
 async def test_messages_content_block_text_has_string(messages_client):
@@ -169,6 +246,25 @@ async def test_messages_unknown_model_returns_400(messages_client):
     response = await client.post("/v1/messages", json=body)
     assert response.status_code == 400
     assert response.json()["detail"]["error"]["type"] == "model_not_found"
+
+
+async def test_messages_invalid_request_reports_safe_validation_violations(messages_client):
+    client, _ = messages_client
+    body = {**_BASE_BODY, "unsupported_continue_field": True}
+
+    response = await client.post("/v1/messages", json=body)
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"]["type"] == "invalid_request"
+    assert detail["violations"] == [
+        {
+            "field": "unsupported_continue_field",
+            "type": "extra_forbidden",
+            "message": "Extra inputs are not permitted",
+        }
+    ]
+    assert "input" not in detail["violations"][0]
 
 
 async def test_messages_accepts_tool_definitions(messages_client):

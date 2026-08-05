@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
+from proxy.app.anthropic_compat import (
+    AnthropicCompatError,
+    AnthropicMessagesRequest,
+    messages_to_chat_body,
+    openai_sse_to_anthropic_sse,
+)
 from proxy.app.providers import (
     anthropic as anthropic_provider,
 )
@@ -18,13 +25,9 @@ from proxy.app.providers import (
 from proxy.app.providers import (
     openai as openai_provider,
 )
-from proxy.app.anthropic_compat import (
-    AnthropicCompatError,
-    AnthropicMessagesRequest,
-    messages_to_chat_body,
-    openai_sse_to_anthropic_sse,
-)
+from proxy.app.providers.native import forward_native
 from proxy.app.providers.usage import UsageMetrics, extract_usage
+from starlette.responses import StreamingResponse
 
 # ---------------------------------------------------------------------------
 # extract_usage
@@ -91,61 +94,28 @@ def test_extract_usage_missing_usage_returns_zero():
 # ---------------------------------------------------------------------------
 
 
-def test_openai_translates_max_tokens_for_gpt5_models():
+async def test_openai_native_chat_preserves_request_body(httpx_mock):
     body = {
         "model": "gpt-5.6-luna",
         "messages": [{"role": "user", "content": "hello"}],
+        "tools": [{"type": "function", "function": {"name": "lookup"}}],
         "max_tokens": 128,
     }
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.openai.com/v1/chat/completions",
+        json={"id": "chatcmpl_1", "choices": [], "usage": {}},
+    )
+    client = openai_provider.make_client("test-key")
+    try:
+        response = await openai_provider.chat_completions(client, body, False, {})
+    finally:
+        await client.aclose()
 
-    translated = openai_provider._translate_request(body)
-
-    assert translated["max_completion_tokens"] == 128
-    assert "max_tokens" not in translated
-    assert "max_tokens" in body  # caller-owned input is not mutated
-
-
-def test_openai_leaves_max_tokens_for_legacy_models():
-    body = {
-        "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "hello"}],
-        "max_tokens": 128,
-    }
-
-    assert openai_provider._translate_request(body) == body
-
-
-def test_openai_disables_default_reasoning_for_gpt5_function_tools():
-    body = {
-        "model": "gpt-5.6-luna",
-        "messages": [{"role": "user", "content": "hello"}],
-        "tools": [{"type": "function", "function": {"name": "lookup"}}],
-    }
-
-    translated = openai_provider._translate_request(body)
-
-    assert translated["reasoning_effort"] == "none"
-
-
-def test_openai_preserves_explicit_reasoning_effort():
-    body = {
-        "model": "gpt-5.6-luna",
-        "messages": [{"role": "user", "content": "hello"}],
-        "tools": [{"type": "function", "function": {"name": "lookup"}}],
-        "reasoning_effort": "high",
-    }
-
-    assert openai_provider._translate_request(body)["reasoning_effort"] == "high"
-
-
-def test_openai_does_not_disable_reasoning_for_other_gpt5_models():
-    body = {
-        "model": "gpt-5",
-        "messages": [{"role": "user", "content": "hello"}],
-        "tools": [{"type": "function", "function": {"name": "lookup"}}],
-    }
-
-    assert "reasoning_effort" not in openai_provider._translate_request(body)
+    assert response.status_code == 200
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert json.loads(request.content) == body
 
 
 async def test_openai_streaming_propagates_upstream_error_status(httpx_mock):
@@ -181,6 +151,47 @@ async def test_openai_streaming_propagates_upstream_error_status(httpx_mock):
     assert response.headers["x-audit-id"] == "audit-1"
 
 
+@pytest.mark.parametrize(
+    ("provider", "base_url", "body"),
+    [
+        (
+            anthropic_provider,
+            "https://api.anthropic.test",
+            {"model": "claude-test", "messages": [{"role": "user", "content": "hi"}]},
+        ),
+        (
+            gemini_provider,
+            "https://generativelanguage.test",
+            {
+                "model": "gemini-test",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        ),
+        (
+            ollama_provider,
+            "http://ollama.test/v1",
+            {"model": "local-test", "messages": [{"role": "user", "content": "hi"}]},
+        ),
+    ],
+)
+async def test_translated_streams_propagate_upstream_error_status(provider, base_url, body):
+    async def handler(_request):
+        return httpx.Response(
+            429,
+            json={"error": {"message": "rate limited"}},
+            headers={"content-type": "application/json"},
+        )
+
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        response = await provider.chat_completions(client, body, True, {})
+
+    assert response.status_code == 429
+    assert not isinstance(response, StreamingResponse)
+
+
 async def test_openai_streaming_forwards_valid_sse_and_translated_body(httpx_mock):
     httpx_mock.add_response(
         method="POST",
@@ -209,10 +220,61 @@ async def test_openai_streaming_forwards_valid_sse_and_translated_body(httpx_moc
         await client.aclose()
 
     sent_body = json.loads(httpx_mock.get_requests()[0].content)
-    assert sent_body["max_completion_tokens"] == 32
-    assert "max_tokens" not in sent_body
+    assert sent_body["max_tokens"] == 32
+    assert "max_completion_tokens" not in sent_body
     assert b'"content":"ok"' in content
     assert b"data: [DONE]" in content
+
+
+async def test_native_forwarding_preserves_safe_upstream_headers(httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url="https://provider.test/v1/responses",
+        headers={
+            "content-type": "application/json",
+            "x-request-id": "req_provider_1",
+            "x-ratelimit-remaining-requests": "9",
+            "set-cookie": "must-not-leak=true",
+        },
+        json={"id": "resp_1"},
+    )
+    async with httpx.AsyncClient(base_url="https://provider.test/v1") as client:
+        response = await forward_native(
+            client,
+            path="/responses",
+            body={"model": "model", "input": "hello"},
+            stream=False,
+            extra_headers={"x-audit-id": "audit_1"},
+            provider="openai",
+        )
+
+    assert response.headers["x-request-id"] == "req_provider_1"
+    assert response.headers["x-ratelimit-remaining-requests"] == "9"
+    assert response.headers["x-audit-id"] == "audit_1"
+    assert "set-cookie" not in response.headers
+
+
+async def test_native_stream_rejects_successful_non_sse_response(httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url="https://provider.test/v1/responses",
+        headers={"content-type": "application/json"},
+        json={"error": {"message": "not actually a stream"}},
+    )
+    async with httpx.AsyncClient(base_url="https://provider.test/v1") as client:
+        response = await forward_native(
+            client,
+            path="/responses",
+            body={"model": "model", "input": "hello", "stream": True},
+            stream=True,
+            extra_headers={},
+            provider="openai",
+        )
+
+    assert response.status_code == 502
+    assert response.body == (
+        b'{"error":{"type":"invalid_upstream_stream","message":"Upstream returned a non-SSE response"}}'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +311,19 @@ def test_anthropic_translate_joins_multiple_system_messages():
     assert out["system"] == "First.\n\nSecond."
 
 
+def test_anthropic_translate_forwards_extended_thinking():
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 8192,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+    }
+
+    out = anthropic_provider._translate_request(body)
+
+    assert out["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+
+
 def test_anthropic_translate_tool_call_assistant_message():
     body = {
         "model": "claude-3-5-sonnet",
@@ -281,6 +356,37 @@ def test_anthropic_translate_tool_call_assistant_message():
     assert tool_result_msg["role"] == "user"
     assert tool_result_msg["content"][0]["type"] == "tool_result"
     assert tool_result_msg["content"][0]["tool_use_id"] == "call_1"
+
+
+def test_anthropic_translate_function_tools_and_choice():
+    body = {
+        "model": "claude-3-5-sonnet",
+        "messages": [{"role": "user", "content": "weather?"}],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}},
+                    "strict": True,
+                },
+            }
+        ],
+        "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+    }
+
+    out = anthropic_provider._translate_request(body)
+
+    assert out["tools"] == [
+        {
+            "name": "get_weather",
+            "description": "Get weather",
+            "input_schema": {"type": "object", "properties": {}},
+            "strict": True,
+        }
+    ]
+    assert out["tool_choice"] == {"type": "tool", "name": "get_weather"}
 
 
 # ---------------------------------------------------------------------------
@@ -595,6 +701,76 @@ def test_gemini_translate_generation_config():
     assert gc["topP"] == 0.9
     assert gc["maxOutputTokens"] == 256
     assert gc["stopSequences"] == ["END"]
+
+
+def test_gemini_translate_preserves_function_tool_loop():
+    body = {
+        "model": "gemini-3.1-flash-lite",
+        "messages": [
+            {"role": "user", "content": "look it up"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "lookup", "arguments": '{"key":"x"}'},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "value"},
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "description": "Lookup a value",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ],
+        "tool_choice": {"type": "function", "function": {"name": "lookup"}},
+    }
+
+    _, gemini_body = gemini_provider._translate_request(body)
+
+    assert gemini_body["tools"] == [
+        {
+            "functionDeclarations": [
+                {
+                    "name": "lookup",
+                    "description": "Lookup a value",
+                    "parameters": {"type": "object"},
+                }
+            ]
+        }
+    ]
+    assert gemini_body["contents"][1]["parts"][0]["functionCall"] == {
+        "id": "call_1",
+        "name": "lookup",
+        "args": {"key": "x"},
+    }
+    assert gemini_body["contents"][2]["parts"][0]["functionResponse"] == {
+        "id": "call_1",
+        "name": "lookup",
+        "response": {"output": "value"},
+    }
+    assert gemini_body["toolConfig"] == {
+        "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["lookup"]}
+    }
+
+
+def test_gemini_translate_rejects_fields_it_cannot_preserve():
+    with pytest.raises(gemini_provider.GeminiTranslationError, match="frequency_penalty"):
+        gemini_provider._translate_request(
+            {
+                "model": "gemini-3.1-flash-lite",
+                "messages": [{"role": "user", "content": "hi"}],
+                "frequency_penalty": 0.5,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1033,7 +1209,12 @@ def test_messages_to_chat_body_translates_tools_and_tool_choice():
 def test_messages_to_chat_body_tool_choice_auto_and_any():
     auto_body = messages_to_chat_body(_messages_request(tool_choice={"type": "auto"}))
     assert auto_body["tool_choice"] == "auto"
-    any_body = messages_to_chat_body(_messages_request(tool_choice={"type": "any"}))
+    any_body = messages_to_chat_body(
+        _messages_request(
+            tool_choice={"type": "any"},
+            tools=[{"name": "lookup", "input_schema": {"type": "object"}}],
+        )
+    )
     assert any_body["tool_choice"] == "required"
     none_body = messages_to_chat_body(_messages_request(tool_choice={"type": "none"}))
     assert none_body["tool_choice"] == "none"
@@ -1082,7 +1263,7 @@ def test_messages_to_chat_body_translates_multiturn_tool_use_and_tool_result():
     assert tool_msg == {"role": "tool", "tool_call_id": "toolu_1", "content": "72F and sunny"}
 
 
-def test_messages_to_chat_body_tool_result_is_error_prefixes_error():
+def test_messages_to_chat_body_rejects_tool_result_error_semantics():
     req = _messages_request(
         messages=[
             {
@@ -1098,9 +1279,8 @@ def test_messages_to_chat_body_tool_result_is_error_prefixes_error():
             },
         ],
     )
-    body = messages_to_chat_body(req)
-    tool_msg = body["messages"][0]
-    assert tool_msg == {"role": "tool", "tool_call_id": "toolu_1", "content": "Error: not found"}
+    with pytest.raises(AnthropicCompatError, match="is_error=true"):
+        messages_to_chat_body(req)
 
 
 def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
@@ -1127,9 +1307,27 @@ def test_messages_to_chat_body_rejects_unsupported_content_block():
 # ---------------------------------------------------------------------------
 
 
-async def _sse_body(*raw_chunks: str):
+async def _sse_body(*raw_chunks: str | bytes):
     for chunk in raw_chunks:
         yield chunk
+
+
+def _openai_chunk_sse(
+    choices: list[dict],
+    *,
+    chunk_id: str,
+    usage: dict | None = None,
+) -> str:
+    payload = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": 1,
+        "model": "translated-model",
+        "choices": choices,
+    }
+    if usage is not None:
+        payload["usage"] = usage
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def _sse_lines(events: str) -> list[dict]:
@@ -1147,8 +1345,19 @@ def _sse_lines(events: str) -> list[dict]:
 
 async def test_openai_sse_to_anthropic_sse_preserves_message_id_and_usage():
     chunks = [
-        f"data: {json.dumps({'id': 'chatcmpl-real-id', 'choices': [{'index': 0, 'delta': {'content': 'Hi'}, 'finish_reason': None}]})}\n\n",
-        f"data: {json.dumps({'id': 'chatcmpl-real-id', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}], 'usage': {'completion_tokens': 7}})}\n\n",
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {"content": "Hi"}, "finish_reason": None}],
+            chunk_id="chatcmpl-real-id",
+        ),
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            chunk_id="chatcmpl-real-id",
+        ),
+        _openai_chunk_sse(
+            [],
+            chunk_id="chatcmpl-real-id",
+            usage={"prompt_tokens": 3, "completion_tokens": 7, "total_tokens": 10},
+        ),
         "data: [DONE]\n\n",
     ]
     events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
@@ -1164,10 +1373,60 @@ async def test_openai_sse_to_anthropic_sse_preserves_message_id_and_usage():
 
 async def test_openai_sse_to_anthropic_sse_translates_tool_call_deltas():
     chunks = [
-        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'call_1', 'type': 'function', 'function': {'name': 'get_weather', 'arguments': ''}}]}, 'finish_reason': None}]})}\n\n",
-        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'function': {'arguments': '{\"city\":'}}]}, 'finish_reason': None}]})}\n\n",
-        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'function': {'arguments': '\"NYC\"}'}}]}, 'finish_reason': None}]})}\n\n",
-        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]})}\n\n",
+        _openai_chunk_sse(
+            [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": "",
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+            chunk_id="chatcmpl-1",
+        ),
+        _openai_chunk_sse(
+            [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"city":'}}
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+            chunk_id="chatcmpl-1",
+        ),
+        _openai_chunk_sse(
+            [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '"NYC"}'}}
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+            chunk_id="chatcmpl-1",
+        ),
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+            chunk_id="chatcmpl-1",
+        ),
         "data: [DONE]\n\n",
     ]
     events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
@@ -1194,7 +1453,10 @@ async def test_openai_sse_to_anthropic_sse_translates_tool_call_deltas():
 
 async def test_openai_sse_to_anthropic_sse_surfaces_mid_stream_error():
     chunks = [
-        f"data: {json.dumps({'id': 'chatcmpl-1', 'choices': [{'index': 0, 'delta': {'content': 'partial'}, 'finish_reason': None}]})}\n\n",
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {"content": "partial"}, "finish_reason": None}],
+            chunk_id="chatcmpl-1",
+        ),
         'data: {"error": {"type": "upstream_timeout"}}\n\n',
     ]
     events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
@@ -1210,16 +1472,113 @@ async def test_openai_sse_to_anthropic_sse_surfaces_mid_stream_error():
 async def test_openai_sse_to_anthropic_sse_buffers_fragmented_chunks():
     """A single data: line split across two network chunks must still parse correctly."""
     full_line = (
-        f"data: {json.dumps({'id': 'chatcmpl-frag', 'choices': [{'index': 0, 'delta': {'content': 'Hello world'}, 'finish_reason': None}]})}\n\n"
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {"content": "Hello world"}, "finish_reason": None}],
+            chunk_id="chatcmpl-frag",
+        )
     )
     split_at = len(full_line) // 2
     chunks = [
         full_line[:split_at],
         full_line[split_at:],
-        f"data: {json.dumps({'id': 'chatcmpl-frag', 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})}\n\n",
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            chunk_id="chatcmpl-frag",
+        ),
     ]
     events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
     full_text = "".join(events)
     parsed = _sse_lines(full_text)
     text_delta = next(e for e in parsed if e["type"] == "content_block_delta" and e["index"] == 0)
     assert text_delta["delta"]["text"] == "Hello world"
+
+
+async def test_openai_sse_to_anthropic_sse_preserves_split_multibyte_utf8():
+    line = _openai_chunk_sse(
+        [{"index": 0, "delta": {"content": "hello 🌿"}, "finish_reason": None}],
+        chunk_id="chatcmpl-utf8",
+    ).encode()
+    split_at = line.index("🌿".encode()) + 1
+    chunks = [
+        line[:split_at],
+        line[split_at:],
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            chunk_id="chatcmpl-utf8",
+        ).encode(),
+    ]
+
+    events = [
+        chunk
+        async for chunk in openai_sse_to_anthropic_sse(
+            _sse_body(*chunks), "claude-3-5-sonnet"
+        )
+    ]
+    parsed = _sse_lines("".join(events))
+
+    text_delta = next(e for e in parsed if e["type"] == "content_block_delta")
+    assert text_delta["delta"]["text"] == "hello 🌿"
+
+
+async def test_openai_sse_to_anthropic_sse_rejects_malformed_json():
+    events = [
+        chunk
+        async for chunk in openai_sse_to_anthropic_sse(
+            _sse_body('data: {"choices": [}\n\n'), "claude-3-5-sonnet"
+        )
+    ]
+    parsed = _sse_lines("".join(events))
+
+    assert [event["type"] for event in parsed] == ["error"]
+    assert parsed[0]["error"]["type"] == "invalid_upstream_stream"
+
+
+async def test_openai_sse_to_anthropic_sse_rejects_incomplete_stream():
+    chunks = [
+        _openai_chunk_sse(
+            [{"index": 0, "delta": {"content": "partial"}, "finish_reason": None}],
+            chunk_id="chatcmpl-incomplete",
+        ),
+        "data: [DONE]\n\n",
+    ]
+    events = [
+        chunk
+        async for chunk in openai_sse_to_anthropic_sse(
+            _sse_body(*chunks), "claude-3-5-sonnet"
+        )
+    ]
+    parsed = _sse_lines("".join(events))
+
+    assert parsed[-1]["type"] == "error"
+    assert parsed[-1]["error"]["type"] == "incomplete_upstream_stream"
+    assert not any(event["type"] == "message_stop" for event in parsed)
+
+
+async def test_openai_sse_to_anthropic_sse_rejects_missing_initial_tool_identity():
+    chunks = [
+        _openai_chunk_sse(
+            [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"city":"Camas"}'}}
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            chunk_id="chatcmpl-bad-tool",
+        )
+    ]
+    events = [
+        chunk
+        async for chunk in openai_sse_to_anthropic_sse(
+            _sse_body(*chunks), "claude-3-5-sonnet"
+        )
+    ]
+    parsed = _sse_lines("".join(events))
+
+    assert parsed[-1]["type"] == "error"
+    assert parsed[-1]["error"]["type"] == "invalid_upstream_stream"
+    assert "toolu_compat" not in "".join(events)

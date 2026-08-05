@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from starlette.responses import Response as StarletteResponse
-
 from proxy.app.config import settings as app_settings
 from proxy.app.governance_client import GovernanceError, InspectResponse
 from proxy.app.main import app
 from proxy.app.providers import mock as mock_provider
 from proxy.app.rate_limit import RateLimitResult
+from starlette.responses import Response as StarletteResponse
 
 _CLEAN_BODY = {
     "model": "gpt-5.6-luna",
@@ -31,6 +30,90 @@ async def test_clean_request(async_client):
     assert "content" in body["choices"][0]["message"]
     assert "usage" in body
     assert "total_tokens" in body["usage"]
+
+
+async def test_chat_rejects_unknown_top_level_semantics(async_client):
+    client, _ = async_client
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={**_CLEAN_BODY, "provider_magic": True},
+    )
+
+    assert response.status_code == 400
+    violations = response.json()["detail"]["error"]["details"]["violations"]
+    assert violations[0]["field"] == "provider_magic"
+    assert violations[0]["type"] == "extra_forbidden"
+
+
+async def test_chat_validates_conditional_stream_fields(async_client):
+    client, _ = async_client
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={**_CLEAN_BODY, "stream_options": {"include_usage": True}},
+    )
+
+    assert response.status_code == 400
+    violation = response.json()["detail"]["error"]["details"]["violations"][0]
+    assert violation["type"] == "value_error"
+    assert "stream_options requires stream=true" in violation["message"]
+
+
+async def test_chat_invalid_nested_image_url_returns_precise_field_path(async_client):
+    client, gov_mock = async_client
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "gpt-5.6-luna",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "inspect"},
+                        {"type": "image_url", "image_url": {"url": 3}},
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    violations = response.json()["detail"]["error"]["details"]["violations"]
+    assert violations[0]["field"] == "messages.0.content.1.image_url.url"
+    gov_mock.inspect.assert_not_awaited()
+
+
+async def test_chat_accepts_current_moderation_object(async_client):
+    client, _ = async_client
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={
+            **_CLEAN_BODY,
+            "moderation": {
+                "model": "omni-moderation-latest",
+                "policy": {"input": {"mode": "block"}, "output": {"mode": "score"}},
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
+async def test_chat_rejects_unknown_modality_before_governance(async_client):
+    client, gov_mock = async_client
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={**_CLEAN_BODY, "modalities": ["telepathy"]},
+    )
+
+    assert response.status_code == 400
+    violations = response.json()["detail"]["error"]["details"]["violations"]
+    assert violations[0]["field"] == "modalities.0"
+    gov_mock.inspect.assert_not_awaited()
 
 
 async def test_rate_limit_denied(async_client):
