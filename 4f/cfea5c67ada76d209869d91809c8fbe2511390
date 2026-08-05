@@ -1,0 +1,14 @@
+.gitignore
+  h_12ee2b2686c122 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "4fcfea5c67ada76d209869d91809c8fbe2511390",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
