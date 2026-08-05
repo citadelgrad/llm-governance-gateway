@@ -1,0 +1,16 @@
+scripts/live_smoke.py
+  h_12ee2b2686c122 55-71,143-144,181-183
+tests/test_live_smoke.py
+  h_12ee2b2686c122 1-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "804e728a6a3b7f949148c681b7b60a0d308a21f0",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
