@@ -527,6 +527,9 @@ async def _inspect_content_with_backoff(
     set, backoff schedule, and overall `timeout_seconds` deadline are
     unchanged from before.
     """
+    client = _google_client
+    if client is None:
+        raise RuntimeError("call initialize() first")
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_seconds
     backoff = _GOOGLE_RETRY_INITIAL_SECONDS
@@ -535,7 +538,7 @@ async def _inspect_content_with_backoff(
             async with _acquire_scan_slot(request_class):
                 return await asyncio.to_thread(
                     partial(
-                        _google_client.inspect_content,
+                        client.inspect_content,
                         request=request,
                         retry=None,
                         timeout=timeout_seconds,
