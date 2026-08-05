@@ -43,6 +43,7 @@ crash.log
 # Editor
 .DS_Store
 *.swp
+text_docs.*_Continue_*.json
 *.swo
 
 # Claude Code agent artifacts
