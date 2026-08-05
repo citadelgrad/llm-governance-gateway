@@ -45,8 +45,8 @@ Agent compatibility today:
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
 | Continue | OpenAI-compatible `/v1/chat/completions` | yes | Set `useResponsesApi: false`; the configurator does this automatically so streaming and Agent tools use Chat Completions. |
-| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | text-only | Basic chat and text streaming work; agent tool-use is not implemented yet. |
-| Codex CLI | OpenAI Responses API: `/v1/responses` | basic prompts only | Non-streaming text prompts work; normal streaming/tool-driven Codex sessions are not implemented yet. |
+| Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | yes with Anthropic routing; subset elsewhere | Native Anthropic routing preserves Messages tools, thinking, headers, JSON, and SSE. Cross-provider routes reject unsupported semantics. |
+| Codex CLI | OpenAI Responses API: `/v1/responses` | yes with OpenAI routing; subset elsewhere | Native OpenAI routing preserves Responses tools/state, headers, JSON, and SSE. Cross-provider translation supports text and function-call lifecycles only. |
 
 ## Enrollment model
 
@@ -344,7 +344,7 @@ anthropic-beta
 anthropic-version
 ```
 
-This repository exposes both paths natively for basic text chat, so Claude Code can point directly at the gateway without a compatibility shim. Tool definitions, `tool_use`, and `tool_result` blocks are not implemented yet, so do not treat this as full Claude Code agent compatibility.
+This repository exposes both paths directly. With Anthropic as the resolved provider, the gateway forwards validated Messages JSON/SSE, tool blocks, thinking controls, and Anthropic beta/version headers without rebuilding them. Cross-provider routing is deliberately narrower: representable text/tool semantics translate, while thinking, cache, container, state, and unsupported content blocks fail before provider dispatch.
 
 macOS/Linux:
 
@@ -368,7 +368,7 @@ $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
 claude
 ```
 
-Why `ANTHROPIC_AUTH_TOKEN`: Claude Code sends it as a bearer token, which maps cleanly to gateway-style credentials. If you use `ANTHROPIC_API_KEY`, Claude Code sends it as `x-api-key`; the gateway or shim must translate that to the gateway auth scheme.
+Why `ANTHROPIC_AUTH_TOKEN`: Claude Code sends it as a bearer token, which maps cleanly to gateway-style credentials. `ANTHROPIC_API_KEY` is also accepted through the Messages endpoint's `x-api-key` normalization.
 
 If model discovery is enabled, Claude Code queries `/v1/models` on startup for Anthropic Messages gateways. Discovery is not a substitute for `/v1/messages` support.
 
@@ -380,7 +380,7 @@ Current Codex CLI custom providers require the OpenAI Responses API wire protoco
 POST /v1/responses
 ```
 
-This repository exposes `/v1/responses` for Codex-compatible basic non-streaming prompt traffic. The compatibility layer reuses the same auth, model allowlist, rate limit, governance, provider dispatch, and audit path as `/v1/chat/completions`. Normal Codex agent traffic also requires Responses streaming, tools, and continuation state; those are not implemented yet.
+This repository exposes `/v1/responses` through the same auth, model allowlist, rate limit, governance, provider dispatch, and audit path as Chat Completions. With OpenAI as the resolved provider, Responses JSON/SSE, tools, continuation state, beta headers, usage, and safe upstream response headers remain native. Cross-provider translation supports the declared text/function-call subset and rejects unsupported built-in tools, state, and reasoning controls.
 
 Create or edit `~/.codex/config.toml` on macOS/Linux, or `%USERPROFILE%\.codex\config.toml` on Windows:
 
@@ -485,11 +485,4 @@ curl -sS -X DELETE "$GATEWAY_URL/v1/users/scott-laptop" \
 
 ## Known follow-up work
 
-To make all three agents work directly without shims, the remaining gateway-compatible follow-up is:
-
-- Anthropic Messages compatibility for Claude Code:
-  - `POST /v1/messages`
-  - `POST /v1/messages/count_tokens`
-  - header preservation for `anthropic-beta` and `anthropic-version`
-- Auth normalization:
-  - translate `ANTHROPIC_AUTH_TOKEN`/`x-api-key` in compatibility endpoints before hitting existing auth.
+The public routes and auth normalization are implemented. Remaining protocol-foundation work is tracked in `docs/llm-protocol-foundation.md`: exhaustive nested DTOs and SDK-union drift snapshots, captured/versioned client fixtures, and broader explicitly capability-checked cross-provider mappings. Native matching-provider routes remain the lossless path.
