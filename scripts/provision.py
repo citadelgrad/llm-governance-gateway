@@ -41,6 +41,13 @@ def config_hash():
     return hashlib.sha256(combined.encode()).hexdigest()
 
 
+def load_pricing():
+    path = CONFIG / "pricing.yaml"
+    if not path.exists():
+        return []
+    return yaml.safe_load(path.read_text()).get("rates", []) or []
+
+
 def generate_key():
     raw = secrets.token_bytes(32)
     encoded = urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -100,6 +107,24 @@ def main():
                 config_hash TEXT NOT NULL
             )
         """)
+        conn.commit()
+
+        # Upsert pricing rows unconditionally — not gated on config_hash, since
+        # each row is independently idempotent via ON CONFLICT DO NOTHING and
+        # pricing.yaml can change without tenants/users/models.yaml changing.
+        # No DO UPDATE: historical rates must never change retroactively (ADR 0002).
+        for r in load_pricing():
+            cur.execute("""
+                INSERT INTO pricing (model_id, input_rate_usd_per_token,
+                                      output_rate_usd_per_token, effective_from)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (model_id, effective_from) DO NOTHING
+            """, (
+                r["model_id"],
+                r["input_rate_usd_per_token"],
+                r["output_rate_usd_per_token"],
+                r["effective_from"],
+            ))
         conn.commit()
 
         tenants, users, models = load_config()

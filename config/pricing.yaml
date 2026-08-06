@@ -1,0 +1,25 @@
+rates:
+  # OpenAI — real published per-token rates
+  - model_id: gpt-4o
+    input_rate_usd_per_token: 0.0000025
+    output_rate_usd_per_token: 0.00001
+    effective_from: "2026-01-01"
+
+  - model_id: o1-mini
+    input_rate_usd_per_token: 0.0000011
+    output_rate_usd_per_token: 0.0000044
+    effective_from: "2026-01-01"
+
+  # Anthropic — fixture models; plausible representative rates
+  - model_id: claude-sonnet-4-6
+    input_rate_usd_per_token: 0.000003
+    output_rate_usd_per_token: 0.000015
+    effective_from: "2026-01-01"
+
+  - model_id: claude-haiku-4-5-20251001
+    input_rate_usd_per_token: 0.0000008
+    output_rate_usd_per_token: 0.000004
+    effective_from: "2026-01-01"
+
+  # Google — gemini-3.1-flash-lite intentionally has no entry: this
+  # models a model with no known rate yet (see ai-gateway-wirs.4 AC7).
