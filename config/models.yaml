@@ -13,7 +13,7 @@ models:
     base_url: https://api.openai.com/v1
 
   # Anthropic
-  - id: claude-3-5-sonnet
+  - id: claude-sonnet-4-6
     provider: anthropic
     base_url: https://api.anthropic.com
 
@@ -29,7 +29,7 @@ models:
   # Aliases — alias_of resolves to the canonical model id
   - id: claude-sonnet
     provider: anthropic
-    alias_of: claude-3-5-sonnet
+    alias_of: claude-sonnet-4-6
 
   - id: gpt4
     provider: openai

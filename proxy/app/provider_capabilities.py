@@ -87,6 +87,14 @@ OPENAI_RESPONSES_FIELDS = frozenset(
     }
 )
 
+# Codex CLI sends this OpenAI-owned extension even though it is not currently
+# exposed by the public openai-python Responses request type.
+CODEX_RESPONSES_EXTENSION_FIELDS = frozenset({"client_metadata"})
+
+# Claude Code uses the beta Messages surface. Keep beta-only request fields
+# distinct from the stable SDK inventory so drift checks remain meaningful.
+ANTHROPIC_BETA_MESSAGES_EXTENSION_FIELDS = frozenset({"context_management"})
+
 ANTHROPIC_MESSAGES_FIELDS = frozenset(
     {
         "cache_control",

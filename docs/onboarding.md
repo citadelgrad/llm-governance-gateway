@@ -77,7 +77,7 @@ tenants:
     name: "Example Co"
     allowed_models:
       - gpt-5.6-luna
-      - claude-3-5-sonnet
+      - claude-sonnet-4-6
     rate_limit: 1000
     pii_action: redact
     pii_redaction_notification: true
@@ -253,7 +253,7 @@ uv --no-config run --with pyyaml scripts/onboard.py agent-config \
   --gateway-url https://llm-gateway.example.com \
   --api-key-env GATEWAY_API_KEY \
   --model gpt-5.6-luna \
-  --claude-model claude-3-5-sonnet
+  --claude-model claude-sonnet-4-6
 ```
 
 The output includes macOS/Linux and Windows PowerShell environment snippets, the Codex `config.toml` block, and the command that writes Continue's user-level config. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
@@ -351,7 +351,7 @@ macOS/Linux:
 ```bash
 export ANTHROPIC_BASE_URL="https://llm-gateway.example.com"
 export ANTHROPIC_AUTH_TOKEN="gw_user_key"
-export ANTHROPIC_MODEL="claude-3-5-sonnet"
+export ANTHROPIC_MODEL="claude-sonnet-4-6"
 export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 
 claude
@@ -362,7 +362,7 @@ Windows PowerShell:
 ```powershell
 $env:ANTHROPIC_BASE_URL = "https://llm-gateway.example.com"
 $env:ANTHROPIC_AUTH_TOKEN = "gw_user_key"
-$env:ANTHROPIC_MODEL = "claude-3-5-sonnet"
+$env:ANTHROPIC_MODEL = "claude-sonnet-4-6"
 $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
 
 claude

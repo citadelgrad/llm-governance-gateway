@@ -250,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     agent_config.add_argument("--gateway-url", required=True)
     agent_config.add_argument("--api-key-env", default="GATEWAY_API_KEY")
     agent_config.add_argument("--model", default="gpt-5.6-luna")
-    agent_config.add_argument("--claude-model", default="claude-3-5-sonnet")
+    agent_config.add_argument("--claude-model", default="claude-sonnet-4-6")
 
     continue_config = subparsers.add_parser(
         "configure-continue",

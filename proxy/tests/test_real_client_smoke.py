@@ -245,7 +245,7 @@ async def test_claude_two_turn_tool_loop_via_messages(messages_client, monkeypat
     monkeypatch.setattr(mock_provider, "chat_completions", fake_turn1)
 
     turn1_body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "What's the weather in NYC?"}],
         "max_tokens": 200,
         "tools": _WEATHER_TOOL,
@@ -292,7 +292,7 @@ async def test_claude_two_turn_tool_loop_via_messages(messages_client, monkeypat
     monkeypatch.setattr(mock_provider, "chat_completions", fake_turn2)
 
     turn2_body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {"role": "user", "content": "What's the weather in NYC?"},
             {"role": "assistant", "content": turn1_result["content"]},

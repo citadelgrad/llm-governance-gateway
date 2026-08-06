@@ -51,7 +51,7 @@ test_tier2_deny_wrong_role if {
     not authz.allow with input as {
         "phase": "pre_call",
         "request": {
-            "model": "claude-3-5-sonnet",
+            "model": "claude-sonnet-4-6",
             "provider": "anthropic",
             "data_classification": [],
             "pii_findings": [],
@@ -72,6 +72,19 @@ test_tier2_allow_with_role if {
             "pii_findings": [],
         },
         "user": {"roles": ["tier2-access"]},
+    }
+}
+
+test_tier2_allow_with_admin_role if {
+    authz.allow with input as {
+        "phase": "pre_call",
+        "request": {
+            "model": "claude-sonnet-4-6",
+            "provider": "anthropic",
+            "data_classification": [],
+            "pii_findings": [],
+        },
+        "user": {"roles": ["admin"]},
     }
 }
 
@@ -99,7 +112,7 @@ test_phi_unapproved_provider_deny_allow_coexist if {
     mock_input := {
         "phase": "pre_call",
         "request": {
-            "model": "claude-3-5-sonnet",
+            "model": "claude-sonnet-4-6",
             "provider": "openai",
             "data_classification": ["PHI"],
             "pii_findings": [],
@@ -150,7 +163,7 @@ test_phi_bedrock_no_deny if {
     result := authz.deny with input as {
         "phase": "pre_call",
         "request": {
-            "model": "claude-3-5-sonnet",
+            "model": "claude-sonnet-4-6",
             "provider": "bedrock",
             "data_classification": ["PHI"],
             "pii_findings": [],

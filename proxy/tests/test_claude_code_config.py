@@ -7,13 +7,13 @@ and exercises the endpoint surface against the local mock.
 macOS/Linux:
     export ANTHROPIC_BASE_URL=https://gateway-host.example
     export ANTHROPIC_AUTH_TOKEN=<your-gateway-api-key>
-    export ANTHROPIC_MODEL=claude-3-5-sonnet
+    export ANTHROPIC_MODEL=claude-sonnet-4-6
     export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 
 Windows PowerShell:
     $env:ANTHROPIC_BASE_URL = "https://gateway-host.example"
     $env:ANTHROPIC_AUTH_TOKEN = "<your-gateway-api-key>"
-    $env:ANTHROPIC_MODEL = "claude-3-5-sonnet"
+    $env:ANTHROPIC_MODEL = "claude-sonnet-4-6"
     $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1"
 
 The gateway exposes:
@@ -61,7 +61,7 @@ async def test_smoke_messages_endpoint(messages_client):
     """POST /v1/messages returns an Anthropic-shaped response via the mock."""
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "What is 2 + 2?"}],
         "max_tokens": 50,
     }
@@ -78,7 +78,7 @@ async def test_smoke_count_tokens_endpoint(messages_client):
     """POST /v1/messages/count_tokens returns input_tokens without a provider call."""
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Count my tokens please."}],
     }
     response = await client.post("/v1/messages/count_tokens", json=body)
@@ -120,7 +120,7 @@ async def test_smoke_streaming_messages(messages_client):
     """POST /v1/messages with stream=true returns Anthropic SSE format."""
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Hello!"}],
         "max_tokens": 50,
         "stream": True,

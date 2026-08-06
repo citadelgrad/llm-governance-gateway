@@ -5,7 +5,7 @@ import rego.v1
 default allow := false
 default redact_pii := false
 
-# Tier assignment drives RBAC — tier2 models require the tier2-access role.
+# Tier assignment drives RBAC — tier2 models require tier2-access or admin.
 # Aliases (claude-sonnet, gpt4, flash) are NOT listed here; the proxy resolves
 # them to canonical IDs before calling /inspect, so input.request.model is
 # always a canonical ID by the time this policy evaluates.
@@ -14,7 +14,7 @@ model_tiers := {
     "gpt-5.6-luna":       "tier1",
     "o1-mini":           "tier2",
     "gpt-3.5-turbo":     "tier1",
-    "claude-3-5-sonnet": "tier2",
+    "claude-sonnet-4-6": "tier2",
     "claude-haiku-4-5-20251001": "tier1",
     "claude-opus-4-5":   "tier2",
     "gemini-3.1-flash-lite": "tier1",
@@ -36,6 +36,13 @@ allow if {
     tier := model_tiers[input.request.model]
     tier == "tier2"
     "tier2-access" in input.user.roles
+}
+
+allow if {
+    input.phase == "pre_call"
+    tier := model_tiers[input.request.model]
+    tier == "tier2"
+    "admin" in input.user.roles
 }
 
 # --- pre_call: PHI provider gate ---

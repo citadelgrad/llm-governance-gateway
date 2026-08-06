@@ -449,6 +449,26 @@ async def test_responses_rejects_stream_options_without_stream(async_client):
     assert response.json()["detail"]["error"]["type"] == "invalid_request"
 
 
+async def test_responses_invalid_request_reports_safe_validation_violations(async_client):
+    client, _ = async_client
+
+    response = await client.post(
+        "/v1/responses",
+        json={**_RESPONSES_BODY, "unsupported_codex_field": True},
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["error"]["type"] == "invalid_request"
+    assert detail["violations"] == [
+        {
+            "field": "unsupported_codex_field",
+            "type": "extra_forbidden",
+            "message": "Extra inputs are not permitted",
+        }
+    ]
+
+
 async def test_responses_rejects_tools_instead_of_silently_dropping(async_client):
     client, _ = async_client
     response = await client.post(
@@ -492,6 +512,7 @@ async def test_responses_uses_lossless_native_openai_dispatch(async_client, monk
             ],
             "previous_response_id": "resp_previous",
             "reasoning": {"effort": "high", "summary": "auto"},
+            "client_metadata": {"originator": "codex_cli_rs", "client_version": "0.145.0"},
         },
     )
 
@@ -502,6 +523,10 @@ async def test_responses_uses_lossless_native_openai_dispatch(async_client, monk
     forwarded = native_responses.await_args_list[0].args[1]
     assert forwarded["previous_response_id"] == "resp_previous"
     assert forwarded["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert forwarded["client_metadata"] == {
+        "originator": "codex_cli_rs",
+        "client_version": "0.145.0",
+    }
     assert forwarded["tools"][0]["name"] == "lookup"
     assert native_responses.await_args_list[0].kwargs["upstream_headers"] == {
         "openai-beta": "responses=v1"

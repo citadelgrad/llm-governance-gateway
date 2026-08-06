@@ -122,7 +122,7 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
         "--model",
         "gpt-5.6-luna",
         "--claude-model",
-        "claude-3-5-sonnet",
+        "claude-sonnet-4-6",
     )
     assert result.returncode == 0, result.stderr
     output = result.stdout
@@ -133,7 +133,7 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
     assert "Continue" in output
     assert "https://gateway.example.com/v1" in output
     assert "gpt-5.6-luna" in output
-    assert "claude-3-5-sonnet" in output
+    assert "claude-sonnet-4-6" in output
     assert "GATEWAY_API_KEY" in output
     assert 'wire_api = "responses"' in output
     assert 'model_provider = "llm-governance-gateway"' in output

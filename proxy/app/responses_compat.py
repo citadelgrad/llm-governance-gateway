@@ -60,6 +60,7 @@ class ResponsesCreateRequest(BaseModel):
     input: str | list[JsonObject]
     instructions: str | list[ResponsesTextPart] | None = None
     background: bool = False
+    client_metadata: dict[str, str] | None = None
     context_management: list[JsonObject] | None = None
     conversation: str | JsonObject | None = None
     include: list[str] | None = None
@@ -267,6 +268,7 @@ def translate_responses_request(payload: JsonObject) -> JsonObject:
         raise ResponsesCompatError("previous_response_id is not supported yet")
     unsupported_fields = {
         "background": req.background or None,
+        "client_metadata": req.client_metadata,
         "context_management": req.context_management,
         "conversation": req.conversation,
         "include": req.include,

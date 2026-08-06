@@ -14,6 +14,15 @@ async def test_list_models(async_client):
         assert entry["object"] == "model"
 
 
+async def test_list_models_returns_codex_catalog_envelope_for_codex_client(async_client):
+    client, _ = async_client
+
+    response = await client.get("/v1/models?client_version=0.145.0")
+
+    assert response.status_code == 200
+    assert response.json() == {"models": []}
+
+
 async def test_me(async_client):
     client, _ = async_client
     response = await client.get("/v1/me")

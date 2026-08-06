@@ -44,9 +44,17 @@ test_tier2_with_role_in_allowed_models if {
 
 test_tier2_claude_sonnet_with_role if {
     allow_model.allow with input as {
-        "request": {"model": "claude-3-5-sonnet"},
-        "tenant": {"allowed_models": ["claude-3-5-sonnet", "claude-haiku-4-5-20251001"]},
+        "request": {"model": "claude-sonnet-4-6"},
+        "tenant": {"allowed_models": ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]},
         "user": {"roles": ["tier2-access"]},
+    }
+}
+
+test_tier2_claude_sonnet_with_admin_role if {
+    allow_model.allow with input as {
+        "request": {"model": "claude-sonnet-4-6"},
+        "tenant": {"allowed_models": ["claude-sonnet-4-6"]},
+        "user": {"roles": ["admin"]},
     }
 }
 

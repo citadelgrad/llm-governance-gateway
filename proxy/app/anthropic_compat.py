@@ -72,6 +72,78 @@ class AnthropicMetadata(BaseModel):
     user_id: str | None = None
 
 
+class AnthropicInputTokensThreshold(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["input_tokens"]
+    value: int
+
+
+class AnthropicToolUsesThreshold(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_uses"]
+    value: int
+
+
+class AnthropicThinkingTurns(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["thinking_turns"]
+    value: int
+
+
+class AnthropicAllThinkingTurns(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["all"]
+
+
+AnthropicContextTrigger = Annotated[
+    AnthropicInputTokensThreshold | AnthropicToolUsesThreshold,
+    Field(discriminator="type"),
+]
+
+
+class AnthropicClearToolUsesEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["clear_tool_uses_20250919"]
+    clear_at_least: AnthropicInputTokensThreshold | None = None
+    clear_tool_inputs: bool | list[str] | None = None
+    exclude_tools: list[str] | None = None
+    keep: AnthropicToolUsesThreshold | None = None
+    trigger: AnthropicContextTrigger | None = None
+
+
+class AnthropicClearThinkingEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["clear_thinking_20251015"]
+    keep: AnthropicThinkingTurns | AnthropicAllThinkingTurns | Literal["all"] | None = None
+
+
+class AnthropicCompactEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["compact_20260112"]
+    instructions: str | None = None
+    pause_after_compaction: bool | None = None
+    trigger: AnthropicInputTokensThreshold | None = None
+
+
+AnthropicContextEdit = Annotated[
+    AnthropicClearToolUsesEdit | AnthropicClearThinkingEdit | AnthropicCompactEdit,
+    Field(discriminator="type"),
+]
+
+
+class AnthropicContextManagement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    edits: list[AnthropicContextEdit]
+
+
 class AnthropicJsonOutputFormat(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +183,7 @@ class AnthropicMessagesRequest(BaseModel):
     max_tokens: int = Field(ge=1)
     cache_control: AnthropicCacheControl | None = None
     container: str | None = None
+    context_management: AnthropicContextManagement | None = None
     inference_geo: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=1)
     stream: bool = False
@@ -152,6 +225,7 @@ class CountTokensRequest(BaseModel):
     model: str
     messages: list[AnthropicMessage]
     cache_control: AnthropicCacheControl | None = None
+    context_management: AnthropicContextManagement | None = None
     output_config: AnthropicOutputConfig | None = None
     system: AnthropicContent | None = None
     thinking: AnthropicThinking | None = None
@@ -469,6 +543,7 @@ def messages_to_chat_body(req: AnthropicMessagesRequest) -> JsonObject:
     native_only_fields = (
         "cache_control",
         "container",
+        "context_management",
         "inference_geo",
         "metadata",
         "output_config",

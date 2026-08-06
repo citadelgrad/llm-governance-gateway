@@ -64,7 +64,9 @@ from proxy.app.protocol_types import (
     OpenAIChatUserMessage,
 )
 from proxy.app.provider_capabilities import (
+    ANTHROPIC_BETA_MESSAGES_EXTENSION_FIELDS,
     ANTHROPIC_MESSAGES_FIELDS,
+    CODEX_RESPONSES_EXTENSION_FIELDS,
     GEMINI_GENERATE_CONFIG_FIELDS,
     OPENAI_CHAT_FIELDS,
     OPENAI_RESPONSES_FIELDS,
@@ -105,14 +107,18 @@ def test_openai_responses_official_top_level_drift_snapshot():
     official_fields = set(ResponseCreateParamsBase.__annotations__) | {"stream"}
 
     assert official_fields == OPENAI_RESPONSES_FIELDS
-    assert _wire_field_names(ResponsesCreateRequest) == official_fields
+    assert _wire_field_names(ResponsesCreateRequest) == (
+        official_fields | CODEX_RESPONSES_EXTENSION_FIELDS
+    )
 
 
 def test_anthropic_messages_official_top_level_drift_snapshot():
     official_fields = set(MessageCreateParamsBase.__annotations__) | {"stream"}
 
     assert official_fields == ANTHROPIC_MESSAGES_FIELDS
-    assert _wire_field_names(AnthropicMessagesRequest) == official_fields
+    assert _wire_field_names(AnthropicMessagesRequest) == (
+        official_fields | ANTHROPIC_BETA_MESSAGES_EXTENSION_FIELDS
+    )
 
 
 def test_google_generate_config_official_top_level_drift_snapshot():
@@ -177,6 +183,7 @@ def test_codex_responses_contract_preserves_agent_lifecycle_items():
         ],
         "previous_response_id": "resp_previous",
         "reasoning": {"effort": "high", "summary": "concise"},
+        "client_metadata": {"originator": "codex_cli_rs", "client_version": "0.145.0"},
         "stream": True,
     }
 
@@ -217,6 +224,9 @@ def test_claude_code_messages_contract_preserves_thinking_and_tool_blocks():
             },
         ],
         "thinking": {"type": "enabled", "budget_tokens": 2048},
+        "context_management": {
+            "edits": [{"type": "clear_thinking_20251015", "keep": "all"}]
+        },
         "tools": [
             {
                 "name": "read_file",

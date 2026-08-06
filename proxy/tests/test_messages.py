@@ -16,7 +16,7 @@ _COMPAT_KEY = "compat-fixture-token-for-messages-tests"
 _COMPAT_KEY_HASH = bcrypt.hashpw(_COMPAT_KEY.encode(), bcrypt.gensalt(rounds=4)).decode()
 
 _BASE_BODY = {
-    "model": "claude-3-5-sonnet",
+    "model": "claude-sonnet-4-6",
     "messages": [{"role": "user", "content": "Hello, how are you?"}],
     "max_tokens": 100,
 }
@@ -54,7 +54,7 @@ async def test_messages_response_is_anthropic_shaped_not_openai(messages_client)
 async def test_messages_with_system_prompt(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "system": "You are a helpful assistant.",
         "messages": [{"role": "user", "content": "Hello!"}],
         "max_tokens": 50,
@@ -66,7 +66,7 @@ async def test_messages_with_system_prompt(messages_client):
 async def test_messages_accepts_continue_system_content_blocks(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "system": [
             {"type": "text", "text": "You are a coding assistant."},
             {
@@ -124,7 +124,7 @@ async def test_messages_uses_lossless_native_anthropic_dispatch(messages_client,
     client, _ = messages_client
     native_messages = AsyncMock(
         return_value=Response(
-            content=b'{"id":"msg_native","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}',
+            content=b'{"id":"msg_native","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-6","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}',
             status_code=200,
             media_type="application/json",
         )
@@ -141,6 +141,16 @@ async def test_messages_uses_lossless_native_anthropic_dispatch(messages_client,
             **_BASE_BODY,
             "max_tokens": 2048,
             "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "context_management": {
+                "edits": [
+                    {
+                        "type": "clear_tool_uses_20250919",
+                        "trigger": {"type": "input_tokens", "value": 50000},
+                        "keep": {"type": "tool_uses", "value": 5},
+                        "clear_tool_inputs": True,
+                    }
+                ]
+            },
             "output_config": {"effort": "high"},
             "service_tier": "auto",
         },
@@ -150,6 +160,16 @@ async def test_messages_uses_lossless_native_anthropic_dispatch(messages_client,
     assert response.json()["id"] == "msg_native"
     forwarded = native_messages.await_args_list[0].args[1]
     assert forwarded["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+    assert forwarded["context_management"] == {
+        "edits": [
+            {
+                "type": "clear_tool_uses_20250919",
+                "trigger": {"type": "input_tokens", "value": 50000},
+                "keep": {"type": "tool_uses", "value": 5},
+                "clear_tool_inputs": True,
+            }
+        ]
+    }
     assert forwarded["output_config"] == {"effort": "high"}
     assert forwarded["service_tier"] == "auto"
     assert native_messages.await_args_list[0].kwargs["upstream_headers"] == {
@@ -284,10 +304,28 @@ async def test_messages_accepts_tool_definitions(messages_client):
     assert response.status_code == 200
 
 
+async def test_messages_rejects_context_management_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={
+            **_BASE_BODY,
+            "context_management": {
+                "edits": [{"type": "clear_thinking_20251015", "keep": "all"}]
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert "context_management" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
 async def test_messages_accepts_tool_result_content_blocks(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {"role": "user", "content": "What's the weather?"},
             {
@@ -310,7 +348,7 @@ async def test_messages_accepts_tool_result_content_blocks(messages_client):
 async def test_messages_rejects_genuinely_unsupported_content_blocks(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {
                 "role": "user",
@@ -354,7 +392,7 @@ async def test_messages_pii_headers_present(messages_client):
         audit_id="pii-audit-id",
     )
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "My SSN is 123-45-6789"}],
         "max_tokens": 50,
     }
@@ -398,7 +436,7 @@ async def test_messages_rate_limit_denied_returns_429(messages_client):
 async def test_count_tokens_basic(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Hello, how are you today?"}],
     }
     response = await client.post("/v1/messages/count_tokens", json=body)
@@ -412,9 +450,25 @@ async def test_count_tokens_basic(messages_client):
 async def test_count_tokens_accepts_continue_system_content_blocks(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "system": [{"type": "text", "text": "You are a coding assistant."}],
         "messages": [{"role": "user", "content": "Hello"}],
+    }
+
+    response = await client.post("/v1/messages/count_tokens", json=body)
+
+    assert response.status_code == 200
+    assert response.json()["input_tokens"] > 0
+
+
+async def test_count_tokens_accepts_claude_context_management(messages_client):
+    client, _ = messages_client
+    body = {
+        "model": "claude-sonnet-4-6",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "context_management": {
+            "edits": [{"type": "compact_20260112", "pause_after_compaction": False}]
+        },
     }
 
     response = await client.post("/v1/messages/count_tokens", json=body)
@@ -426,12 +480,12 @@ async def test_count_tokens_accepts_continue_system_content_blocks(messages_clie
 async def test_count_tokens_more_with_system_prompt(messages_client):
     client, _ = messages_client
     with_system = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "system": "You are a helpful assistant. " * 10,
         "messages": [{"role": "user", "content": "Hello"}],
     }
     without_system = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Hello"}],
     }
     r1 = await client.post("/v1/messages/count_tokens", json=with_system)
@@ -442,7 +496,7 @@ async def test_count_tokens_more_with_system_prompt(messages_client):
 async def test_count_tokens_deterministic(messages_client):
     client, _ = messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "What is 2+2?"}],
     }
     r1 = await client.post("/v1/messages/count_tokens", json=body)
@@ -468,7 +522,7 @@ async def test_count_tokens_disallowed_model_returns_403(auth_messages_client):
         {"hash": _COMPAT_KEY_HASH, "user_id": "cc-user", "tenant_id": "test-tenant", "roles": ["user"]},
         {
             "default_provider": "anthropic",
-            "allowed_models": ["claude-3-5-sonnet"],
+            "allowed_models": ["claude-sonnet-4-6"],
             "pii_redaction_notification": "header",
             "rate_limit_requests_per_minute": 100,
         },
@@ -489,7 +543,7 @@ async def test_count_tokens_disallowed_model_returns_403(auth_messages_client):
 async def test_count_tokens_auth_missing_returns_401(auth_messages_client):
     client, _ = auth_messages_client
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Hello"}],
     }
     response = await client.post("/v1/messages/count_tokens", json=body)

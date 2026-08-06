@@ -284,7 +284,7 @@ async def test_native_stream_rejects_successful_non_sse_response(httpx_mock):
 
 def test_anthropic_translate_extracts_system_message():
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {"role": "system", "content": "Be brief."},
             {"role": "user", "content": "Hi"},
@@ -300,7 +300,7 @@ def test_anthropic_translate_extracts_system_message():
 
 def test_anthropic_translate_joins_multiple_system_messages():
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {"role": "system", "content": "First."},
             {"role": "system", "content": "Second."},
@@ -326,7 +326,7 @@ def test_anthropic_translate_forwards_extended_thinking():
 
 def test_anthropic_translate_tool_call_assistant_message():
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [
             {"role": "user", "content": "weather?"},
             {
@@ -360,7 +360,7 @@ def test_anthropic_translate_tool_call_assistant_message():
 
 def test_anthropic_translate_function_tools_and_choice():
     body = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "weather?"}],
         "tools": [
             {
@@ -398,7 +398,7 @@ def test_anthropic_translate_response_basic():
     anthropic_json = {
         "id": "msg_abc123",
         "type": "message",
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "content": [{"type": "text", "text": "Hello!"}],
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 10, "output_tokens": 5},
@@ -462,7 +462,7 @@ async def test_anthropic_chat_completions_end_to_end(httpx_mock):
         json={
             "id": "msg_e2e",
             "type": "message",
-            "model": "claude-3-5-sonnet",
+            "model": "claude-sonnet-4-6",
             "content": [{"type": "text", "text": "Hi back!"}],
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 7, "output_tokens": 3},
@@ -474,7 +474,7 @@ async def test_anthropic_chat_completions_end_to_end(httpx_mock):
         response = await anthropic_provider.chat_completions(
             client,
             {
-                "model": "claude-3-5-sonnet",
+                "model": "claude-sonnet-4-6",
                 "messages": [
                     {"role": "system", "content": "be terse"},
                     {"role": "user", "content": "hi"},
@@ -510,7 +510,7 @@ async def test_anthropic_chat_completions_end_to_end(httpx_mock):
 async def test_anthropic_stream_tool_use_content_block_start(httpx_mock):
     """content_block_start with tool_use emits OpenAI tool_calls delta chunk with name."""
     sse_lines = [
-        'data: {"type": "message_start", "message": {"id": "msg_stream1", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "message_start", "message": {"id": "msg_stream1", "model": "claude-sonnet-4-6"}}',
         'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_abc", "name": "get_weather"}}',
         'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}',
         "data: [DONE]",
@@ -527,7 +527,7 @@ async def test_anthropic_stream_tool_use_content_block_start(httpx_mock):
         response = await anthropic_provider.chat_completions(
             client,
             {
-                "model": "claude-3-5-sonnet",
+                "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "what is the weather?"}],
                 "stream": True,
             },
@@ -561,7 +561,7 @@ async def test_anthropic_stream_tool_use_content_block_start(httpx_mock):
 async def test_anthropic_stream_input_json_delta(httpx_mock):
     """content_block_delta with input_json_delta emits OpenAI tool_calls chunk with partial arguments."""
     sse_lines = [
-        'data: {"type": "message_start", "message": {"id": "msg_stream2", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "message_start", "message": {"id": "msg_stream2", "model": "claude-sonnet-4-6"}}',
         'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_xyz", "name": "get_weather"}}',
         'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{\\"city\\":"}}',
         'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "\\"NYC\\"}"}}',
@@ -580,7 +580,7 @@ async def test_anthropic_stream_input_json_delta(httpx_mock):
         response = await anthropic_provider.chat_completions(
             client,
             {
-                "model": "claude-3-5-sonnet",
+                "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "weather?"}],
                 "stream": True,
             },
@@ -612,7 +612,7 @@ async def test_anthropic_stream_input_json_delta(httpx_mock):
 async def test_anthropic_stream_tool_use_stop_reason_maps_to_tool_calls(httpx_mock):
     """message_delta with stop_reason=tool_use produces finish_reason=tool_calls."""
     sse_lines = [
-        'data: {"type": "message_start", "message": {"id": "msg_stream3", "model": "claude-3-5-sonnet"}}',
+        'data: {"type": "message_start", "message": {"id": "msg_stream3", "model": "claude-sonnet-4-6"}}',
         'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "toolu_fin", "name": "do_thing"}}',
         'data: {"type": "message_delta", "delta": {"stop_reason": "tool_use"}}',
         "data: [DONE]",
@@ -629,7 +629,7 @@ async def test_anthropic_stream_tool_use_stop_reason_maps_to_tool_calls(httpx_mo
         response = await anthropic_provider.chat_completions(
             client,
             {
-                "model": "claude-3-5-sonnet",
+                "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "do a thing"}],
                 "stream": True,
             },
@@ -1173,7 +1173,7 @@ def test_sanitize_response_always_application_json():
 
 def _messages_request(**overrides) -> AnthropicMessagesRequest:
     payload = {
-        "model": "claude-3-5-sonnet",
+        "model": "claude-sonnet-4-6",
         "messages": [{"role": "user", "content": "Hi"}],
         "max_tokens": 100,
     }
@@ -1360,7 +1360,7 @@ async def test_openai_sse_to_anthropic_sse_preserves_message_id_and_usage():
         ),
         "data: [DONE]\n\n",
     ]
-    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-sonnet-4-6")]
     full_text = "".join(events)
     parsed = _sse_lines(full_text)
     assert parsed[0]["type"] == "message_start"
@@ -1429,7 +1429,7 @@ async def test_openai_sse_to_anthropic_sse_translates_tool_call_deltas():
         ),
         "data: [DONE]\n\n",
     ]
-    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-sonnet-4-6")]
     full_text = "".join(events)
     parsed = _sse_lines(full_text)
 
@@ -1459,7 +1459,7 @@ async def test_openai_sse_to_anthropic_sse_surfaces_mid_stream_error():
         ),
         'data: {"error": {"type": "upstream_timeout"}}\n\n',
     ]
-    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-sonnet-4-6")]
     full_text = "".join(events)
     assert "event: error" in full_text
     parsed = _sse_lines(full_text)
@@ -1486,7 +1486,7 @@ async def test_openai_sse_to_anthropic_sse_buffers_fragmented_chunks():
             chunk_id="chatcmpl-frag",
         ),
     ]
-    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-3-5-sonnet")]
+    events = [chunk async for chunk in openai_sse_to_anthropic_sse(_sse_body(*chunks), "claude-sonnet-4-6")]
     full_text = "".join(events)
     parsed = _sse_lines(full_text)
     text_delta = next(e for e in parsed if e["type"] == "content_block_delta" and e["index"] == 0)
@@ -1511,7 +1511,7 @@ async def test_openai_sse_to_anthropic_sse_preserves_split_multibyte_utf8():
     events = [
         chunk
         async for chunk in openai_sse_to_anthropic_sse(
-            _sse_body(*chunks), "claude-3-5-sonnet"
+            _sse_body(*chunks), "claude-sonnet-4-6"
         )
     ]
     parsed = _sse_lines("".join(events))
@@ -1524,7 +1524,7 @@ async def test_openai_sse_to_anthropic_sse_rejects_malformed_json():
     events = [
         chunk
         async for chunk in openai_sse_to_anthropic_sse(
-            _sse_body('data: {"choices": [}\n\n'), "claude-3-5-sonnet"
+            _sse_body('data: {"choices": [}\n\n'), "claude-sonnet-4-6"
         )
     ]
     parsed = _sse_lines("".join(events))
@@ -1544,7 +1544,7 @@ async def test_openai_sse_to_anthropic_sse_rejects_incomplete_stream():
     events = [
         chunk
         async for chunk in openai_sse_to_anthropic_sse(
-            _sse_body(*chunks), "claude-3-5-sonnet"
+            _sse_body(*chunks), "claude-sonnet-4-6"
         )
     ]
     parsed = _sse_lines("".join(events))
@@ -1574,7 +1574,7 @@ async def test_openai_sse_to_anthropic_sse_rejects_missing_initial_tool_identity
     events = [
         chunk
         async for chunk in openai_sse_to_anthropic_sse(
-            _sse_body(*chunks), "claude-3-5-sonnet"
+            _sse_body(*chunks), "claude-sonnet-4-6"
         )
     ]
     parsed = _sse_lines("".join(events))
