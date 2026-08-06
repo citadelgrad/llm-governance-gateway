@@ -171,7 +171,7 @@ Useful response headers:
 | `make restart` | Restart all services |
 | `make status` | Show container health/status |
 | `make logs` | Follow service logs |
-| `make migrate` | Run governance Alembic migrations |
+| `make migrate` | Run governance and proxy Alembic migrations |
 | `make provision` | Seed tenants, users, models, and OPA data documents |
 | `make onboard-help` | Show the onboarding CLI for users, service accounts, and endpoint snippets |
 | `make demo` | Run the local six-scenario governance demo |

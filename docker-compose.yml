@@ -93,6 +93,15 @@ services:
         - action: rebuild
           path: ./governance/Dockerfile
 
+  proxy-migrate:
+    build: ./proxy
+    command: ["uv", "run", "--project", "/workspace/proxy", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql://gateway:${POSTGRES_PASSWORD:-gateway}@postgres:5432/gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   proxy:
     build: ./proxy
     ports:
@@ -118,6 +127,8 @@ services:
         condition: service_healthy
       mcpproxy:
         condition: service_healthy
+      proxy-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
       interval: 10s

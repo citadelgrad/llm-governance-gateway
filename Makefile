@@ -35,6 +35,7 @@ logs:
 ## Database
 migrate:
 	$(DIRENV) docker compose run --rm migrate
+	$(DIRENV) docker compose run --rm proxy-migrate
 
 ## Code quality
 lint:
@@ -122,7 +123,7 @@ help:
 	@echo "  watch               Auto-restart only services affected by code changes"
 	@echo "  status              Show service status"
 	@echo "  logs                Follow service logs"
-	@echo "  migrate             Run database migrations"
+	@echo "  migrate             Run governance and proxy database migrations"
 	@echo "  lint                Run ruff + ty on both services"
 	@echo "  test                Run pytest on both services"
 	@echo "  test-integration    Run Docker Compose smoke tests (requires make up)"
