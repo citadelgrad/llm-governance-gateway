@@ -1,0 +1,19 @@
+proxy/migrations/versions/002_usage_log.py
+  s_555166450f17f3::t_a5c42fb08eaeb2 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "af7beec3e9d615513cb603bc12b802ec9ece5dfc",
+  "prompts": {},
+  "sessions": {
+    "s_555166450f17f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "20d03d0d-d995-432b-b5fa-e2e85403b6a3",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
