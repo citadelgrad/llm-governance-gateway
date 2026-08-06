@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import asyncpg
 import bcrypt
@@ -52,10 +55,13 @@ from proxy.app.responses_compat import (
     translate_chat_response,
 )
 from proxy.app.routing import load_models_yaml, resolve_provider
+from proxy.app.usage_log import resolve_cost, write_usage_log
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 _tenant_cache: TTLCache = TTLCache(maxsize=500, ttl=30)
 _me_cache: TTLCache = TTLCache(maxsize=500, ttl=30)
@@ -315,6 +321,58 @@ def _enforce_act_claim(caller: CallerContext) -> None:
         )
 
 
+class _PolicyBlockedError(HTTPException):
+    """Marks the governance block-decision raise so it can be told apart
+    from every other HTTPException raised inside the gateway pipeline
+    (which all map to usage_log status 'errored').
+    """
+
+
+def _resolve_canonical_model_id(model_id: str, models_by_id: dict) -> str:
+    """Resolve a client-supplied model id/alias to its canonical model id.
+
+    Used only for the usage_log row — routing, the tenant allow-list check,
+    and the governance /inspect call keep using the raw client-supplied
+    model_id unchanged.
+    """
+    entry = models_by_id.get(model_id)
+    return entry.get("alias_of", model_id) if entry else model_id
+
+
+async def _log_outcome(
+    request: Request,
+    caller: CallerContext,
+    model_id: str,
+    status: str,
+    usage: UsageMetrics,
+    started_at: datetime,
+    perf_start: float,
+) -> None:
+    """Write one usage_log row for the pipeline outcome. Never raises (AC8)."""
+    latency_ms = int((time.monotonic() - perf_start) * 1000)
+    try:
+        if status == "allowed":
+            cost_usd = await resolve_cost(request.app.state.db_pool, model_id, usage, started_at)
+        else:
+            # blocked/errored requests never reach a provider, so cost is a
+            # known zero — not the "pricing unavailable" null from AC7.
+            cost_usd = Decimal("0")
+        await write_usage_log(
+            request.app.state.db_pool,
+            created_at=started_at,
+            tenant_id=caller.tenant_id,
+            api_key_prefix=caller.api_key_prefix,
+            user_id=caller.user_id,
+            model_id=model_id,
+            status=status,
+            usage=usage,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
+    except Exception:
+        logger.exception("Failed to log usage event")
+
+
 async def _run_gateway_pipeline(
     request: Request,
     caller: CallerContext,
@@ -325,179 +383,201 @@ async def _run_gateway_pipeline(
     model_id = payload.model
     stream = payload.stream
     request.state.usage_metrics = UsageMetrics.zero()  # set on all paths; updated for non-streaming
+    canonical_model_id = _resolve_canonical_model_id(model_id, request.app.state.models_by_id)
+    started_at = datetime.now(UTC)
+    perf_start = time.monotonic()
 
-    tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
-    _enforce_allowed_model(model_id, tenant["allowed_models"])
-
-    lower_headers = {k.lower(): v for k, v in request.headers.items()}
-    provider, routing_method = resolve_provider(
-        model_id,
-        lower_headers,
-        caller.roles,
-        tenant["default_provider"],
-        request.app.state.models_config,
-    )
-
-    if routing_method in ("model_not_found", "override_denied"):
-        raise HTTPException(
-            status_code=400,
-            detail=error_envelope(routing_method, f"Cannot route model: {model_id}"),
-        )
-
-    rl_result = await request.app.state.rate_limiter.check(f"{caller.tenant_id}:{caller.user_id}")
-    reset_at = datetime.now(UTC) + timedelta(seconds=settings.rate_limit_window_seconds)
-    rl_hdrs = rate_limit_headers(rl_result.limit, rl_result.remaining, reset_at)
-
-    if not rl_result.allowed:
-        raise HTTPException(
-            status_code=429,
-            detail=error_envelope("rate_limit_exceeded", "Too many requests"),
-            headers={**retry_headers(rl_result.retry_after_seconds), **rl_hdrs},
-        )
-
-    user_text = payload.governance_text()
     try:
-        inspect_resp = await request.app.state.governance_client.inspect(
-            InspectRequest(
-                text=user_text,
-                tenant_id=caller.tenant_id,
-                user_id=caller.user_id,
-                model_id=model_id,
-                routing_method=routing_method,
-                roles=caller.roles,
-            )
-        )
-    except GovernanceError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=error_envelope("governance_unavailable", "Governance service unavailable"),
-            headers={"Retry-After": exc.retry_after or "60"},
-        ) from exc
+        tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
+        _enforce_allowed_model(model_id, tenant["allowed_models"])
 
-    extra_headers: dict[str, str] = {**rl_hdrs}
-    if inspect_resp.audit_id:
-        extra_headers["X-Audit-ID"] = inspect_resp.audit_id
-
-    if inspect_resp.decision == "block":
-        block_status = 400 if any(v == "harm:prompt_injection" for v in inspect_resp.violations) else 403
-        raise HTTPException(
-            status_code=block_status,
-            detail=error_envelope(
-                "policy_violation",
-                "Request blocked by policy",
-                violations=inspect_resp.violations,
-            ),
-            headers=extra_headers,
+        lower_headers = {k.lower(): v for k, v in request.headers.items()}
+        provider, routing_method = resolve_provider(
+            model_id,
+            lower_headers,
+            caller.roles,
+            tenant["default_provider"],
+            request.app.state.models_config,
         )
 
-    if inspect_resp.pii_findings:
-        pii_types = [f.get("type", "") for f in inspect_resp.pii_findings if isinstance(f, dict)]
-        extra_headers.update(
-            pii_headers(pii_types, tenant["pii_redaction_notification"])
-        )
-        if inspect_resp.redacted_text:
-            payload = payload.with_redacted_text(inspect_resp.redacted_text)
-
-    native_dispatch = not settings.mock_mode and provider in payload.native_providers
-    try:
-        body = payload.native_body() if native_dispatch else payload.to_chat_body()
-    except ProtocolTranslationError as exc:
-        error_type = {
-            "anthropic_messages": "unsupported_message_shape",
-            "openai_responses": "unsupported_response_shape",
-        }.get(payload.protocol, "unsupported_protocol_translation")
-        raise HTTPException(
-            status_code=422,
-            detail=error_envelope(error_type, str(exc)),
-            headers=extra_headers,
-        ) from exc
-
-    if not native_dispatch and not settings.mock_mode:
-        capability_provider = "gemini" if provider == "google" else provider
-        if capability_provider not in {"anthropic", "gemini", "openai", "ollama"}:
-            capability_provider = "generic"
-        unsupported = unsupported_chat_fields(capability_provider, body)
-        if unsupported:
+        if routing_method in ("model_not_found", "override_denied"):
             raise HTTPException(
-                status_code=422,
+                status_code=400,
+                detail=error_envelope(routing_method, f"Cannot route model: {model_id}"),
+            )
+
+        rl_result = await request.app.state.rate_limiter.check(
+            f"{caller.tenant_id}:{caller.user_id}"
+        )
+        reset_at = datetime.now(UTC) + timedelta(seconds=settings.rate_limit_window_seconds)
+        rl_hdrs = rate_limit_headers(rl_result.limit, rl_result.remaining, reset_at)
+
+        if not rl_result.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=error_envelope("rate_limit_exceeded", "Too many requests"),
+                headers={**retry_headers(rl_result.retry_after_seconds), **rl_hdrs},
+            )
+
+        user_text = payload.governance_text()
+        try:
+            inspect_resp = await request.app.state.governance_client.inspect(
+                InspectRequest(
+                    text=user_text,
+                    tenant_id=caller.tenant_id,
+                    user_id=caller.user_id,
+                    model_id=model_id,
+                    routing_method=routing_method,
+                    roles=caller.roles,
+                )
+            )
+        except GovernanceError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=error_envelope("governance_unavailable", "Governance service unavailable"),
+                headers={"Retry-After": exc.retry_after or "60"},
+            ) from exc
+
+        extra_headers: dict[str, str] = {**rl_hdrs}
+        if inspect_resp.audit_id:
+            extra_headers["X-Audit-ID"] = inspect_resp.audit_id
+
+        if inspect_resp.decision == "block":
+            block_status = (
+                400 if any(v == "harm:prompt_injection" for v in inspect_resp.violations) else 403
+            )
+            raise _PolicyBlockedError(
+                status_code=block_status,
                 detail=error_envelope(
-                    "unsupported_protocol_translation",
-                    f"Provider {provider} cannot preserve Chat fields: "
-                    + ", ".join(unsupported),
-                    details={"provider": provider, "fields": unsupported},
+                    "policy_violation",
+                    "Request blocked by policy",
+                    violations=inspect_resp.violations,
                 ),
                 headers=extra_headers,
             )
 
-    response: Response | StreamingResponse
-    effective_provider: str
-    response_protocol: WireProtocol = "openai_chat"
-    match provider:
-        case _ if settings.mock_mode:
-            response = await mock_provider.chat_completions(body, extra_headers)
-            effective_provider = "openai"  # mock uses OpenAI-shaped responses
-        case "openai":
-            if native_dispatch and payload.protocol == "openai_responses":
-                response = await openai_provider.responses(
-                    request.app.state.openai_client,
-                    body,
-                    stream,
-                    extra_headers,
-                    upstream_headers={
-                        key: value for key, value in lower_headers.items() if key == "openai-beta"
-                    },
-                )
-                response_protocol = "openai_responses"
-            else:
-                response = await openai_provider.chat_completions(
-                    request.app.state.openai_client, body, stream, extra_headers
-                )
-            effective_provider = "openai"
-        case "anthropic":
-            if native_dispatch and payload.protocol == "anthropic_messages":
-                response = await anthropic_provider.messages(
-                    request.app.state.anthropic_client,
-                    body,
-                    stream,
-                    extra_headers,
-                    upstream_headers={
-                        key: value
-                        for key, value in lower_headers.items()
-                        if key in {"anthropic-beta", "anthropic-version"}
-                    },
-                )
-                response_protocol = "anthropic_messages"
-            else:
-                response = await anthropic_provider.chat_completions(
-                    request.app.state.anthropic_client, body, stream, extra_headers
-                )
-            effective_provider = "anthropic"
-        case "gemini" | "google":
-            response = await gemini_provider.chat_completions(
-                request.app.state.gemini_client, body, stream, extra_headers
+        if inspect_resp.pii_findings:
+            pii_types = [f.get("type", "") for f in inspect_resp.pii_findings if isinstance(f, dict)]
+            extra_headers.update(
+                pii_headers(pii_types, tenant["pii_redaction_notification"])
             )
-            effective_provider = "openai"  # gemini adapter translates to OpenAI envelope
-        case "ollama":
-            response = await ollama_provider.chat_completions(
-                request.app.state.ollama_client, body, stream, extra_headers
-            )
-            effective_provider = "ollama"
-        case _:
-            model_entry = request.app.state.models_by_id.get(model_id)
-            if model_entry and model_entry.get("base_url"):
-                response = await generic_provider.chat_completions(
-                    body,
-                    stream,
-                    extra_headers,
-                    base_url=model_entry["base_url"],
-                    api_key=model_entry.get("api_key", ""),
-                )
-                effective_provider = "generic"
-            else:
+            if inspect_resp.redacted_text:
+                payload = payload.with_redacted_text(inspect_resp.redacted_text)
+
+        native_dispatch = not settings.mock_mode and provider in payload.native_providers
+        try:
+            body = payload.native_body() if native_dispatch else payload.to_chat_body()
+        except ProtocolTranslationError as exc:
+            error_type = {
+                "anthropic_messages": "unsupported_message_shape",
+                "openai_responses": "unsupported_response_shape",
+            }.get(payload.protocol, "unsupported_protocol_translation")
+            raise HTTPException(
+                status_code=422,
+                detail=error_envelope(error_type, str(exc)),
+                headers=extra_headers,
+            ) from exc
+
+        if not native_dispatch and not settings.mock_mode:
+            capability_provider = "gemini" if provider == "google" else provider
+            if capability_provider not in {"anthropic", "gemini", "openai", "ollama"}:
+                capability_provider = "generic"
+            unsupported = unsupported_chat_fields(capability_provider, body)
+            if unsupported:
                 raise HTTPException(
-                    status_code=400,
-                    detail=error_envelope("unsupported_provider", f"Provider {provider} not supported"),
+                    status_code=422,
+                    detail=error_envelope(
+                        "unsupported_protocol_translation",
+                        f"Provider {provider} cannot preserve Chat fields: "
+                        + ", ".join(unsupported),
+                        details={"provider": provider, "fields": unsupported},
+                    ),
+                    headers=extra_headers,
                 )
+
+        response: Response | StreamingResponse
+        effective_provider: str
+        response_protocol: WireProtocol = "openai_chat"
+        match provider:
+            case _ if settings.mock_mode:
+                response = await mock_provider.chat_completions(body, extra_headers)
+                effective_provider = "openai"  # mock uses OpenAI-shaped responses
+            case "openai":
+                if native_dispatch and payload.protocol == "openai_responses":
+                    response = await openai_provider.responses(
+                        request.app.state.openai_client,
+                        body,
+                        stream,
+                        extra_headers,
+                        upstream_headers={
+                            key: value for key, value in lower_headers.items() if key == "openai-beta"
+                        },
+                    )
+                    response_protocol = "openai_responses"
+                else:
+                    response = await openai_provider.chat_completions(
+                        request.app.state.openai_client, body, stream, extra_headers
+                    )
+                effective_provider = "openai"
+            case "anthropic":
+                if native_dispatch and payload.protocol == "anthropic_messages":
+                    response = await anthropic_provider.messages(
+                        request.app.state.anthropic_client,
+                        body,
+                        stream,
+                        extra_headers,
+                        upstream_headers={
+                            key: value
+                            for key, value in lower_headers.items()
+                            if key in {"anthropic-beta", "anthropic-version"}
+                        },
+                    )
+                    response_protocol = "anthropic_messages"
+                else:
+                    response = await anthropic_provider.chat_completions(
+                        request.app.state.anthropic_client, body, stream, extra_headers
+                    )
+                effective_provider = "anthropic"
+            case "gemini" | "google":
+                response = await gemini_provider.chat_completions(
+                    request.app.state.gemini_client, body, stream, extra_headers
+                )
+                effective_provider = "openai"  # gemini adapter translates to OpenAI envelope
+            case "ollama":
+                response = await ollama_provider.chat_completions(
+                    request.app.state.ollama_client, body, stream, extra_headers
+                )
+                effective_provider = "ollama"
+            case _:
+                model_entry = request.app.state.models_by_id.get(model_id)
+                if model_entry and model_entry.get("base_url"):
+                    response = await generic_provider.chat_completions(
+                        body,
+                        stream,
+                        extra_headers,
+                        base_url=model_entry["base_url"],
+                        api_key=model_entry.get("api_key", ""),
+                    )
+                    effective_provider = "generic"
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=error_envelope(
+                            "unsupported_provider", f"Provider {provider} not supported"
+                        ),
+                    )
+    except _PolicyBlockedError:
+        await _log_outcome(
+            request, caller, canonical_model_id, "blocked",
+            UsageMetrics.zero(), started_at, perf_start,
+        )
+        raise
+    except HTTPException:
+        await _log_outcome(
+            request, caller, canonical_model_id, "errored",
+            UsageMetrics.zero(), started_at, perf_start,
+        )
+        raise
 
     # Every compatibility adapter serializes Chat-shaped usage; only native
     # responses retain their provider's usage schema.
@@ -508,9 +588,13 @@ async def _run_gateway_pipeline(
         not stream
         and isinstance(response, Response)
         and not isinstance(response, StreamingResponse)
-        and response.status_code < 400
     ):
-        _attach_usage(response, effective_provider, request)
+        if response.status_code < 400:
+            _attach_usage(response, effective_provider, request)
+        await _log_outcome(
+            request, caller, canonical_model_id, "allowed",
+            request.state.usage_metrics, started_at, perf_start,
+        )
 
     return response, extra_headers, response_protocol
 

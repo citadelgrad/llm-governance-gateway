@@ -22,6 +22,7 @@ class CallerContext:
     scopes: list[str] = field(default_factory=list)
     client_id: str | None = None
     act_sub: str | None = None
+    api_key_prefix: str | None = None
 
 
 _api_key_cache: TTLCache = TTLCache(maxsize=1000, ttl=60)
@@ -41,6 +42,7 @@ async def _validate_api_key(key: str, db_pool: asyncpg.Pool) -> CallerContext:
                 user_id=cached["user_id"],
                 tenant_id=cached["tenant_id"],
                 roles=cached["roles"],
+                api_key_prefix=prefix,
             )
         raise AuthError("invalid api key")
 
@@ -70,6 +72,7 @@ async def _validate_api_key(key: str, db_pool: asyncpg.Pool) -> CallerContext:
         user_id=row["user_id"],
         tenant_id=row["tenant_id"],
         roles=list(row["roles"]),
+        api_key_prefix=prefix,
     )
 
 

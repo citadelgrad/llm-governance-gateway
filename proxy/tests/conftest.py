@@ -31,7 +31,7 @@ _MODELS_CONFIG = [
 ]
 
 _CLAUDE_MODELS_CONFIG = [
-    {"id": "claude-3-5-sonnet", "provider": "anthropic"},
+    {"id": "claude-sonnet-4-6", "provider": "anthropic"},
     {"id": "claude-haiku-4-5-20251001", "provider": "anthropic"},
 ]
 
@@ -83,9 +83,24 @@ def clear_caches():
     _api_key_cache.clear()
 
 
-def _mock_pool(fetchrow_result=None):
+def _mock_pool(fetchrow_result=None, pricing_result=None):
+    """Mock asyncpg pool. fetchrow branches on SQL text so the tenant lookup
+    and the pricing lookup (used by usage_log's cost resolution) don't
+    collide when both fire during the same request.
+
+    Non-pricing calls return `mock_conn.fetchrow.return_value` (read
+    dynamically), so tests that do `conn.fetchrow.return_value = {...}`
+    after the fixture is built keep working as before.
+    """
+
     mock_conn = AsyncMock()
-    mock_conn.fetchrow.return_value = fetchrow_result
+
+    async def _fetchrow(query, *args, **kwargs):
+        if "FROM pricing" in query:
+            return pricing_result
+        return mock_conn.fetchrow.return_value
+
+    mock_conn.fetchrow = AsyncMock(side_effect=_fetchrow, return_value=fetchrow_result)
     mock_conn.execute = AsyncMock()
     mock_conn.fetchval = AsyncMock(return_value=False)
 
