@@ -27,6 +27,7 @@ from proxy.app.anthropic_compat import (
 from proxy.app.auth import AuthError, CallerContext, authenticate, authenticate_compat
 from proxy.app.bootstrap import maybe_bootstrap
 from proxy.app.config import settings
+from proxy.app.dashboard import router as dashboard_router
 from proxy.app.db import jsonb_list as _jsonb_list
 from proxy.app.governance_client import GovernanceError, InspectRequest, make_governance_client
 from proxy.app.headers import error_envelope, pii_headers, rate_limit_headers, retry_headers
@@ -151,6 +152,8 @@ app.add_middleware(
 
 
 app.add_middleware(BodySizeLimitMiddleware)
+
+app.include_router(dashboard_router)
 
 
 async def get_caller(

@@ -1,0 +1,75 @@
+{% if not has_usage %}
+<p id="empty-state">No usage in this range.</p>
+{% else %}
+
+<h2>By model</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Model</th>
+      <th>Requests</th>
+      <th>Prompt tokens</th>
+      <th>Completion tokens</th>
+      <th>Total tokens</th>
+      <th>Cost (USD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in by_model %}
+    <tr>
+      <td>{{ row.model_id or "(unknown)" }}</td>
+      <td>{{ row.request_count }}</td>
+      <td>{{ row.prompt_tokens }}</td>
+      <td>{{ row.completion_tokens }}</td>
+      <td>{{ row.total_tokens }}</td>
+      <td>{{ "%.6f"|format(row.cost_usd) if row.cost_usd is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>By API key</h2>
+<table>
+  <thead>
+    <tr>
+      <th>API key prefix</th>
+      <th>Requests</th>
+      <th>Prompt tokens</th>
+      <th>Completion tokens</th>
+      <th>Total tokens</th>
+      <th>Cost (USD)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in by_api_key %}
+    <tr>
+      <td>{{ row.api_key_prefix or "(none)" }}</td>
+      <td>{{ row.request_count }}</td>
+      <td>{{ row.prompt_tokens }}</td>
+      <td>{{ row.completion_tokens }}</td>
+      <td>{{ row.total_tokens }}</td>
+      <td>{{ "%.6f"|format(row.cost_usd) if row.cost_usd is not none else "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>By status</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Requests</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in status_breakdown %}
+    <tr>
+      <td>{{ row.status }}</td>
+      <td>{{ row.request_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% endif %}

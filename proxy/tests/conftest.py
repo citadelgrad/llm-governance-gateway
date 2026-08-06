@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
 from proxy.app.auth import CallerContext, _api_key_cache
+from proxy.app.dashboard import get_dashboard_caller
 from proxy.app.governance_client import InspectResponse
 from proxy.app.main import (
     _me_cache,
@@ -101,6 +102,7 @@ def _mock_pool(fetchrow_result=None, pricing_result=None):
         return mock_conn.fetchrow.return_value
 
     mock_conn.fetchrow = AsyncMock(side_effect=_fetchrow, return_value=fetchrow_result)
+    mock_conn.fetch = AsyncMock(return_value=[])
     mock_conn.execute = AsyncMock()
     mock_conn.fetchval = AsyncMock(return_value=False)
 
@@ -163,6 +165,7 @@ async def async_client(gov_mock):
     app.dependency_overrides[get_caller] = lambda: caller
     app.dependency_overrides[get_responses_caller] = lambda: caller
     app.dependency_overrides[get_caller_compat] = lambda: caller
+    app.dependency_overrides[get_dashboard_caller] = lambda: caller
     _setup_app_state(pool, gov_mock)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -179,6 +182,7 @@ async def admin_client(gov_mock):
     app.dependency_overrides[get_caller] = lambda: caller
     app.dependency_overrides[get_responses_caller] = lambda: caller
     app.dependency_overrides[get_caller_compat] = lambda: caller
+    app.dependency_overrides[get_dashboard_caller] = lambda: caller
     _setup_app_state(pool, gov_mock)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

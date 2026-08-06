@@ -37,6 +37,7 @@ dependencies = [
     # files together when bumping either package.
     "starlette==1.3.1",
     "cryptography==48.0.1",
+    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
