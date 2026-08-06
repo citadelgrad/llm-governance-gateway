@@ -1,0 +1,19 @@
+pipelines/ai-gateway-wirs.dot
+  s_d4f978492f69e4::t_bd3a329421e4ed 1-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "bebc1cf345354c26479bdf4e8fe5d65bfb1bbe68",
+  "prompts": {},
+  "sessions": {
+    "s_d4f978492f69e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72807fa9-1145-48fa-92e5-bfc8390f7670",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
