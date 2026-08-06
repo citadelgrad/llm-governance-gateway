@@ -1,0 +1,34 @@
+.beads/config.yaml
+  s_d4f978492f69e4::t_b93093af19e2bf 9
+docs/adr/0001-usage-log-separate-from-audit-log.md
+  s_d4f978492f69e4::t_e8d7344387990b 1-3
+docs/adr/0003-alembic-added-to-proxy.md
+  s_d4f978492f69e4::t_e0f21e42470ae6 1-3
+CONTEXT.md
+  s_d4f978492f69e4::t_80683409f0932e 19-22,31
+  s_d4f978492f69e4::t_55adadb8caf26b 23-26
+  s_d4f978492f69e4::t_b66677341b79b8 8
+  s_d4f978492f69e4::t_c0df39e336f38a 9
+  s_d4f978492f69e4::t_9ff0284a4a48b8 1-7,10-18,27-30,33-41
+  s_d4f978492f69e4::t_0522b67b97c874 32
+docs/adr/0004-dashboard-mounted-on-public-proxy.md
+  s_d4f978492f69e4::t_9c6a1884dac728 1-3
+docs/adr/0002-pricing-table-rate-at-request-time.md
+  s_d4f978492f69e4::t_949d4a46c6e367 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "de58f1b603e407038269c5b55e46709ef7a1e21b",
+  "prompts": {},
+  "sessions": {
+    "s_d4f978492f69e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72807fa9-1145-48fa-92e5-bfc8390f7670",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
