@@ -116,14 +116,12 @@ async def test_continue_dev_shaped_stream_is_structurally_valid(async_client):
     assert assistant_text.strip(), "stream completed without any assistant text"
     assert events[-1]["choices"][0]["finish_reason"] == "stop"
 
-    # Known mock-fidelity gap (see ai-gateway-7v9 final report): mock.py's
-    # _stream_sse() never emits a `usage` field on any chunk, regardless of
-    # the request's `stream_options.include_usage`. Real upstream
-    # OpenAI-compatible providers (and this gateway's real openai provider
-    # adapter, which is a pure pass-through) do emit a final usage-bearing
-    # chunk when asked. Documented here as observed behavior, not asserted as
-    # a requirement — fixing the mock provider is out of scope for this task.
-    assert all("usage" not in event for event in events)
+    # ai-gateway-wirs.6 taught mock.py's _stream_sse() to honor
+    # stream_options.include_usage, matching real upstream OpenAI-compatible
+    # providers: exactly the final chunk (before [DONE]) carries usage.
+    usage_events = [event for event in events if "usage" in event]
+    assert usage_events == [events[-1]]
+    assert usage_events[0]["usage"]["total_tokens"] > 0
 
 
 # ---------------------------------------------------------------------------

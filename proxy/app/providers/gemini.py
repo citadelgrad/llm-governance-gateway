@@ -23,6 +23,13 @@ class GeminiTranslationError(ValueError):
     """Chat semantics cannot be represented by Gemini without loss."""
 
 
+def _int_field(obj: object, key: str) -> int:
+    if not isinstance(obj, dict):
+        return 0
+    value = cast(JsonObject, obj).get(key, 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def _text_content(content: object, *, location: str) -> str:
     if isinstance(content, str):
         return content
@@ -336,6 +343,7 @@ async def chat_completions(
         async def _stream_body():
             completion_id = f"chatcmpl-gemini-{secrets.token_hex(8)}"
             final_finish_reason = "stop"
+            usage_meta: JsonObject = {}
             try:
                 async for line in upstream.aiter_lines():
                         line = line.strip()
@@ -348,6 +356,10 @@ async def chat_completions(
                             chunk_json = json.loads(raw)
                         except json.JSONDecodeError:
                             continue
+
+                        raw_usage_meta = chunk_json.get("usageMetadata")
+                        if isinstance(raw_usage_meta, dict):
+                            usage_meta = cast(JsonObject, raw_usage_meta)
 
                         candidates = chunk_json.get("candidates", [])
                         if not candidates:
@@ -412,11 +424,18 @@ async def chat_completions(
             finally:
                 await upstream.aclose()
 
+            prompt_tokens = _int_field(usage_meta, "promptTokenCount")
+            completion_tokens = _int_field(usage_meta, "candidatesTokenCount")
             final_chunk = {
                 "id": completion_id,
                 "object": "chat.completion.chunk",
                 "model": model,
                 "choices": [{"index": 0, "delta": {}, "finish_reason": final_finish_reason}],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
             }
             yield f"data: {json.dumps(final_chunk)}\n\n"
             yield "data: [DONE]\n\n"

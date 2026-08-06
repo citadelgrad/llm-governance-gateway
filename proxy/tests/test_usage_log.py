@@ -206,3 +206,76 @@ async def test_usage_log_write_failure_does_not_fail_request(async_client):
 
     assert response.status_code == 200
     assert "choices" in response.json()
+
+
+_STREAM_BODY_WITH_USAGE = {
+    "model": "gpt-5.6-luna",
+    "messages": [{"role": "user", "content": "Hello, how are you?"}],
+    "stream": True,
+    "stream_options": {"include_usage": True},
+}
+
+_STREAM_BODY_NO_USAGE = {
+    "model": "gpt-5.6-luna",
+    "messages": [{"role": "user", "content": "Hello, how are you?"}],
+    "stream": True,
+}
+
+
+async def test_streaming_request_with_usage_event_writes_real_tokens(async_client):
+    """Streaming AC1: a provider that emits usage in-stream produces a usage_log
+    row with non-zero tokens matching the provider-reported values."""
+    client, _ = async_client
+    conn = _conn(app.state.db_pool)
+
+    response = await client.post("/v1/chat/completions", json=_STREAM_BODY_WITH_USAGE)
+
+    assert response.status_code == 200
+    call_args = _usage_log_insert(conn)
+    assert call_args is not None
+    status = call_args[6]
+    prompt_tokens, completion_tokens, total_tokens = call_args[7:10]
+    assert status == "allowed"
+    assert (prompt_tokens, completion_tokens, total_tokens) == (10, 5, 15)
+
+
+async def test_streaming_request_without_usage_event_still_writes_zero_cost_row(async_client):
+    """Streaming AC2: a provider that does not emit usage in-stream still writes a
+    usage_log row with status='allowed' and 0 tokens/0 cost, rather than skipping it."""
+    client, _ = async_client
+    conn = _conn(app.state.db_pool)
+
+    async def fetchrow(query, *args, **kwargs):
+        if "FROM pricing" in query:
+            return {
+                "input_rate_usd_per_token": Decimal("0.000005"),
+                "output_rate_usd_per_token": Decimal("0.000015"),
+            }
+        return None
+
+    conn.fetchrow.side_effect = fetchrow
+
+    response = await client.post("/v1/chat/completions", json=_STREAM_BODY_NO_USAGE)
+
+    assert response.status_code == 200
+    call_args = _usage_log_insert(conn)
+    assert call_args is not None
+    status = call_args[6]
+    prompt_tokens, completion_tokens, total_tokens = call_args[7:10]
+    cost_usd = call_args[10]
+    assert status == "allowed"
+    assert (prompt_tokens, completion_tokens, total_tokens) == (0, 0, 0)
+    assert cost_usd == Decimal("0")
+
+
+async def test_streaming_response_body_unchanged_by_usage_capture(async_client):
+    """Streaming AC3: SSE format and translated chunks returned to the client are
+    unchanged by the usage-capture wrapper."""
+    client, _ = async_client
+
+    response = await client.post("/v1/chat/completions", json=_STREAM_BODY_WITH_USAGE)
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    assert b"data:" in response.content
+    assert response.content.rstrip().endswith(b"data: [DONE]")

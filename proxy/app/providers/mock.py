@@ -17,7 +17,7 @@ def _match_scenario(messages: list[dict]) -> MockScenario:
     return next((s for s in ALL_SCENARIOS if s.name == "clean_request"), ALL_SCENARIOS[0])
 
 
-async def _stream_sse(text: str, model: str, delay_ms: int):
+async def _stream_sse(text: str, model: str, delay_ms: int, include_usage: bool):
     chunk_size = 5
     chunks = [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
 
@@ -37,16 +37,16 @@ async def _stream_sse(text: str, model: str, delay_ms: int):
         if delay_ms > 0:
             await asyncio.sleep(delay_ms / 1000)
 
-    final = json.dumps(
-        {
-            "id": "chatcmpl-mock",
-            "object": "chat.completion.chunk",
-            "created": 0,
-            "model": model,
-            "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
-        }
-    )
-    yield f"data: {final}\n\n"
+    final: dict = {
+        "id": "chatcmpl-mock",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": model,
+        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}],
+    }
+    if include_usage:
+        final["usage"] = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    yield f"data: {json.dumps(final)}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -75,8 +75,10 @@ async def chat_completions(
         )
 
     if stream:
+        stream_options = body.get("stream_options") or {}
+        include_usage = bool(stream_options.get("include_usage"))
         return StreamingResponse(
-            _stream_sse(scenario.response_text, model, delay_ms),
+            _stream_sse(scenario.response_text, model, delay_ms, include_usage),
             media_type="text/event-stream",
             headers=extra_headers,
         )

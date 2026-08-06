@@ -651,6 +651,52 @@ async def test_anthropic_stream_tool_use_stop_reason_maps_to_tool_calls(httpx_mo
     assert final_chunk["choices"][0]["delta"] == {}
 
 
+async def test_anthropic_stream_final_chunk_includes_usage(httpx_mock):
+    """message_start input_tokens + message_delta output_tokens are combined
+    into a usage block on the final OpenAI-shaped chunk."""
+    sse_lines = [
+        'data: {"type": "message_start", "message": {"id": "msg_usage1", "model": "claude-sonnet-4-6", "usage": {"input_tokens": 12}}}',
+        'data: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}',
+        'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}}',
+        'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 4}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.anthropic.com/v1/messages",
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = anthropic_provider.make_client("test-key")
+    try:
+        response = await anthropic_provider.chat_completions(
+            client,
+            {
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        chunks = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:") and not line.endswith("[DONE]"):
+                    chunks.append(json.loads(line[len("data:"):].strip()))
+    finally:
+        await client.aclose()
+
+    final_chunk = chunks[-1]
+    assert final_chunk["usage"] == {
+        "prompt_tokens": 12,
+        "completion_tokens": 4,
+        "total_tokens": 16,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Gemini — request translation
 # ---------------------------------------------------------------------------
@@ -869,6 +915,51 @@ async def test_gemini_chat_completions_end_to_end(httpx_mock):
     assert envelope["choices"][0]["message"]["content"] == "pong"
     assert envelope["choices"][0]["finish_reason"] == "stop"
     assert envelope["usage"]["total_tokens"] == 3
+
+
+async def test_gemini_stream_final_chunk_includes_usage(httpx_mock):
+    """The last-seen usageMetadata on a streamed chunk is surfaced on the
+    final OpenAI-shaped chunk."""
+    sse_lines = [
+        'data: {"candidates": [{"content": {"parts": [{"text": "pong"}]}}], "usageMetadata": {"promptTokenCount": 2, "candidatesTokenCount": 1}}',
+        'data: {"candidates": [{"content": {"parts": []}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 2, "candidatesTokenCount": 2}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse",
+        match_headers={"x-goog-api-key": "gemini-test-key"},
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = gemini_provider.make_client("gemini-test-key")
+    try:
+        response = await gemini_provider.chat_completions(
+            client,
+            {
+                "model": "gemini-3.1-flash-lite",
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        chunks = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:") and not line.endswith("[DONE]"):
+                    chunks.append(json.loads(line[len("data:"):].strip()))
+    finally:
+        await client.aclose()
+
+    final_chunk = chunks[-1]
+    assert final_chunk["usage"] == {
+        "prompt_tokens": 2,
+        "completion_tokens": 2,
+        "total_tokens": 4,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -56,6 +56,7 @@ from proxy.app.responses_compat import (
     translate_chat_response,
 )
 from proxy.app.routing import load_models_yaml, resolve_provider
+from proxy.app.stream_usage import capture_stream_usage
 from proxy.app.usage_log import resolve_cost, write_usage_log
 from pydantic import BaseModel, ValidationError
 from redis.asyncio import Redis
@@ -598,6 +599,35 @@ async def _run_gateway_pipeline(
             request, caller, canonical_model_id, "allowed",
             request.state.usage_metrics, started_at, perf_start,
         )
+    elif stream:
+        if isinstance(response, StreamingResponse) and response.status_code < 400:
+
+            async def _on_stream_complete(usage: UsageMetrics) -> None:
+                request.state.usage_metrics = usage
+                await _log_outcome(
+                    request, caller, canonical_model_id, "allowed",
+                    usage, started_at, perf_start,
+                )
+
+            response = StreamingResponse(
+                capture_stream_usage(
+                    response.body_iterator,
+                    protocol=response_protocol,
+                    provider=effective_provider,
+                    on_complete=_on_stream_complete,
+                ),
+                status_code=response.status_code,
+                media_type=response.media_type,
+                headers=dict(response.headers),
+            )
+        else:
+            # Stream was requested but the provider returned a plain error
+            # Response instead (e.g. upstream connection failure before any
+            # bytes arrived) — still write a row rather than skip it (AC2).
+            await _log_outcome(
+                request, caller, canonical_model_id, "allowed",
+                request.state.usage_metrics, started_at, perf_start,
+            )
 
     return response, extra_headers, response_protocol
 
@@ -655,11 +685,22 @@ async def responses(
     try:
         req = ResponsesCreateRequest.model_validate(body)
     except ValidationError as exc:
+        violations = [
+            {
+                "field": format_validation_location(error["loc"]),
+                "type": error["type"],
+                "message": error["msg"],
+            }
+            for error in exc.errors(include_url=False, include_input=False)
+        ]
         raise HTTPException(
             status_code=400,
-            detail=error_envelope(
-                "invalid_request", "Request body is not a valid OpenAI Responses request"
-            ),
+            detail={
+                **error_envelope(
+                    "invalid_request", "Request body is not a valid OpenAI Responses request"
+                ),
+                "violations": violations,
+            },
         ) from exc
 
     response, extra_headers, response_protocol = await _run_gateway_pipeline(
@@ -823,6 +864,7 @@ async def count_tokens(
 async def list_models(
     request: Request,
     caller: CallerContext = Depends(get_caller_compat),
+    client_version: str | None = None,
 ):
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
     allowed = set(tenant["allowed_models"])
@@ -839,6 +881,13 @@ async def list_models(
             {"id": m["id"], "object": "model", "created": 0, "owned_by": m["provider"]}
             for m in models
         ]
+
+    if client_version is not None:
+        # Codex's provider-specific catalog is not the OpenAI Models API. An
+        # empty catalog is valid and makes Codex retain its configured model;
+        # returning the OpenAI envelope here causes current Codex clients to
+        # reject model discovery before inference starts.
+        return {"models": []}
 
     return {"object": "list", "data": data}
 

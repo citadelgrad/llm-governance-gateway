@@ -20,6 +20,13 @@ _STOP_REASON_MAP: dict[str, str] = {
 }
 
 
+def _int_field(obj: object, key: str) -> int:
+    if not isinstance(obj, dict):
+        return 0
+    value = cast(JsonObject, obj).get(key, 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def make_client(api_key: str) -> httpx.AsyncClient:
     """Create the shared Anthropic client. Call once at lifespan startup."""
     return httpx.AsyncClient(
@@ -412,6 +419,8 @@ async def chat_completions(
             # Maps content_block index → tool_calls array index for tool_use blocks
             tool_block_index: dict[int, int] = {}
             tool_call_counter = 0
+            input_tokens = 0
+            output_tokens = 0
             try:
                 async with _opened_stream() as checked_upstream:
                     async for line in checked_upstream.aiter_lines():
@@ -430,6 +439,7 @@ async def chat_completions(
                         if etype == "message_start":
                             msg = event.get("message", {})
                             completion_id = msg.get("id", "")
+                            input_tokens = _int_field(msg.get("usage"), "input_tokens")
                             continue
 
                         if etype == "content_block_start":
@@ -515,6 +525,7 @@ async def chat_completions(
                             delta = event.get("delta", {})
                             stop_reason = delta.get("stop_reason", "end_turn")
                             finish_reason = _STOP_REASON_MAP.get(stop_reason, "stop")
+                            output_tokens = _int_field(event.get("usage"), "output_tokens")
                             final_chunk = {
                                 "id": completion_id,
                                 "object": "chat.completion.chunk",
@@ -526,6 +537,11 @@ async def chat_completions(
                                         "finish_reason": finish_reason,
                                     }
                                 ],
+                                "usage": {
+                                    "prompt_tokens": input_tokens,
+                                    "completion_tokens": output_tokens,
+                                    "total_tokens": input_tokens + output_tokens,
+                                },
                             }
                             yield f"data: {json.dumps(final_chunk)}\n\n"
                             yield "data: [DONE]\n\n"
