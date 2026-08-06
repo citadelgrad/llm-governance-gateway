@@ -1,0 +1,38 @@
+proxy/pyproject.toml
+  s_49a4e5d1e21312::t_0c9351e3ab5644 40
+proxy/app/templates/_dashboard_data.html
+  s_49a4e5d1e21312::t_fd9a930a93af62 1-75
+proxy/app/templates/dashboard.html
+  s_49a4e5d1e21312::t_f904b7b5bd06d2 1-61
+proxy/tests/test_dashboard.py
+  s_49a4e5d1e21312::t_774d2740ee0b77 1-124,126-227
+  s_49a4e5d1e21312::t_00fb597e25a349 125
+proxy/tests/conftest.py
+  s_49a4e5d1e21312::t_ed90253fa93880 168,185
+  s_49a4e5d1e21312::t_6c8a4e57c4b292 11
+  s_49a4e5d1e21312::t_6599796899a335 105
+proxy/app/main.py
+  s_49a4e5d1e21312::t_3f5554b0152f6d 156
+  s_49a4e5d1e21312::t_b9b599aac92826 30
+  s_49a4e5d1e21312::t_0a1988e6e6ac9b 155
+proxy/app/dashboard.py
+  s_49a4e5d1e21312::t_fefe0c25501977 1-218
+proxy/uv.lock
+  s_49a4e5d1e21312::t_c9a8c0b3c919e3 704-715,908,953
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d20d30d02f2b1a2a1e630605c5ae3739828b8274",
+  "prompts": {},
+  "sessions": {
+    "s_49a4e5d1e21312": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d8ff8cce-572a-4850-9985-b216b02159d1",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
