@@ -1,0 +1,61 @@
+proxy/app/main.py
+  s_1c62c7b9b8e9db::t_da1233033b265e 602-630
+  s_1c62c7b9b8e9db::t_aaee787fb034f8 59
+  s_d4f978492f69e4::t_06f2b8b493a288 688-695,698-703,867,885-890
+  s_d4f978492f69e4::t_e0cf30ae473873 891
+proxy/app/stream_usage.py
+  s_1c62c7b9b8e9db::t_4e0e7a931b8a11 1-12,14-86,91-112
+  s_1c62c7b9b8e9db::t_ad7ac93a1a2a71 13
+  s_1c62c7b9b8e9db::t_30a4809ec537be 87-90
+proxy/app/providers/anthropic.py
+  s_1c62c7b9b8e9db::t_8d40e1e4a359cc 442
+  s_1c62c7b9b8e9db::t_b5d4c84a39bea5 422-423
+  s_1c62c7b9b8e9db::t_b3437efedfd39e 23-25,27-29
+  s_1c62c7b9b8e9db::t_2fd061f77e8a92 26
+  s_1c62c7b9b8e9db::t_9896d6fd418278 528,540-544
+proxy/tests/test_adapters.py
+  s_1c62c7b9b8e9db::t_5b31cad1fb3454 654-699
+  s_1c62c7b9b8e9db::t_172dfb1188783f 920-964
+proxy/tests/test_real_client_smoke.py
+  s_1c62c7b9b8e9db::t_3b9dcc5ef20954 119-124
+proxy/tests/test_usage_log.py
+  s_1c62c7b9b8e9db::t_fc237bb33ce286 209-281
+proxy/app/providers/gemini.py
+  s_1c62c7b9b8e9db::t_068b628e4e4eaf 29
+  s_1c62c7b9b8e9db::t_19790caad9e538 26-28,30-32
+  s_1c62c7b9b8e9db::t_9e6cd509500963 360-363
+  s_1c62c7b9b8e9db::t_b011117abfa8ff 346
+  s_1c62c7b9b8e9db::t_4f36b845cdfbc1 427-428,434-438
+proxy/app/providers/mock.py
+  s_1c62c7b9b8e9db::t_d154a0e28ae909 20,40-49
+  s_1c62c7b9b8e9db::t_eef383c7e3b8c0 78-79,81
+proxy/tests/test_stream_usage.py
+  s_1c62c7b9b8e9db::t_58c540ea3777bd 181
+  s_1c62c7b9b8e9db::t_3baa5c7cd07bfc 1-180,182-185
+proxy/uv.lock
+  s_1c62c7b9b8e9db::t_f2996bba80b66e 9-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "866c52018afbeb33e75ba820903f2b206e8bc80d",
+  "prompts": {},
+  "sessions": {
+    "s_1c62c7b9b8e9db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1d67b929-4eba-4aae-83c5-889efc8cf0e8",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_d4f978492f69e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72807fa9-1145-48fa-92e5-bfc8390f7670",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
