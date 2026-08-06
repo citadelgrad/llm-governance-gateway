@@ -1,0 +1,24 @@
+scripts/provision.py
+  s_4522e8b3653a4a::t_668745d63a4aff 44-50
+  s_4522e8b3653a4a::t_27bcc5771f70b6 112-129
+config/pricing.yaml
+  s_4522e8b3653a4a::t_750f199fdc0bb3 1-25
+proxy/migrations/versions/003_pricing.py
+  s_4522e8b3653a4a::t_4172b238677c68 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "20f17a2d8c33b99cb49ccd09f97069886293f647",
+  "prompts": {},
+  "sessions": {
+    "s_4522e8b3653a4a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "582aae32-2825-4672-a758-4cdd399b9026",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
