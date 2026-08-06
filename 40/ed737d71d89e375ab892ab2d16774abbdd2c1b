@@ -1,0 +1,38 @@
+Makefile
+  s_e938ca2f2349ee::t_494a4f2ea38d9d 38
+  s_e938ca2f2349ee::t_fd3ae27053f38d 126
+proxy/migrations/env.py
+  s_e938ca2f2349ee::t_7eabbb77d7e585 1-65
+README.md
+  s_e938ca2f2349ee::t_ed4fead51426e1 174
+docker-compose.yml
+  s_e938ca2f2349ee::t_e5ff9ec3ccc617 96-104,130-131
+proxy/migrations/script.py.mako
+  s_e938ca2f2349ee::t_5063050da0c00e 1-28
+proxy/alembic.ini
+  s_e938ca2f2349ee::t_e2a317361196d4 1-149
+proxy/pyproject.toml
+  s_e938ca2f2349ee::t_585a1b3556acc2 27
+proxy/migrations/README
+  s_e938ca2f2349ee::t_b8e781948f5988 1
+proxy/migrations/versions/001_baseline.py
+  s_e938ca2f2349ee::t_e60986852796d2 1-23
+proxy/uv.lock
+  s_e938ca2f2349ee::t_ceea0c192dc72c 9-22,772-846,889,930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "40ed737d71d89e375ab892ab2d16774abbdd2c1b",
+  "prompts": {},
+  "sessions": {
+    "s_e938ca2f2349ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9661e928-246a-4649-853d-6d8fc88ba970",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
