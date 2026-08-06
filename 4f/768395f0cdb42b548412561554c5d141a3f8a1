@@ -1,0 +1,60 @@
+proxy/tests/test_models.py
+  s_d4f978492f69e4::t_06f2b8b493a288 17-25
+proxy/tests/test_adapters.py
+  s_d4f978492f69e4::t_06f2b8b493a288 287,303,329,363,401,465,477,513,530,564,583,615,632,1176,1363,1432,1462,1489,1514,1527,1547,1577
+policies/llm/allow_model.rego
+  s_d4f978492f69e4::t_06f2b8b493a288 15,33-38
+  s_d4f978492f69e4::t_fa4b29ba099b2d 39
+proxy/tests/test_official_sdk_contracts.py
+  s_d4f978492f69e4::t_06f2b8b493a288 67,69,110-112,119-121,186,227-229
+proxy/tests/test_responses.py
+  s_d4f978492f69e4::t_06f2b8b493a288 452-471,515,526-529
+config/tenants.yaml
+  s_d4f978492f69e4::t_06f2b8b493a288 7,21
+proxy/app/responses_compat.py
+  s_d4f978492f69e4::t_06f2b8b493a288 63,271
+policies/llm/authz.rego
+  s_d4f978492f69e4::t_06f2b8b493a288 8,17,41-45
+  s_d4f978492f69e4::t_508277c2cd2972 46-47
+scripts/setup-vscode-sandbox.sh
+  s_d4f978492f69e4::t_06f2b8b493a288 332
+docs/onboarding.md
+  s_d4f978492f69e4::t_06f2b8b493a288 80,256,354,365
+scripts/onboard.py
+  s_d4f978492f69e4::t_06f2b8b493a288 253
+proxy/app/provider_capabilities.py
+  s_d4f978492f69e4::t_06f2b8b493a288 90-97
+tests/test_onboard_cli.py
+  s_d4f978492f69e4::t_06f2b8b493a288 125,136
+proxy/tests/test_real_client_smoke.py
+  s_d4f978492f69e4::t_06f2b8b493a288 248,295
+config/models.yaml
+  s_d4f978492f69e4::t_06f2b8b493a288 16,32
+policies/llm/authz_test.rego
+  s_d4f978492f69e4::t_06f2b8b493a288 54,78-90,115,166
+proxy/tests/test_claude_code_config.py
+  s_d4f978492f69e4::t_06f2b8b493a288 10,16,64,81,123
+policies/llm/allow_model_test.rego
+  s_d4f978492f69e4::t_06f2b8b493a288 47-48,53-57
+  s_d4f978492f69e4::t_20d6c5581a1454 58-60
+proxy/tests/test_messages.py
+  s_d4f978492f69e4::t_06f2b8b493a288 19,57,69,127,144-153,163-172,307-324,328,351,395,439,453,464-479,483,488,499,525,546
+proxy/app/anthropic_compat.py
+  s_d4f978492f69e4::t_06f2b8b493a288 75-146,186,228,546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "4f768395f0cdb42b548412561554c5d141a3f8a1",
+  "prompts": {},
+  "sessions": {
+    "s_d4f978492f69e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72807fa9-1145-48fa-92e5-bfc8390f7670",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
