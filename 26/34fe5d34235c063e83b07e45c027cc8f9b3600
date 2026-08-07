@@ -1,0 +1,34 @@
+proxy/app/protocol_types.py
+  s_54e23e83b9ad85::t_91a4dc6fef2b6e 74-76
+  s_54e23e83b9ad85::t_2323550eb033b1 72-73
+proxy/pyproject.toml
+  s_54e23e83b9ad85::t_67ce0373cd2d52 20
+  s_54e23e83b9ad85::t_326acc83e1ce9c 53
+  s_54e23e83b9ad85::t_1bd0a7a3d51163 51-52
+  s_54e23e83b9ad85::t_0651914673f86c 38-39
+proxy/app/provider_capabilities.py
+  s_54e23e83b9ad85::t_e990d83777c786 148
+  s_54e23e83b9ad85::t_efe0261278a540 125
+proxy/tests/test_official_sdk_contracts.py
+  s_54e23e83b9ad85::t_38514e68d5ecc8 424,432,436-437,457
+shared-pins.toml
+  s_54e23e83b9ad85::t_4d9f462c873b88 23-24
+proxy/uv.lock
+  s_54e23e83b9ad85::t_c22053279074a4 11,18,20,25,27,29,34,36,38,43,55,57,62,68,70,181,183,185,190,192,194,199,204-279,345,350,352,366,371-411,446,455,457,462,468,470,480,494,496,501-563,577-636,705,710-753,758,760,762,856,861,863,931,943,945,950,952,954,1014,1018,1020,1024,1032,1037,1172,1179,1181,1195,1204,1206,1265,1267,1269,1320,1322,1324,1361-1381,1413,1419-1449,1459,1465,1467,1493-1513,1518,1520,1522,1548,1554,1556,1689-1761
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "2634fe5d34235c063e83b07e45c027cc8f9b3600",
+  "prompts": {},
+  "sessions": {
+    "s_54e23e83b9ad85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e27d9b3-1d2c-40fd-9ff9-2f54bae032c4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
