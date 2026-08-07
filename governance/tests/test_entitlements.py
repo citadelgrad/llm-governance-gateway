@@ -16,7 +16,12 @@ REAL_REGO_PATH = str(Path(__file__).resolve().parents[2] / "policies" / "mcp" / 
 def _untar(bundle_bytes: bytes) -> dict[str, bytes]:
     tar_bytes = gzip.decompress(bundle_bytes)
     with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as tar:
-        return {member.name: tar.extractfile(member).read() for member in tar.getmembers()}
+        members = {}
+        for member in tar.getmembers():
+            extracted = tar.extractfile(member)
+            assert extracted is not None
+            members[member.name] = extracted.read()
+        return members
 
 
 def test_extract_entitlements_reads_real_authz_rego():
