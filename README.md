@@ -19,53 +19,110 @@ Production-grade OpenAI-compatible LLM gateway with policy enforcement, PII reda
 
 ```text
 .
-├── proxy/                 # Public FastAPI gateway, auth, routing, adapters, rate limiting
-├── governance/            # Internal FastAPI governance service, PII/harm/policy/audit pipeline
-├── policies/llm/          # OPA Rego policies and policy tests
-├── policies/data/         # Generated OPA data documents
-├── config/                # Seed tenants, users, and model routing config
-├── scripts/               # Provisioning, demos, partition rotation, Fly helpers
-├── tests/integration/     # Docker Compose smoke tests
-├── docs/                  # Architecture, demo scenarios, release notes, plans
-├── infra/example/fly.io/  # Optional Fly.io deployment examples
-├── docker-compose.yml     # Local stack: proxy, governance, OPA, Postgres, Redis
-└── Makefile               # Main operator interface
+├── proxy/                          # Public FastAPI gateway: auth, routing, adapters, rate limiting, usage dashboard
+├── proxy/migrations/               # Proxy-owned Alembic migrations (usage_log, pricing)
+├── governance/                     # Internal FastAPI governance service, PII/harm/policy/audit pipeline
+├── governance/migrations/          # Governance-owned Alembic migrations (audit_log)
+├── mcpproxy/                       # MCP Reverse Proxy: public MCP tool-call ingress, DLP checkpoint, audit
+├── opa-sidecar/                    # Per-mcpproxy-replica OPA process (tool-call-boundary policy only)
+├── policies/llm/                   # OPA Rego policies and tests for the ingress `opa` service
+├── policies/mcp/                   # OPA Rego policies and tests for the `opa-sidecar` service
+├── policies/data/                  # Generated OPA data documents (written by `make provision`)
+├── config/                         # Seed tenants, users, model routing, and pricing config
+├── pipelines/                      # PAS pipeline definitions (.dot)
+├── scripts/                        # Provisioning, demos, partition rotation, Fly helpers
+├── tests/integration/              # Docker Compose smoke tests
+├── docs/                           # Architecture, demo scenarios, release notes, plans
+├── docs/adr/                       # Architecture decision records
+├── infra/example/fly.io/           # Optional Fly.io deployment examples
+├── infra/terraform/                # Optional Terraform (e.g. Google DLP dev IAM access)
+├── docker-compose.yml              # Local stack: proxy, mcpproxy, governance, OPA (ingress + sidecar), Postgres, Redis
+├── docker-compose.google-dlp.yml   # Optional overlay: adds the Google DLP credential sentinel
+└── Makefile                        # Main operator interface
 ```
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    client[Client / API consumer]
+    client([Client / API consumer])
 
     subgraph gateway[LLM Governance Gateway]
         proxy[Proxy FastAPI\npublic :18765]
+
+        subgraph mcpnode[mcpproxy replica]
+            mcpproxy[MCP Reverse Proxy\npublic :18766]
+            opasidecar[OPA Sidecar\nloopback :8181]
+        end
+
         governance[Governance FastAPI\ninternal]
-        opa[Open Policy Agent\nRego policies]
-        postgres[(Postgres\naudit + pseudonyms)]
+        opa[OPA Ingress\nRego llm/* policies]
+        postgres[(Postgres\naudit + usage + pricing)]
         redis[(Redis\nrate limits)]
     end
 
     providers[LLM providers\nOpenAI / Anthropic / Gemini / Ollama / generic]
+    mcptool[Downstream MCP tool server]
 
     client -->|JWT or API key| proxy
     proxy --> redis
     proxy --> governance
+    proxy --> postgres
+    proxy -->|internal token| mcpproxy
+    proxy --> providers
+    mcpproxy -->|authz check| opasidecar
+    mcpproxy -->|DLP scan + audit| governance
+    mcpproxy --> mcptool
+    opasidecar -.->|entitlements poll| governance
     governance --> opa
     governance --> postgres
-    proxy --> providers
+
+    style client fill:#1168bd,color:#fff,stroke:#0b4884
+    style proxy fill:#1168bd,color:#fff,stroke:#0b4884
+    style mcpproxy fill:#1168bd,color:#fff,stroke:#0b4884
+    style opasidecar fill:#1168bd,color:#fff,stroke:#0b4884
+    style governance fill:#1168bd,color:#fff,stroke:#0b4884
+    style opa fill:#1168bd,color:#fff,stroke:#0b4884
+    style postgres fill:#2d6a4f,color:#fff,stroke:#1b4332
+    style redis fill:#2d6a4f,color:#fff,stroke:#1b4332
+    style providers fill:#999,color:#fff,stroke:#7a7a7a
+    style mcptool fill:#999,color:#fff,stroke:#7a7a7a
 ```
 
-Request path:
+| Node | Type | Description |
+|---|---|---|
+| Client / API consumer | Person | Human, CLI (Claude Code/Codex), or agent calling the gateway |
+| Proxy FastAPI | Container | Public ingress; chat-completions/Responses/Messages APIs, auth, routing, rate limits, usage dashboard |
+| MCP Reverse Proxy | Container | Public ingress for MCP tool calls, reachable only with the shared internal token the proxy holds |
+| OPA Sidecar | Container | One process per `mcpproxy` replica, loopback-only; evaluates `policies/mcp/authz.rego` fresh per call, no caching |
+| Governance FastAPI | Container | Internal only; PII, harm, policy, audit; also serves the MCP entitlements bundle and PII-scan endpoints |
+| OPA Ingress | Container | Shared OPA instance; evaluates `policies/llm/*` for the LLM request path |
+| Postgres | Container | Governance's audit log plus the proxy's usage log and pricing table |
+| Redis | Container | Sliding-window rate-limit counters |
+| LLM providers | External | OpenAI, Anthropic, Gemini, Ollama, generic OpenAI-compatible, mock |
+| Downstream MCP tool server | External | Single configurable target today (`MCP_DOWNSTREAM_URL`); per-server routing is not yet built |
 
-1. Client calls the proxy with an OpenAI-compatible chat-completions or Responses request.
+Two request paths:
+
+**LLM request path** (chat completions, Responses, Messages)
+
+1. Client calls the proxy with an OpenAI-compatible, OpenAI Responses, or Anthropic Messages request.
 2. Proxy authenticates the caller and resolves tenant/user context.
 3. Proxy checks the Redis sliding-window rate limit.
 4. Proxy asks governance to inspect the request text.
-5. Governance detects PII, pseudonymizes sensitive values, scores harm, and asks OPA for policy decisions.
+5. Governance detects PII, pseudonymizes sensitive values, scores harm, and asks the ingress OPA for policy decisions.
 6. Governance writes an audit record and returns allow/block/redacted-text metadata.
 7. Proxy blocks the request or dispatches the redacted request to the selected provider.
-8. Proxy returns the provider response with audit and rate-limit headers.
+8. Proxy computes cost from the pricing table, writes a usage log row, and returns the provider response with audit/rate-limit/usage headers.
+
+**MCP tool-call path** (`POST /v1/mcp/{server}/call`)
+
+1. Client calls the proxy; the proxy authenticates the caller and forwards the call to the MCP Reverse Proxy with the shared internal token.
+2. The MCP Reverse Proxy asks its colocated OPA Sidecar for an authorization decision, evaluated fresh with no caching. While the sidecar is unreachable, a circuit breaker falls back to a static break-glass allow-list.
+3. On deny, the MCP Reverse Proxy blocks the call and posts an audit event, without contacting the downstream tool.
+4. On allow, the MCP Reverse Proxy calls the downstream MCP tool server and fully buffers the response (size- and time-capped).
+5. Governance PII-scans the buffered response; any finding, cap breach, or scan error blocks the response (fail closed).
+6. The MCP Reverse Proxy posts an audit event and returns the tool result to the caller.
 
 See [Architecture](docs/architecture.md) for the deeper architecture notes.
 
@@ -153,6 +210,21 @@ curl -X POST http://localhost:18765/v1/chat/completions \
   }'
 ```
 
+The proxy also speaks two other client protocols on the same authentication and governance path:
+
+- `POST /v1/responses` — OpenAI Responses API, for Codex-style clients.
+- `POST /v1/messages` and `POST /v1/messages/count_tokens` — Anthropic Messages API, for Claude Code.
+
+MCP tool calls go through a separate gated path:
+
+- `POST /v1/mcp/{server}/call` — forwards to the MCP Reverse Proxy, which checks policy, calls the downstream tool, and DLP-scans the response before returning it.
+
+The usage dashboard is a normal browser page on the proxy:
+
+- `GET /dashboard` — usage/cost view, `admin` role sees the whole tenant, other roles see only their own API key.
+
+Full request/response examples for every protocol are in [Onboarding](docs/onboarding.md).
+
 Useful response headers:
 
 - `X-Audit-ID` — audit record correlation ID when governance is reached.
@@ -206,10 +278,13 @@ Important environment variables:
 | `ANTHROPIC_API_KEY` | Anthropic provider key |
 | `GEMINI_API_KEY` | Google Gemini provider key |
 | `OLLAMA_BASE_URL` | Ollama/OpenAI-compatible local base URL |
+| `MCPPROXY_URL` | MCP Reverse Proxy base URL used by the proxy to forward `/v1/mcp/{server}/call` |
+| `GATEWAY_MCPPROXY_PORT` | Host port the MCP Reverse Proxy binds to (default `18766`) |
 | `PII_BACKEND` | PII scanner: `google` for production, explicit `presidio` rollback/local fallback |
 | `GOOGLE_CLOUD_PROJECT` | GCP project used for Sensitive Data Protection inspection |
 | `GOOGLE_DLP_LOCATION` | DLP processing location; defaults to `global` |
 | `GOOGLE_DLP_API_ENDPOINT` | Optional regional endpoint hostname for in-transit residency |
+| `GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT` | Service account the governance container must run as when Google DLP is enabled |
 | `GOOGLE_DLP_MIN_LIKELIHOOD` | Minimum Google finding likelihood; defaults to `POSSIBLE` |
 | `GOOGLE_DLP_TIMEOUT_SECONDS` | DLP RPC timeout/retry deadline; defaults to 5 seconds |
 | `GOOGLE_DLP_INFO_TYPES` | Comma-separated Google detector allowlist |
@@ -219,7 +294,8 @@ Never commit real `.envrc`, `.env`, provider keys, JWT secrets, HMAC keys, or da
 
 See [Google Sensitive Data Protection PII backend](docs/google-sensitive-data-protection.md)
 for IAM, ADC/workload identity, regional processing, cost/quota, live smoke, and
-rollback instructions.
+rollback instructions, including the full optional `google-credential-sentinel`
+overlay (`docker-compose.google-dlp.yml`) variable list.
 
 ## Governance controls
 
@@ -244,6 +320,8 @@ The repo includes optional [Fly.io example config](infra/example/fly.io/) for a 
 | database/redis | Private/internal | State and rate limiting |
 
 Do not expose the governance service, OPA, Postgres, or Redis directly to the public internet.
+
+The MCP Reverse Proxy and OPA Sidecar are not yet part of this Fly.io example topology. Today they run only through `docker-compose.yml`; the MCP tool-call path is local/dev-only until Fly configs for them exist.
 
 ## Public release status
 
