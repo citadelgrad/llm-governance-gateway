@@ -421,6 +421,7 @@ def test_anthropic_nested_unions_drift_snapshot():
 
 def test_google_genai_part_and_finish_reason_drift_snapshot():
     assert set(Part.model_fields) == {
+        "audio_transcription",
         "code_execution_result",
         "executable_code",
         "file_data",
@@ -428,9 +429,12 @@ def test_google_genai_part_and_finish_reason_drift_snapshot():
         "function_response",
         "inline_data",
         "media_resolution",
+        "part_metadata",
         "text",
         "thought",
         "thought_signature",
+        "tool_call",
+        "tool_response",
         "video_metadata",
     }
     assert {reason.value for reason in FinishReason} == {
@@ -450,5 +454,6 @@ def test_google_genai_part_and_finish_reason_drift_snapshot():
         "SAFETY",
         "SPII",
         "STOP",
+        "TOO_MANY_TOOL_CALLS",
         "UNEXPECTED_TOOL_CALL",
     }

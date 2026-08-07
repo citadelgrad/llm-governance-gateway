@@ -122,6 +122,7 @@ ANTHROPIC_MESSAGES_FIELDS = frozenset(
 GEMINI_GENERATE_CONFIG_FIELDS = frozenset(
     {
         "audio_timestamp",
+        "audio_transcription_config",
         "automatic_function_calling",
         "cached_content",
         "candidate_count",
@@ -144,6 +145,7 @@ GEMINI_GENERATE_CONFIG_FIELDS = frozenset(
         "routing_config",
         "safety_settings",
         "seed",
+        "service_tier",
         "should_return_http_response",
         "speech_config",
         "stop_sequences",
