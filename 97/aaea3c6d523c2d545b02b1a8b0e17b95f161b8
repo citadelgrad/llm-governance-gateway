@@ -1,0 +1,31 @@
+README.md
+  s_5f157e2cd08808::t_7e27edc1f7b4af 48,52-57,59-60,65,70-76,80-90,92-109,113,116-125
+  s_5f157e2cd08808::t_55341cb4567890 281-282,287,297-298
+  s_5f157e2cd08808::t_5131d717cdd405 213-227
+  s_5f157e2cd08808::t_5b4523fad68906 324-325
+  s_5f157e2cd08808::t_bb6d50c1d9170d 22-41
+docs/architecture.md
+  s_5f157e2cd08808::t_4ee7dfaf566886 215,223-224,226,228,248-249
+  s_5f157e2cd08808::t_9c1f2bd20429fa 250-269
+  s_5f157e2cd08808::t_2152ab334d3fd7 116,118,125
+  s_5f157e2cd08808::t_2995dfd7fa6cd0 22-24,31,34-83
+  s_5f157e2cd08808::t_95c1f38a2a8d7d 9-14,18
+  s_5f157e2cd08808::t_7f36e2180e3ef2 19
+  s_5f157e2cd08808::t_7fdec02585ecd8 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "97aaea3c6d523c2d545b02b1a8b0e17b95f161b8",
+  "prompts": {},
+  "sessions": {
+    "s_5f157e2cd08808": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7985bc77-853d-4d3c-8dff-c6d112f83890",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
