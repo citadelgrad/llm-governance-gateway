@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -17,7 +16,6 @@ import yaml
 ROOT = Path(__file__).parent.parent
 DEFAULT_CONFIG_DIR = ROOT / "config"
 PLACEHOLDER_KEY = "REPLACE_IN_PROVISIONER"
-CONTINUE_MODEL_NAME = "LLM Governance Gateway"
 
 
 def _load_yaml(path: Path, top_key: str) -> dict[str, Any]:
@@ -100,56 +98,6 @@ def _gateway_v1_url(gateway_url: str) -> str:
     return f"{normalized}/v1"
 
 
-def configure_continue(
-    *,
-    config_path: Path,
-    gateway_url: str,
-    api_key: str,
-    model: str,
-) -> str:
-    """Idempotently add the gateway to Continue's user-level config.yaml."""
-    if config_path.exists():
-        data = yaml.safe_load(config_path.read_text()) or {}
-        if not isinstance(data, dict):
-            raise SystemExit(f"{config_path} must contain a YAML mapping")
-        backup_path = config_path.with_suffix(f"{config_path.suffix}.gateway-backup")
-        if not backup_path.exists():
-            shutil.copy2(config_path, backup_path)
-            backup_path.chmod(0o600)
-    else:
-        data = {"name": "Main Config", "version": "1.0.0", "schema": "v1"}
-
-    models = data.setdefault("models", [])
-    if not isinstance(models, list):
-        raise SystemExit(f"{config_path} must contain a top-level models: list")
-
-    gateway_model = {
-        "name": CONTINUE_MODEL_NAME,
-        "provider": "openai",
-        "model": model,
-        "apiBase": _gateway_v1_url(gateway_url),
-        "apiKey": api_key,
-        "useResponsesApi": True,
-        "roles": ["chat", "edit", "apply"],
-    }
-    matching_indexes = [
-        index
-        for index, configured_model in enumerate(models)
-        if isinstance(configured_model, dict)
-        and configured_model.get("name") == CONTINUE_MODEL_NAME
-    ]
-    if matching_indexes:
-        models[matching_indexes[0]] = gateway_model
-        for index in reversed(matching_indexes[1:]):
-            del models[index]
-    else:
-        models.append(gateway_model)
-
-    _write_yaml(config_path, data)
-    config_path.chmod(0o600)
-    return f"Configured {CONTINUE_MODEL_NAME} in {config_path}. Restart the IDE to reload Continue."
-
-
 def render_agent_config(*, gateway_url: str, api_key_env: str, model: str, claude_model: str) -> str:
     base = gateway_url.rstrip("/")
     v1 = _gateway_v1_url(gateway_url)
@@ -178,12 +126,6 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 export {api_key_env}=\"set-this-in-your-secret-manager\"
 codex -p gateway \"Reply with gateway-ok only.\"
 
-### Continue (writes ~/.continue/config.yaml idempotently)
-uv --no-config run --with pyyaml scripts/onboard.py configure-continue \\
-  --gateway-url \"{base}\" \\
-  --api-key-env \"{api_key_env}\" \\
-  --model \"{model}\"
-
 ## Windows PowerShell
 $env:GATEWAY_URL = \"{base}\"
 $env:{api_key_env} = \"set-this-in-your-secret-manager\"
@@ -199,12 +141,6 @@ $env:ANTHROPIC_BASE_URL = \"{base}\"
 $env:ANTHROPIC_AUTH_TOKEN = \"$env:{api_key_env}\"
 $env:ANTHROPIC_MODEL = \"{claude_model}\"
 $env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = \"1\"
-
-### Continue (writes %USERPROFILE%\\.continue\\config.yaml idempotently)
-uv --no-config run --with pyyaml scripts/onboard.py configure-continue `
-  --gateway-url \"{base}\" `
-  --api-key-env \"{api_key_env}\" `
-  --model \"{model}\"
 
 ### Codex config file
 # Add to ~/.codex/config.toml or %USERPROFILE%\\.codex\\config.toml.
@@ -252,19 +188,6 @@ def build_parser() -> argparse.ArgumentParser:
     agent_config.add_argument("--model", default="gpt-5.6-luna")
     agent_config.add_argument("--claude-model", default="claude-sonnet-4-6")
 
-    continue_config = subparsers.add_parser(
-        "configure-continue",
-        help="Idempotently configure Continue's user-level config.yaml",
-    )
-    continue_config.add_argument("--gateway-url", required=True)
-    continue_config.add_argument("--api-key-env", default="GATEWAY_API_KEY")
-    continue_config.add_argument("--model", default="gpt-5.6-luna")
-    continue_config.add_argument(
-        "--config-path",
-        type=Path,
-        default=Path.home() / ".continue" / "config.yaml",
-    )
-
     return parser
 
 
@@ -294,21 +217,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "agent-config":
         print(render_agent_config(gateway_url=args.gateway_url, api_key_env=args.api_key_env, model=args.model, claude_model=args.claude_model))
-        return 0
-    if args.command == "configure-continue":
-        api_key = os.environ.get(args.api_key_env)
-        if not api_key:
-            raise SystemExit(
-                f"Environment variable {args.api_key_env} must contain the gateway API key"
-            )
-        print(
-            configure_continue(
-                config_path=args.config_path,
-                gateway_url=args.gateway_url,
-                api_key=api_key,
-                model=args.model,
-            )
-        )
         return 0
     raise SystemExit(f"Unhandled command: {args.command}")
 

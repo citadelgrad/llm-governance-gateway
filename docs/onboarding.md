@@ -44,7 +44,6 @@ Agent compatibility today:
 | Agent | Native API it expects | Works with this gateway today? | Notes |
 |---|---|---|---|
 | Hermes | OpenAI-compatible `/v1/chat/completions` | yes | Use a custom/OpenAI-compatible provider pointed at the gateway. |
-| Continue | OpenAI Responses `/v1/responses` for GPT-5/reasoning models; Chat Completions otherwise | yes | The configurator sets `useResponsesApi: true` so GPT-5 reasoning and Agent tools use the compatible Responses path. |
 | Claude Code | Anthropic Messages: `/v1/messages`, `/v1/messages/count_tokens`, optionally `/v1/models` | yes with Anthropic routing; subset elsewhere | Native Anthropic routing preserves Messages tools, thinking, headers, JSON, and SSE. Cross-provider routes reject unsupported semantics. |
 | Codex CLI | OpenAI Responses API: `/v1/responses` | yes with OpenAI routing; subset elsewhere | Native OpenAI routing preserves Responses tools/state, headers, JSON, and SSE. Cross-provider translation supports text and function-call lifecycles only. |
 
@@ -246,7 +245,7 @@ Useful headers to inspect with `curl -i`:
 
 ## Configure production endpoint snippets
 
-Use the onboarding CLI to generate endpoint config for Hermes, Claude Code, Codex, and Continue without embedding a plaintext gateway key in the generated output:
+Use the onboarding CLI to generate endpoint config for Hermes, Claude Code, and Codex without embedding a plaintext gateway key in the generated output:
 
 ```bash
 uv --no-config run --with pyyaml scripts/onboard.py agent-config \
@@ -256,33 +255,7 @@ uv --no-config run --with pyyaml scripts/onboard.py agent-config \
   --claude-model claude-sonnet-4-6
 ```
 
-The output includes macOS/Linux and Windows PowerShell environment snippets, the Codex `config.toml` block, and the command that writes Continue's user-level config. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
-
-## Configure Continue automatically
-
-Continue reads user-level model configuration from `~/.continue/config.yaml` on macOS/Linux and `%USERPROFILE%\.continue\config.yaml` on Windows. Do not use Continue's provider form for gateway onboarding; run the idempotent configurator so existing unrelated models and settings are preserved:
-
-macOS/Linux:
-
-```bash
-export GATEWAY_API_KEY="gw_user_key"
-uv --no-config run --with pyyaml scripts/onboard.py configure-continue \\
-  --gateway-url "https://llm-gateway.example.com" \\
-  --api-key-env GATEWAY_API_KEY \\
-  --model gpt-5.6-luna
-```
-
-Windows PowerShell:
-
-```powershell
-$env:GATEWAY_API_KEY = "gw_user_key"
-uv --no-config run --with pyyaml scripts/onboard.py configure-continue `
-  --gateway-url "https://llm-gateway.example.com" `
-  --api-key-env GATEWAY_API_KEY `
-  --model gpt-5.6-luna
-```
-
-The command preserves unrelated settings and models, creates a one-time `config.yaml.gateway-backup`, stores the key in Continue's required local model configuration, sets `useResponsesApi: true`, sets both files to owner-only permissions where supported, and never prints the key. Restart the IDE after configuration. Continue 2.x uses `/v1/responses` for GPT-5/reasoning models when this flag is enabled; that is required when Agent mode combines function tools with non-none reasoning effort. Other models may continue to use `/v1/chat/completions`.
+The output includes macOS/Linux and Windows PowerShell environment snippets and the Codex `config.toml` block. It intentionally does not mention any deployment tool; use the same endpoint shape whether you deploy with containers, platform services, or a reverse proxy.
 
 ## Configure Hermes
 

@@ -2,9 +2,10 @@
 
 Compose/live smoke coverage before this file used simplified payloads, so the
 request shapes real agent clients actually send — Codex CLI's bearer API-key
-model discovery, Continue.dev's streaming tool-augmented chat completions,
-Codex's Responses streaming+tools traffic, and Claude Code's two-turn tool
-loop over /v1/messages — went untested even though basic checks passed. These
+model discovery, an OpenAI-compatible client's streaming tool-augmented chat
+completions, Codex's Responses streaming+tools traffic, and Claude Code's
+two-turn tool loop over /v1/messages — went untested even though basic checks
+passed. These
 tests run entirely against the provider-free mock stack (ASGITransport, no
 Docker/network) and parse structured JSON/event data rather than doing
 substring matching on raw response bodies.
@@ -23,12 +24,13 @@ from starlette.responses import Response as StarletteResponse
 
 
 async def test_models_bearer_api_key_returns_realistic_list(auth_client, api_key_creds):
-    """OpenAI-compatible agent CLIs (Codex CLI, Continue.dev) configure their
-    gateway credential as a bare API key sent as `Authorization: Bearer
-    <key>`, not a JWT. /v1/models uses the same get_caller_compat auth family
-    as /v1/messages, but the existing test_models.py coverage only exercises
-    it through the caller-override fixture (auth bypassed) — real
-    bearer-API-key auth against this specific endpoint was untested.
+    """OpenAI-compatible agent CLIs (Codex CLI and other OpenAI-compatible
+    clients) configure their gateway credential as a bare API key sent as
+    `Authorization: Bearer <key>`, not a JWT. /v1/models uses the same
+    get_caller_compat auth family as /v1/messages, but the existing
+    test_models.py coverage only exercises it through the caller-override
+    fixture (auth bypassed) — real bearer-API-key auth against this specific
+    endpoint was untested.
     """
     client, pool = auth_client
     raw_key, key_hash = api_key_creds
@@ -58,10 +60,10 @@ async def test_models_bearer_api_key_returns_realistic_list(auth_client, api_key
 
 
 # ---------------------------------------------------------------------------
-# 2. Continue.dev-shaped streaming chat-completions request
+# 2. OpenAI-compatible streaming tool-augmented chat-completions request
 # ---------------------------------------------------------------------------
 
-_CONTINUE_DEV_BODY = {
+_STREAMING_TOOL_AUGMENTED_BODY = {
     "model": "gpt-5.6-luna",
     "messages": [
         {"role": "system", "content": "You are in agent mode."},
@@ -87,16 +89,16 @@ _CONTINUE_DEV_BODY = {
 }
 
 
-async def test_continue_dev_shaped_stream_is_structurally_valid(async_client):
-    """Continue's IDE extension sends OpenAI chat-completions streaming
-    requests shaped like scripts/live_smoke.py's continue_stream() check: a
-    `tools` definition alongside `stream_options.include_usage`, terminated by
-    `data: [DONE]`. Parse every SSE frame as JSON (not a substring match) and
-    confirm the gateway accepts this request shape and produces a
-    well-formed chunk stream.
+async def test_streaming_tool_augmented_chat_is_structurally_valid(async_client):
+    """OpenAI-compatible IDE agent clients send chat-completions streaming
+    requests shaped like scripts/live_smoke.py's streaming tool-augmented
+    chat check: a `tools` definition alongside `stream_options.include_usage`,
+    terminated by `data: [DONE]`. Parse every SSE frame as JSON (not a
+    substring match) and confirm the gateway accepts this request shape and
+    produces a well-formed chunk stream.
     """
     client, _ = async_client
-    response = await client.post("/v1/chat/completions", json=_CONTINUE_DEV_BODY)
+    response = await client.post("/v1/chat/completions", json=_STREAMING_TOOL_AUGMENTED_BODY)
 
     assert response.status_code == 200
     assert "text/event-stream" in response.headers.get("content-type", "")

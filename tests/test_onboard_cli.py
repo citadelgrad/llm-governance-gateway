@@ -130,7 +130,6 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
     assert "Hermes" in output
     assert "Claude Code" in output
     assert "Codex" in output
-    assert "Continue" in output
     assert "https://gateway.example.com/v1" in output
     assert "gpt-5.6-luna" in output
     assert "claude-sonnet-4-6" in output
@@ -149,77 +148,3 @@ def test_agent_config_prints_all_supported_agents_without_embedding_secrets() ->
     assert forbidden_deployer not in output
 
 
-def test_configure_continue_upserts_gateway_model_and_preserves_existing_config(tmp_path: Path) -> None:
-    continue_config = tmp_path / ".continue" / "config.yaml"
-    continue_config.parent.mkdir()
-    continue_config.write_text(
-        """
-name: Main Config
-version: 1.0.0
-schema: v1
-models:
-  - name: Existing Model
-    provider: ollama
-    model: qwen2.5-coder
-""".lstrip()
-    )
-
-    args = (
-        "configure-continue",
-        "--gateway-url",
-        "https://gateway.example.com",
-        "--api-key-env",
-        "GATEWAY_API_KEY",
-        "--model",
-        "gpt-5.6-luna",
-        "--config-path",
-        str(continue_config),
-    )
-    env = {"GATEWAY_API_KEY": "gw_test_key_not_a_real_secret"}
-
-    first = run_cli(*args, env=env)
-    second = run_cli(*args, env=env)
-
-    assert first.returncode == 0, first.stderr
-    assert second.returncode == 0, second.stderr
-    config = yaml.safe_load(continue_config.read_text())
-    assert config["name"] == "Main Config"
-    assert config["models"][0]["name"] == "Existing Model"
-    gateway_models = [
-        model for model in config["models"] if model["name"] == "LLM Governance Gateway"
-    ]
-    assert gateway_models == [
-        {
-            "name": "LLM Governance Gateway",
-            "provider": "openai",
-            "model": "gpt-5.6-luna",
-            "apiBase": "https://gateway.example.com/v1",
-            "apiKey": "gw_test_key_not_a_real_secret",
-            "useResponsesApi": True,
-            "roles": ["chat", "edit", "apply"],
-        }
-    ]
-    assert continue_config.stat().st_mode & 0o777 == 0o600
-    backup = continue_config.with_suffix(".yaml.gateway-backup")
-    assert backup.exists()
-    assert "Existing Model" in backup.read_text()
-    assert "LLM Governance Gateway" not in backup.read_text()
-    assert backup.stat().st_mode & 0o777 == 0o600
-    assert "gw_test_key_not_a_real_secret" not in first.stdout
-
-
-def test_configure_continue_requires_key_environment_variable(tmp_path: Path) -> None:
-    continue_config = tmp_path / ".continue" / "config.yaml"
-    result = run_cli(
-        "configure-continue",
-        "--gateway-url",
-        "http://localhost:18765",
-        "--api-key-env",
-        "MISSING_GATEWAY_KEY_FOR_TEST",
-        "--config-path",
-        str(continue_config),
-    )
-
-    assert result.returncode != 0
-    assert "MISSING_GATEWAY_KEY_FOR_TEST" in result.stderr
-    assert not continue_config.exists()

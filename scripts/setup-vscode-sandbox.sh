@@ -25,8 +25,8 @@ Usage: scripts/setup-vscode-sandbox.sh [options]
 
 Starts the gateway locally (make up + make provision), onboards a dedicated
 test user under the '${TENANT_ID}' tenant, and scaffolds a separate VS Code
-workspace at --sandbox-dir wired to the gateway (settings.json, a Continue.dev
-config template, a curl smoke-test script, and a README).
+workspace at --sandbox-dir wired to the gateway (settings.json, a curl
+smoke-test script, and a README).
 
 Options:
   --sandbox-dir <path>   Where to create the VS Code workspace
@@ -159,7 +159,7 @@ if [ -d "$SANDBOX_DIR" ] && [ ! -f "$MARKER" ] && [ "$FORCE" != true ]; then
 fi
 
 log "Scaffolding VS Code sandbox at $SANDBOX_DIR ..."
-mkdir -p "$SANDBOX_DIR/.vscode" "$SANDBOX_DIR/.continue"
+mkdir -p "$SANDBOX_DIR/.vscode"
 touch "$MARKER"
 if [ ! -d "$SANDBOX_DIR/.git" ]; then
   git -C "$SANDBOX_DIR" init -q
@@ -167,7 +167,6 @@ fi
 
 cat > "$SANDBOX_DIR/.gitignore" <<'EOF'
 .envrc
-.continue/config.json
 /response-*.json
 EOF
 
@@ -214,27 +213,6 @@ cat > "$SANDBOX_DIR/.vscode/settings.json" <<EOF
     "ANTHROPIC_MODEL": "${CLAUDE_MODEL}",
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
   }
-}
-EOF
-
-cat > "$SANDBOX_DIR/.continue/config.json.example" <<EOF
-{
-  "models": [
-    {
-      "title": "Gateway - ${GATEWAY_MODEL}",
-      "provider": "openai",
-      "model": "${GATEWAY_MODEL}",
-      "apiBase": "${GATEWAY_URL}/v1",
-      "apiKey": "paste-your-GATEWAY_API_KEY-here"
-    },
-    {
-      "title": "Gateway - ${CLAUDE_MODEL}",
-      "provider": "anthropic",
-      "model": "${CLAUDE_MODEL}",
-      "apiBase": "${GATEWAY_URL}",
-      "apiKey": "paste-your-GATEWAY_API_KEY-here"
-    }
-  ]
 }
 EOF
 
@@ -303,10 +281,6 @@ main dev environment.
 
 ## Wiring up clients
 
-- **Continue.dev** (chat/autocomplete against the gateway's OpenAI-compatible
-  API): copy \`.continue/config.json.example\` to \`.continue/config.json\`,
-  paste in the \`GATEWAY_API_KEY\` value from \`.envrc\`, reload the window.
-  (\`config.json\` is gitignored — never commit it.)
 - **Claude Code extension / CLI**: open an integrated terminal in this
   workspace, run \`claude\` — it picks up \`ANTHROPIC_BASE_URL\` /
   \`ANTHROPIC_AUTH_TOKEN\` / \`ANTHROPIC_MODEL\` from the environment above.
