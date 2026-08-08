@@ -1,0 +1,19 @@
+governance/app/pii.py
+  s_54e23e83b9ad85::t_f35365ba1cec81 362-369
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "aa6a4e6dfd95735675ade89818a9215dd8bd5601",
+  "prompts": {},
+  "sessions": {
+    "s_54e23e83b9ad85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e27d9b3-1d2c-40fd-9ff9-2f54bae032c4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
