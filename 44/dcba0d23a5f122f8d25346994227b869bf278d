@@ -1,0 +1,20 @@
+proxy/app/providers/_gemini_common.py
+  h_12ee2b2686c122 1-320
+proxy/app/providers/gemini.py
+  h_12ee2b2686c122 5,11-21,28-34,70,72-76,82,86,88,128-136,142-143,227,236
+proxy/tests/test_adapters.py
+  h_12ee2b2686c122 874-886
+proxy/tests/test_gemini_common.py
+  h_12ee2b2686c122 1-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "44dcba0d23a5f122f8d25346994227b869bf278d",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
