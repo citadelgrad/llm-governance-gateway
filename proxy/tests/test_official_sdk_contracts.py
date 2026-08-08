@@ -5,7 +5,7 @@ from typing import get_args
 from anthropic.types.content_block_param import ContentBlockParam
 from anthropic.types.message_create_params import MessageCreateParamsBase
 from anthropic.types.raw_message_stream_event import RawMessageStreamEvent
-from google.genai.types import FinishReason, GenerateContentConfig, Part
+from google.genai.types import FinishReason, GenerateContentConfig, HarmCategory, Part
 from openai.types.chat.chat_completion_assistant_message_param import (
     ChatCompletionAssistantMessageParam,
 )
@@ -72,6 +72,7 @@ from proxy.app.provider_capabilities import (
     OPENAI_RESPONSES_FIELDS,
     PROVIDER_CAPABILITIES,
 )
+from proxy.app.providers._gemini_common import SHARED_HARM_CATEGORIES
 from proxy.app.responses_compat import ResponsesCreateRequest
 from pydantic import BaseModel
 
@@ -457,3 +458,7 @@ def test_google_genai_part_and_finish_reason_drift_snapshot():
         "TOO_MANY_TOOL_CALLS",
         "UNEXPECTED_TOOL_CALL",
     }
+
+
+def test_shared_harm_categories_are_valid_official_values():
+    assert {category.value for category in HarmCategory} >= SHARED_HARM_CATEGORIES
