@@ -7,6 +7,9 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[options]
+exclude-newer = "2036-01-01T00:00:00Z"
+
 [[package]]
 name = "aiodns"
 version = "4.0.4"

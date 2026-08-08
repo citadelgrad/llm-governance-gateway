@@ -38,15 +38,20 @@ migrate:
 	$(DIRENV) docker compose run --rm proxy-migrate
 
 ## Code quality
+# --frozen: use each service's committed uv.lock exactly as-is, never relock.
+# Without it, `uv --no-config run ...` disables project-level [tool.uv]
+# config too (not just personal ~/.config/uv/uv.toml), which can trigger a
+# silent relock that strips the pinned exclude-newer [options] block back
+# out of uv.lock (ai-gateway-xv6u).
 lint:
-	cd proxy && uv --no-config run --extra dev ruff check . && uv --no-config run --extra dev ty check app
-	cd governance && uv --no-config run --extra dev ruff check app && uv --no-config run --extra dev ty check app
-	cd mcpproxy && uv --no-config run --extra dev ruff check . && uv --no-config run --extra dev ty check app
+	cd proxy && uv --no-config run --frozen --extra dev ruff check . && uv --no-config run --frozen --extra dev ty check app
+	cd governance && uv --no-config run --frozen --extra dev ruff check app && uv --no-config run --frozen --extra dev ty check app
+	cd mcpproxy && uv --no-config run --frozen --extra dev ruff check . && uv --no-config run --frozen --extra dev ty check app
 
 test:
-	cd proxy && uv --no-config run --extra dev python -m pytest tests/
-	cd governance && PII_BACKEND=presidio uv --no-config run --extra dev python -m pytest tests/
-	cd mcpproxy && uv --no-config run --extra dev python -m pytest tests/
+	cd proxy && uv --no-config run --frozen --extra dev python -m pytest tests/
+	cd governance && PII_BACKEND=presidio uv --no-config run --frozen --extra dev python -m pytest tests/
+	cd mcpproxy && uv --no-config run --frozen --extra dev python -m pytest tests/
 	uv --no-config run --with pyyaml --with bcrypt --with httpx --with pytest --with python-hcl2 python -m pytest tests/ --ignore=tests/integration
 
 test-integration:
