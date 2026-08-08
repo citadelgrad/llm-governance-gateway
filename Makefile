@@ -57,13 +57,13 @@ test:
 test-integration:
 	MOCK_PROVIDERS=true $(MAKE) up
 	$(MAKE) provision
-	cd proxy && INTEGRATION_TEST=1 uv --no-config run pytest ../tests/integration/ -v
+	cd proxy && INTEGRATION_TEST=1 uv --no-config run --frozen pytest ../tests/integration/ -v
 
 smoke-live:
 	$(DIRENV) uv --no-config run --with httpx scripts/live_smoke.py
 
 smoke-google-dlp:
-	cd governance && $(DIRENV) uv --no-config run python ../scripts/live_google_dlp.py
+	cd governance && $(DIRENV) uv --no-config run --frozen python ../scripts/live_google_dlp.py
 
 google-adc-login:
 	$(DIRENV) bash -eu -c ': "$${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT}"; : "$${GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT:?set GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT}"; gcloud auth application-default login --project="$$GOOGLE_CLOUD_PROJECT" --impersonate-service-account="$$GOOGLE_DLP_EXPECTED_SERVICE_ACCOUNT"'
@@ -111,7 +111,7 @@ onboard-help:
 	uv --no-config run --with pyyaml scripts/onboard.py --help
 
 rotate-partitions:
-	cd governance && uv --no-config run python ../scripts/rotate_partitions.py
+	cd governance && uv --no-config run --frozen python ../scripts/rotate_partitions.py
 
 ## Demo
 demo:
