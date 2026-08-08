@@ -1,0 +1,21 @@
+Makefile
+  s_3bce0b1fbe8383::t_a51d5b454ccc89 60
+  s_3bce0b1fbe8383::t_f270a254ffda8d 66
+  s_3bce0b1fbe8383::t_e9fc43a44174ed 114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "58eeee480a8b840bcfad004cbf6a6c0912a292e0",
+  "prompts": {},
+  "sessions": {
+    "s_3bce0b1fbe8383": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf7b84b4-399a-4cfd-8683-55c4685be482",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
