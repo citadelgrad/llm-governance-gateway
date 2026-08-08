@@ -1,0 +1,14 @@
+proxy/tests/test_official_sdk_contracts.py
+  h_12ee2b2686c122 8,75,461-464
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "8b765aa2da1e562fe5802e1010648dc20712ff5c",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
