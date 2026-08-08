@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 import time
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -348,3 +349,201 @@ async def test_chat_completions_attaches_bearer_token_header():
     )
 
     assert captured["authorization"] == "Bearer secret-token-xyz"
+
+
+# ---------------------------------------------------------------------------
+# VertexGeminiClient.chat_completions_stream
+# ---------------------------------------------------------------------------
+
+
+def _sse_response(lines: list[str]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        content="\n".join(lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+
+async def _collect_stream(client: VertexGeminiClient, request: dict) -> list[dict]:
+    frames = []
+    async for frame in client.chat_completions_stream(request):
+        assert frame.startswith("data: ")
+        assert frame.endswith("\n\n")
+        raw = frame[len("data: ") : -2]
+        frames.append(raw if raw == "[DONE]" else json.loads(raw))
+    return frames
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_uses_alt_sse_on_stream_generate_content_url():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return _sse_response(
+            ['data: {"candidates": [{"content": {"parts": [{"text": "hi"}]}, "finishReason": "STOP"}]}', "data: [DONE]"]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    request = captured["request"]
+    assert request.url.path == (
+        "/v1/projects/proj-1/locations/us-central1/publishers/google/models/"
+        "gemini-1.5-pro:streamGenerateContent"
+    )
+    assert request.url.params["alt"] == "sse"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_yields_chunks_in_arrival_order():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "one "}]}}]}',
+                'data: {"candidates": [{"content": {"parts": [{"text": "two "}]}}]}',
+                'data: {"candidates": [{"content": {"parts": [{"text": "three"}]}, "finishReason": "STOP"}]}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    contents = [f["choices"][0]["delta"]["content"] for f in frames[:3]]
+    assert contents == ["one ", "two ", "three"]
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_terminates_with_done_after_final_usage_chunk():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "hi"}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 1, "totalTokenCount": 4}}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert frames[-1] == "[DONE]"
+    final_chunk = frames[-2]
+    assert final_chunk["choices"][0]["finish_reason"] == "stop"
+    assert final_chunk["usage"] == {
+        "prompt_tokens": 3,
+        "completion_tokens": 1,
+        "total_tokens": 4,
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_interim_chunks_do_not_report_finish_reason():
+    """Guards against translate_candidate_to_openai_choice's default-to-STOP
+    behavior leaking into per-token streaming deltas."""
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "partial"}]}}]}',
+                'data: {"candidates": [{"content": {"parts": [{"text": "done"}]}, "finishReason": "STOP"}]}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert frames[0]["choices"][0]["finish_reason"] is None
+    assert frames[1]["choices"][0]["finish_reason"] is None
+    assert frames[2]["choices"][0]["finish_reason"] == "stop"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_tool_call_sets_finish_reason():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "lookup", "args": {"q": "x"}}}]}}]}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    tool_call_chunk = frames[0]
+    assert tool_call_chunk["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "lookup"
+    final_chunk = frames[-2]
+    assert final_chunk["choices"][0]["finish_reason"] == "tool_calls"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_pre_stream_non_200_raises_vertex_upstream_error():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": {"message": "caller lacks permission on secret-resource"}}
+        )
+
+    client = _vertex_client_with_transport(handler)
+
+    with pytest.raises(VertexUpstreamError) as exc_info:
+        await _collect_stream(
+            client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    err = exc_info.value
+    assert err.response.status_code == 403
+    assert b"secret-resource" not in err.response.body
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_unrecognized_finish_reason_yields_sse_error_without_done():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "uh oh"}]}, "finishReason": "OTHER"}]}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert frames[-1]["error"]["type"] == "provider_response_error"
+    assert "[DONE]" not in frames
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_mid_stream_request_error_yields_sse_error_without_done():
+    """A network failure once bytes are already arriving (status already
+    committed to 200) must surface as an SSE-embedded error frame, not an
+    exception escaping an already-yielding generator."""
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b'data: {"candidates": [{"content": {"parts": [{"text": "partial"}]}}]}\n\n'
+        raise httpx.ReadError("connection reset")
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body(), headers={"content-type": "text/event-stream"})
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert frames[0]["choices"][0]["delta"]["content"] == "partial"
+    assert frames[-1]["error"]["type"] == "upstream_connection_error"
+    assert "[DONE]" not in frames
