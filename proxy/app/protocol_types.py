@@ -69,8 +69,11 @@ class ProtocolTranslationError(Exception):
 class GatewayPayload(Protocol):
     """Deep boundary consumed by governance, routing, and provider dispatch."""
 
-    protocol: WireProtocol
-    native_providers: frozenset[str]
+    @property
+    def protocol(self) -> WireProtocol: ...
+
+    @property
+    def native_providers(self) -> frozenset[str]: ...
 
     @property
     def model(self) -> str: ...
