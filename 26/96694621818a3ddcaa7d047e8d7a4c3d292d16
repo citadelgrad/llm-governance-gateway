@@ -1,0 +1,18 @@
+README.md
+  h_12ee2b2686c122 279-284,305-308
+docs/architecture.md
+  h_12ee2b2686c122 16,217-231
+docs/google-vertex-ai-gemini.md
+  h_12ee2b2686c122 1-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "2696694621818a3ddcaa7d047e8d7a4c3d292d16",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
