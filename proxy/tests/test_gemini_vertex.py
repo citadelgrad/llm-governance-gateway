@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -8,10 +9,13 @@ from unittest.mock import patch
 
 import google.auth.credentials
 import google.auth.exceptions
+import httpx
 import pytest
 from proxy.app.config import Settings
 from proxy.app.providers.gemini_vertex import (
     VertexCredentialManager,
+    VertexGeminiClient,
+    VertexUpstreamError,
     _vertex_base_url,
     _vertex_model_path,
 )
@@ -139,3 +143,113 @@ def test_vertex_model_path():
     assert _vertex_model_path(settings, "gemini-1.5-pro") == (
         "projects/my-proj/locations/us-east4/publishers/google/models/gemini-1.5-pro"
     )
+
+
+# ---------------------------------------------------------------------------
+# VertexGeminiClient.chat_completions
+# ---------------------------------------------------------------------------
+
+
+def _vertex_client_with_transport(handler, *, project_id="proj-1", location="us-central1", token="fake-token"):
+    settings = _settings(project_id=project_id, location=location)
+    client = VertexGeminiClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client._creds._credentials = FakeCredentials(token=token)
+    return client
+
+
+_HAPPY_PATH_JSON = {
+    "candidates": [
+        {
+            "content": {"role": "model", "parts": [{"text": "hello there"}]},
+            "finishReason": "STOP",
+        }
+    ],
+    "usageMetadata": {
+        "promptTokenCount": 10,
+        "candidatesTokenCount": 5,
+        "totalTokenCount": 15,
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_request_body_omits_model_and_addresses_via_url():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, json=_HAPPY_PATH_JSON)
+
+    client = _vertex_client_with_transport(handler)
+    await client.chat_completions(
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    request = captured["request"]
+    sent_body = json.loads(request.content)
+    assert "model" not in sent_body
+    assert request.url.path == (
+        "/v1/projects/proj-1/locations/us-central1/publishers/google/models/"
+        "gemini-1.5-pro:generateContent"
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_returns_openai_envelope_with_mapped_usage():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_HAPPY_PATH_JSON)
+
+    client = _vertex_client_with_transport(handler)
+    result = await client.chat_completions(
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result["choices"][0]["message"]["content"] == "hello there"
+    assert result["choices"][0]["finish_reason"] == "stop"
+    assert result["usage"] == {
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+        "total_tokens": 15,
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_wraps_non_2xx_response_without_leaking_body():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "error": {
+                    "message": "caller lacks permission on projects/proj-1/super-secret-detail"
+                }
+            },
+        )
+
+    client = _vertex_client_with_transport(handler)
+
+    with pytest.raises(VertexUpstreamError) as exc_info:
+        await client.chat_completions(
+            {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    err = exc_info.value
+    assert err.response.status_code == 403
+    assert b"super-secret-detail" not in err.response.body
+    assert "super-secret-detail" not in str(err)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_attaches_bearer_token_header():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json=_HAPPY_PATH_JSON)
+
+    client = _vertex_client_with_transport(handler, token="secret-token-xyz")
+    await client.chat_completions(
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert captured["authorization"] == "Bearer secret-token-xyz"
