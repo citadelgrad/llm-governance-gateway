@@ -359,7 +359,14 @@ def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
 # soak (ai-gateway-fcr). See "Per-tenant PERSON/name-detection opt-in:
 # feasibility assessment (ai-gateway-6xx)" in
 # docs/google-sensitive-data-protection.md for the full assessment.
-_DISABLED_PRESIDIO_ENTITIES = frozenset({"PERSON"})
+#
+# ORGANIZATION joined this set for the same reason (dependency upgrade,
+# ai-gateway-xfxj): the upgraded spaCy/Presidio stack now also tags plain
+# technical acronyms (e.g. "SSN" in "My SSN is ...") as ORGANIZATION with
+# high confidence. No test or caller in this codebase relies on ORGANIZATION
+# as a true-positive detector, so disabling it carries the same low cost as
+# the PERSON decision above and the same reasoning applies unchanged.
+_DISABLED_PRESIDIO_ENTITIES = frozenset({"PERSON", "ORGANIZATION"})
 
 
 async def scan(
