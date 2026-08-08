@@ -1,0 +1,19 @@
+policies/llm/allow_model.rego
+  s_1d042922115d3a::t_71aa2801bbdb02 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "15dd2ee4e899a1f6424506b05d6c6127731318b6",
+  "prompts": {},
+  "sessions": {
+    "s_1d042922115d3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e99f8df-2925-4fac-a63c-971fcd728df0",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
