@@ -77,3 +77,18 @@ pythonpath = ["..", "."]
 python-version = "3.12"
 python-platform = "all"
 extra-paths = [".."]
+
+[tool.uv]
+# Pin exclude-newer explicitly (as an absolute, fixed timestamp - not a
+# relative duration, which would re-resolve to a new absolute value, and
+# therefore a new lockfile diff, on every `uv lock`) so it always takes
+# precedence over a developer's personal global ~/.config/uv/uv.toml
+# (e.g. `exclude-newer = "3 days"`). Without this, a bare `uv lock` or a
+# `uv sync` invocation with mismatched flags can (a) silently commit a
+# machine-local [options] block into uv.lock (ai-gateway-u2sf), and (b)
+# fail resolution outright for anyone whose personal cutoff is older than
+# this project's exact-pinned package versions (this repo pins dependencies
+# to freshly released exact versions via Dependabot - see ai-gateway-6bh).
+# This project does not enforce its own exclude-newer supply-chain policy,
+# so the date is set far in the future to never restrict resolution.
+exclude-newer = "2036-01-01T00:00:00Z"
