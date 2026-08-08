@@ -93,6 +93,10 @@ def test_monitor_is_opt_in_without_status_path():
 async def test_governance_fails_closed_with_retry_after_when_status_is_missing(
     tmp_path, monkeypatch
 ):
+    # This gate only applies to the Google DLP backend (ai-gateway-mbk8):
+    # Presidio-backed deployments never touch Google DLP, so they must not
+    # be blocked by a missing/stale google-credential-sentinel status.
+    monkeypatch.setattr(governance_main.settings, "pii_backend", "google")
     monkeypatch.setattr(
         governance_main.settings,
         "google_adc_status_path",

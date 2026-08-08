@@ -37,7 +37,12 @@ services:
       google-credential-sentinel:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/live || exit 1"]
+      # /live always returns 200 (process-alive only) and would mask a
+      # degraded /health status (e.g. stale Google ADC) from `docker compose
+      # ps` (ai-gateway-mbk8). /health reflects real inspect availability —
+      # interval/timeout/retries/start_period are inherited unchanged from
+      # the base governance healthcheck in docker-compose.yml.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
 
 volumes:
   google_auth_status:

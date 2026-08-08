@@ -140,6 +140,22 @@ async def live():
     return {"status": "ok"}
 
 
+def _require_fresh_google_credentials() -> None:
+    """Raise PiiBackendError if the active PII backend needs Google ADC and
+    the google-credential-sentinel status is missing or stale.
+
+    Presidio-backed requests never touch Google DLP, so a stale/unhealthy
+    sentinel must not block them (ai-gateway-mbk8).
+    """
+    if settings.pii_backend != "google":
+        return
+    if not credentials_ready(
+        settings.google_adc_status_path,
+        max_age_seconds=settings.google_adc_status_max_age_seconds,
+    ):
+        raise pii_module.PiiBackendError("Google credentials unavailable")
+
+
 # ─── /inspect ────────────────────────────────────────────────────────────────
 
 class InspectRequest(BaseModel):
@@ -169,11 +185,7 @@ async def inspect(
 ) -> InspectResponse:
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
-    if not credentials_ready(
-        settings.google_adc_status_path,
-        max_age_seconds=settings.google_adc_status_max_age_seconds,
-    ):
-        raise pii_module.PiiBackendError("Google credentials unavailable")
+    _require_fresh_google_credentials()
 
     ctx = PipelineContext(
         text=req.text,
@@ -235,11 +247,7 @@ async def pii_scan(
 ) -> PiiScanResponse:
     if not x_internal_token or not secrets.compare_digest(x_internal_token, settings.internal_token):
         raise HTTPException(status_code=403, detail="Invalid or missing X-Internal-Token")
-    if not credentials_ready(
-        settings.google_adc_status_path,
-        max_age_seconds=settings.google_adc_status_max_age_seconds,
-    ):
-        raise pii_module.PiiBackendError("Google credentials unavailable")
+    _require_fresh_google_credentials()
 
     result = await pii_module.run(req.text, pii_module.PII_CLASS_BULK)
 
