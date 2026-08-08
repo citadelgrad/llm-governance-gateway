@@ -1,0 +1,22 @@
+README.md
+  s_54e23e83b9ad85::t_8bb9ce9bb58788 22-41,48,52-57,59-60,65,70-76,80-90,92-109,113,116-125,213-227,281-282,287,297-298,324
+  s_54e23e83b9ad85::t_f0aebd93f8f6d5 325
+docs/architecture.md
+  s_54e23e83b9ad85::t_8bb9ce9bb58788 9-14,18-19,22-24,31,34-83,116,118,125-126,215,223-224,226,228,248-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "1038254b094e5320357da24ed973317f201a7ec8",
+  "prompts": {},
+  "sessions": {
+    "s_54e23e83b9ad85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e27d9b3-1d2c-40fd-9ff9-2f54bae032c4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
