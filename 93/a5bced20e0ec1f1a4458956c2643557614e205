@@ -1,0 +1,27 @@
+governance/tests/test_inspect_credential_gate.py
+  s_3bce0b1fbe8383::t_f092bf38e8f3eb 1-173
+governance/app/main.py
+  s_3bce0b1fbe8383::t_191f60e74d1c35 188
+  s_3bce0b1fbe8383::t_9a35bb520a444e 250
+  s_3bce0b1fbe8383::t_765ff61a8b6755 143-158
+docker-compose.google-dlp.yml
+  s_3bce0b1fbe8383::t_b4e3c8762d5025 40-45
+governance/tests/test_google_credential_sentinel.py
+  s_3bce0b1fbe8383::t_a31fe15c186e0d 96-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "93a5bced20e0ec1f1a4458956c2643557614e205",
+  "prompts": {},
+  "sessions": {
+    "s_3bce0b1fbe8383": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf7b84b4-399a-4cfd-8683-55c4685be482",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
