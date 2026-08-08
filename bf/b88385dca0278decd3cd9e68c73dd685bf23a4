@@ -1,0 +1,27 @@
+Makefile
+  s_3bce0b1fbe8383::t_4d2966b8ce77b0 41-45,47-49,52-54
+mcpproxy/pyproject.toml
+  s_3bce0b1fbe8383::t_4402ae328f1126 47-61
+governance/pyproject.toml
+  s_3bce0b1fbe8383::t_222ec728eff456 72-86
+governance/uv.lock
+  s_3bce0b1fbe8383::t_ce599ef5de05d6 10-12
+mcpproxy/uv.lock
+  s_3bce0b1fbe8383::t_ee6da50af89589 5-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "bfb88385dca0278decd3cd9e68c73dd685bf23a4",
+  "prompts": {},
+  "sessions": {
+    "s_3bce0b1fbe8383": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf7b84b4-399a-4cfd-8683-55c4685be482",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
