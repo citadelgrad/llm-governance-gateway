@@ -43,6 +43,7 @@ from proxy.app.protocol_types import (
 from proxy.app.provider_capabilities import unsupported_chat_fields
 from proxy.app.providers import anthropic as anthropic_provider
 from proxy.app.providers import gemini as gemini_provider
+from proxy.app.providers import gemini_vertex as gemini_vertex_provider
 from proxy.app.providers import generic as generic_provider
 from proxy.app.providers import mock as mock_provider
 from proxy.app.providers import ollama as ollama_provider
@@ -91,12 +92,15 @@ async def lifespan(app: FastAPI):
     anthropic_client: httpx.AsyncClient | None = None
     gemini_client: httpx.AsyncClient | None = None
     ollama_client: httpx.AsyncClient | None = None
+    gemini_vertex_client: gemini_vertex_provider.VertexGeminiClient | None = None
     if not settings.mock_mode:
         openai_client = openai_provider.make_client(settings.openai_api_key)
         anthropic_client = anthropic_provider.make_client(settings.anthropic_api_key)
         gemini_client = gemini_provider.make_client(settings.gemini_api_key)
         ollama_client = ollama_provider.make_client(settings.ollama_base_url)
         # generic_provider uses a module-level pool; no client created here
+    if settings.gemini_vertex_project_id:
+        gemini_vertex_client = gemini_vertex_provider.make_client(settings)
 
     await maybe_bootstrap(db_pool)
 
@@ -113,6 +117,7 @@ async def lifespan(app: FastAPI):
     app.state.anthropic_client = anthropic_client
     app.state.gemini_client = gemini_client
     app.state.ollama_client = ollama_client
+    app.state.gemini_vertex_client = gemini_vertex_client
     app.state.models_config = models_config
     app.state.models_by_id = models_by_id
     app.state.ready = True
@@ -124,7 +129,13 @@ async def lifespan(app: FastAPI):
     await redis.aclose()
     await gov_http.aclose()
     await mcpproxy_client.aclose()
-    for client in (openai_client, anthropic_client, gemini_client, ollama_client):
+    for client in (
+        openai_client,
+        anthropic_client,
+        gemini_client,
+        ollama_client,
+        gemini_vertex_client,
+    ):
         if client is not None:
             await client.aclose()
     await generic_provider.close_all_clients()
@@ -484,7 +495,7 @@ async def _run_gateway_pipeline(
 
         if not native_dispatch and not settings.mock_mode:
             capability_provider = provider
-            if capability_provider not in {"anthropic", "gemini", "openai", "ollama"}:
+            if capability_provider not in {"anthropic", "gemini", "gemini-vertex", "openai", "ollama"}:
                 capability_provider = "generic"
             unsupported = unsupported_chat_fields(capability_provider, body)
             if unsupported:
@@ -547,6 +558,19 @@ async def _run_gateway_pipeline(
                     request.app.state.gemini_client, body, stream, extra_headers
                 )
                 effective_provider = "openai"  # gemini adapter translates to OpenAI envelope
+            case "gemini-vertex":
+                if request.app.state.gemini_vertex_client is None:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=error_envelope(
+                            "provider_not_configured",
+                            "gemini-vertex provider is not configured on this gateway",
+                        ),
+                    )
+                response = await gemini_vertex_provider.chat_completions(
+                    request.app.state.gemini_vertex_client, body, stream, extra_headers
+                )
+                effective_provider = "openai"  # gemini-vertex adapter translates to OpenAI envelope
             case "ollama":
                 response = await ollama_provider.chat_completions(
                     request.app.state.ollama_client, body, stream, extra_headers

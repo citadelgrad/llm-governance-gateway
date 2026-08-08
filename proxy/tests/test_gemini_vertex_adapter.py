@@ -13,6 +13,7 @@ import google.auth.exceptions
 import httpx
 import pytest
 from proxy.app.config import Settings
+from proxy.app.providers import gemini_vertex
 from proxy.app.providers.gemini_vertex import (
     VertexCredentialManager,
     VertexGeminiClient,
@@ -21,6 +22,7 @@ from proxy.app.providers.gemini_vertex import (
     _vertex_base_url,
     _vertex_model_path,
 )
+from starlette.responses import StreamingResponse
 
 
 class FakeCredentials(google.auth.credentials.Credentials):
@@ -547,3 +549,152 @@ async def test_chat_completions_stream_mid_stream_request_error_yields_sse_error
     assert frames[0]["choices"][0]["delta"]["content"] == "partial"
     assert frames[-1]["error"]["type"] == "upstream_connection_error"
     assert "[DONE]" not in frames
+
+
+# ---------------------------------------------------------------------------
+# VertexGeminiClient.aclose
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_aclose_closes_underlying_http_client():
+    settings = _settings()
+    client = VertexGeminiClient(settings)
+
+    await client.aclose()
+
+    assert client._http.is_closed
+
+
+# ---------------------------------------------------------------------------
+# module-level chat_completions (main.py's dispatch call shape)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_non_streaming_success_returns_openai_response():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_HAPPY_PATH_JSON)
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]},
+        False,
+        {"X-Audit-ID": "audit-1"},
+    )
+
+    assert not isinstance(response, StreamingResponse)
+    assert response.status_code == 200
+    assert response.headers["x-audit-id"] == "audit-1"
+    body = json.loads(response.body)
+    assert body["choices"][0]["message"]["content"] == "hello there"
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_non_streaming_upstream_error_merges_headers():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": {"message": "caller lacks permission on secret-resource"}}
+        )
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]},
+        False,
+        {"X-Audit-ID": "audit-1"},
+    )
+
+    assert not isinstance(response, StreamingResponse)
+    assert response.status_code == 403
+    assert response.headers["x-audit-id"] == "audit-1"
+    assert b"secret-resource" not in response.body
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_non_streaming_translation_error_returns_502():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP call should be made for a request-shape error")
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": 123, "messages": []},
+        False,
+        {},
+    )
+
+    assert not isinstance(response, StreamingResponse)
+    assert response.status_code == 502
+    body = json.loads(response.body)
+    assert body["error"]["type"] == "provider_response_error"
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_streaming_success_returns_streaming_response():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"candidates": [{"content": {"parts": [{"text": "hi"}]}, "finishReason": "STOP"}]}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]},
+        True,
+        {"X-Audit-ID": "audit-1"},
+    )
+
+    assert isinstance(response, StreamingResponse)
+    assert response.headers["x-audit-id"] == "audit-1"
+    chunks = [
+        chunk if isinstance(chunk, str) else chunk.decode()
+        async for chunk in response.body_iterator
+    ]
+    content = "".join(chunks)
+    assert '"content": "hi"' in content
+    assert "data: [DONE]" in content
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_streaming_pre_stream_upstream_error_returns_plain_response():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403, json={"error": {"message": "caller lacks permission on secret-resource"}}
+        )
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]},
+        True,
+        {"X-Audit-ID": "audit-1"},
+    )
+
+    assert not isinstance(response, StreamingResponse)
+    assert response.status_code == 403
+    assert response.headers["x-audit-id"] == "audit-1"
+    assert b"secret-resource" not in response.body
+
+
+@pytest.mark.asyncio
+async def test_module_chat_completions_streaming_pre_stream_translation_error_returns_502():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP call should be made for a request-shape error")
+
+    client = _vertex_client_with_transport(handler)
+    response = await gemini_vertex.chat_completions(
+        client,
+        {"model": 123, "messages": []},
+        True,
+        {},
+    )
+
+    assert not isinstance(response, StreamingResponse)
+    assert response.status_code == 502
+    body = json.loads(response.body)
+    assert body["error"]["type"] == "provider_response_error"

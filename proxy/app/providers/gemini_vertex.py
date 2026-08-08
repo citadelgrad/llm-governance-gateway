@@ -29,7 +29,7 @@ from proxy.app.providers._gemini_common import (
     translate_usage_metadata,
 )
 from proxy.app.providers.errors import sanitize_upstream_error
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
@@ -369,6 +369,71 @@ class VertexGeminiClient:
         yield f"data: {json.dumps(final_chunk)}\n\n"
         yield "data: [DONE]\n\n"
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
 
 def make_client(settings: Settings) -> VertexGeminiClient:
     return VertexGeminiClient(settings)
+
+
+async def chat_completions(
+    client: VertexGeminiClient,
+    body: JsonObject,
+    stream: bool,
+    extra_headers: dict[str, str],
+) -> Response | StreamingResponse:
+    """Forward to Vertex AI and return a Starlette Response in OpenAI shape.
+
+    Mirrors proxy/app/providers/gemini.py's module-level chat_completions so
+    main.py's dispatch code treats both adapters uniformly.
+    """
+    if stream:
+        gen = client.chat_completions_stream(body)
+        try:
+            first = await gen.__anext__()
+        except VertexUpstreamError as exc:
+            exc.response.headers.update(extra_headers)
+            return exc.response
+        except GeminiTranslationError as exc:
+            return Response(
+                content=json.dumps(
+                    {"error": {"type": "provider_response_error", "message": str(exc)}}
+                ),
+                status_code=502,
+                media_type="application/json",
+                headers=extra_headers,
+            )
+
+        async def _stream_body():
+            yield first
+            async for chunk in gen:
+                yield chunk
+
+        return StreamingResponse(
+            _stream_body(),
+            status_code=200,
+            media_type="text/event-stream",
+            headers=extra_headers,
+        )
+
+    try:
+        envelope = await client.chat_completions(body)
+    except VertexUpstreamError as exc:
+        exc.response.headers.update(extra_headers)
+        return exc.response
+    except GeminiTranslationError as exc:
+        return Response(
+            content=json.dumps(
+                {"error": {"type": "provider_response_error", "message": str(exc)}}
+            ),
+            status_code=502,
+            media_type="application/json",
+            headers=extra_headers,
+        )
+    return Response(
+        content=json.dumps(envelope),
+        status_code=200,
+        media_type="application/json",
+        headers=extra_headers,
+    )
