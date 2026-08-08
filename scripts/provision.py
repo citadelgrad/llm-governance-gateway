@@ -10,14 +10,14 @@ from base64 import urlsafe_b64encode
 from contextlib import closing
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
 import yaml
 import bcrypt
 
 ROOT = Path(__file__).parent.parent
 CONFIG = ROOT / "config"
 POLICIES_DATA = ROOT / "policies" / "data"
+
+KNOWN_DEFAULT_PROVIDERS = {"anthropic", "gemini", "gemini-vertex", "openai", "ollama"}
 
 def load_config():
     tenants = yaml.safe_load((CONFIG / "tenants.yaml").read_text())["tenants"]
@@ -30,6 +30,12 @@ def load_config():
                 f"tenants.yaml: tenant {t.get('id')!r} has pii_redaction_notification="
                 f"{notification!r} ({type(notification).__name__}); must be a string "
                 f"such as 'header' or 'silent'"
+            )
+        default_provider = t.get("default_provider")
+        if default_provider not in KNOWN_DEFAULT_PROVIDERS:
+            raise SystemExit(
+                f"tenants.yaml: tenant {t.get('id')!r} has default_provider="
+                f"{default_provider!r}; must be one of {sorted(KNOWN_DEFAULT_PROVIDERS)}"
             )
     return tenants, users, models
 
@@ -55,6 +61,9 @@ def generate_key():
 
 
 def main():
+    import psycopg2
+    import psycopg2.extras
+
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
         print("ERROR: DATABASE_URL not set", file=sys.stderr)

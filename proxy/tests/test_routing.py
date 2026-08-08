@@ -1,6 +1,21 @@
 from __future__ import annotations
 
-from proxy.app.routing import resolve_provider
+from pathlib import Path
+
+from proxy.app.routing import load_models_yaml, resolve_provider
+
+REAL_MODELS_YAML = Path(__file__).resolve().parents[2] / "config" / "models.yaml"
+
+
+def test_real_models_yaml_resolves_gemini_vertex_catalog_entry():
+    models_config = load_models_yaml(str(REAL_MODELS_YAML))
+
+    provider, routing_method = resolve_provider(
+        "gemini-3.1-flash-lite-vertex", {}, [], "", models_config
+    )
+
+    assert provider == "gemini-vertex"
+    assert routing_method == "models_yaml"
 
 
 def test_models_yaml_entry_resolves_gemini_vertex_without_error():

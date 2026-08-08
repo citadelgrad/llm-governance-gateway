@@ -26,6 +26,12 @@ models:
     provider: gemini
     base_url: https://generativelanguage.googleapis.com/v1beta
 
+  # Google Vertex AI (SA-impersonated) — no base_url: the Vertex endpoint is
+  # built per-request from Settings.gemini_vertex_project_id/location, not
+  # read from this catalog.
+  - id: gemini-3.1-flash-lite-vertex
+    provider: gemini-vertex
+
   # Aliases — alias_of resolves to the canonical model id
   - id: claude-sonnet
     provider: anthropic
