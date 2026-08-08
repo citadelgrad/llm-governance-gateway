@@ -1,0 +1,19 @@
+proxy/tests/test_provider_capabilities.py
+  s_1d042922115d3a::t_0323733bf59d70 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "8d8a03792ff8e550baf8c0ec110396c38cbab78f",
+  "prompts": {},
+  "sessions": {
+    "s_1d042922115d3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e99f8df-2925-4fac-a63c-971fcd728df0",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
