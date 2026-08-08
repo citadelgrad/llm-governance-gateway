@@ -1,0 +1,20 @@
+proxy/app/providers/gemini_vertex.py
+  h_12ee2b2686c122 1-70
+proxy/pyproject.toml
+  h_12ee2b2686c122 41
+proxy/tests/test_gemini_vertex.py
+  h_12ee2b2686c122 1-141
+proxy/uv.lock
+  h_12ee2b2686c122 980,1024
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "11971955b3e6d56f04d4be4bd3285921cd34c372",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
