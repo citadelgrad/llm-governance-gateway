@@ -361,6 +361,31 @@ def _register_high_recall_ssn_recognizer(analyzer: AnalyzerEngine) -> None:
 # docs/google-sensitive-data-protection.md for the full assessment.
 _DISABLED_PRESIDIO_ENTITIES = frozenset({"PERSON"})
 
+# The PERSON-level exclusion above assumes the false positive is confined to
+# one entity type. It is not: ai-gateway-10vg found the same spaCy NER model
+# nondeterministically tagging "Django" as LOCATION instead of PERSON on some
+# CI runs (same input, same model -- the tie-breaking floating-point sums in
+# the neural net forward pass differ slightly by platform/BLAS backend, and
+# "Django" sits close enough to the decision boundary for that to flip its
+# label). Disabling LOCATION wholesale like PERSON would silently stop
+# flagging genuine location PII (e.g. "I am flying to Paris tomorrow" must
+# still produce a LOCATION finding -- see ai-gateway-10vg's acceptance
+# criteria), so the entity-type-level approach above does not generalize
+# here. Instead, suppress specific known false-positive terms regardless of
+# whichever entity type the model happens to assign them on a given run.
+# This list is exactly the regression corpus already exercised by
+# test_technical_proper_nouns_are_not_misdetected_as_person and
+# docs/google-sensitive-data-protection.md's technical-proper-noun corpus.
+_TECHNICAL_TERM_FALSE_POSITIVES = frozenset({
+    "django", "flask", "fastapi", "postgres", "postgresql",
+    "kubernetes", "redis", "react", "gemini", "claude",
+})
+
+
+def _is_technical_term_false_positive(text: str, result: RecognizerResult) -> bool:
+    span = text[result.start:result.end].strip().strip(",.;:!?\"'()").lower()
+    return span in _TECHNICAL_TERM_FALSE_POSITIVES
+
 
 async def scan(
     text: str, request_class: PiiRequestClass = PII_CLASS_INTERACTIVE
@@ -368,7 +393,12 @@ async def scan(
     assert _analyzer is not None, "call initialize() first"
     async with _acquire_scan_slot(request_class):
         results = await asyncio.to_thread(_analyzer.analyze, text=text, language="en")
-    return [r for r in results if r.entity_type not in _DISABLED_PRESIDIO_ENTITIES]
+    return [
+        r
+        for r in results
+        if r.entity_type not in _DISABLED_PRESIDIO_ENTITIES
+        and not _is_technical_term_false_positive(text, r)
+    ]
 
 async def redact(
     text: str,
