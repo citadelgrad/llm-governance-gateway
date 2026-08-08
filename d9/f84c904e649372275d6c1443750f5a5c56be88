@@ -1,0 +1,26 @@
+pipelines/ai-gateway-76iq.dot
+  s_eb4ff7de3b155f::t_03de29a990d636 126
+  s_eb4ff7de3b155f::t_27fadb32e00d41 22
+  s_eb4ff7de3b155f::t_39d15dddf6f084 86
+  s_eb4ff7de3b155f::t_8a36a25179570e 111
+  s_eb4ff7de3b155f::t_d636b3babcf75e 101
+  s_eb4ff7de3b155f::t_755274d0b7a8f1 43
+  s_eb4ff7de3b155f::t_5700a77f5ce2e2 74
+  s_eb4ff7de3b155f::t_ec1913c75ca4cb 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "d9f84c904e649372275d6c1443750f5a5c56be88",
+  "prompts": {},
+  "sessions": {
+    "s_eb4ff7de3b155f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "179eacf3-8ae2-451e-b0b9-3f8aba5eab52",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
