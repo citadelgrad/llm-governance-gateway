@@ -1260,6 +1260,19 @@ def test_extract_message_invalid_json_returns_generic():
     assert "upstream" in msg.lower() or "error" in msg.lower()
 
 
+def test_sanitize_classify_does_not_alter_envelope_shape():
+    """The optional `classify` kwarg is for internal logging only — the
+    caller-facing envelope shape/content must be identical with or without it."""
+    upstream = _make_upstream(403, b'{"error": {"message": "denied"}}')
+    resp_without = sanitize_upstream_error(upstream, provider="gemini-vertex")
+    resp_with = sanitize_upstream_error(
+        upstream, provider="gemini-vertex", classify=lambda _status, _body: "some_internal_label"
+    )
+    assert json.loads(resp_without.body) == json.loads(resp_with.body)
+    assert resp_without.status_code == resp_with.status_code
+    assert "some_internal_label" not in resp_with.body.decode()
+
+
 def test_sanitize_response_always_application_json():
     """Content-Type must always be application/json regardless of upstream type."""
     upstream = _make_upstream(500, b"<html>Error</html>", content_type="text/html")

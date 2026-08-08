@@ -101,10 +101,28 @@ def _classify_vertex_error(status_code: int, body: dict) -> str:
     """Internal-only classification label for logging; caller-facing response
     stays opaque via the existing sanitize_upstream_error policy.
 
-    TODO(ai-gateway-76iq.7): replace with the real 401/403/404/429
-    classification heuristic once sanitize_upstream_error grows an optional
-    `classify` parameter to thread this label through.
+    403s split into two sub-cases. The impersonation-denial signal
+    ("iam.googleapis.com" / "getaccesstoken") is confirmed against a real
+    observed error body (service account cannot mint an impersonated token,
+    failing at iamcredentials.googleapis.com before Vertex AI is ever
+    reached); "impersonat" is kept as a defensive fallback for wording
+    variants not covered by that sample. Any other 403 (e.g. an
+    impersonated service account that lacks roles/aiplatform.user) falls
+    through to the generic IAM-permission-denied classification — that
+    reason string is not confirmed by a primary source, so it is
+    intentionally not pattern-matched.
     """
+    if status_code == 401:
+        return "vertex_token_expired"
+    if status_code == 403:
+        signal = str(body).lower()
+        if any(marker in signal for marker in ("iam.googleapis.com", "getaccesstoken", "impersonat")):
+            return "vertex_impersonation_denied"
+        return "vertex_iam_permission_denied"
+    if status_code == 404:
+        return "vertex_model_or_region_unavailable"
+    if status_code == 429:
+        return "vertex_quota_exceeded"
     return "vertex_unknown_error"
 
 
@@ -196,10 +214,10 @@ class VertexGeminiClient:
             )
             upstream.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # TODO(ai-gateway-76iq.7): pass classify=_classify_vertex_error once
-            # sanitize_upstream_error grows an optional classify parameter.
             raise VertexUpstreamError(
-                sanitize_upstream_error(exc.response, provider="gemini-vertex")
+                sanitize_upstream_error(
+                    exc.response, provider="gemini-vertex", classify=_classify_vertex_error
+                )
             ) from exc
 
         upstream_json = upstream.json()

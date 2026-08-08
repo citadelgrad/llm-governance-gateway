@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 
 import httpx
 from starlette.responses import Response
@@ -70,6 +71,7 @@ def sanitize_upstream_error(
     extra_headers: dict[str, str] | None = None,
     *,
     provider: str = "upstream",
+    classify: Callable[[int, dict], str] | None = None,
 ) -> Response:
     """Convert a non-200 upstream response into a sanitized OpenAI-shape error envelope.
 
@@ -80,6 +82,10 @@ def sanitize_upstream_error(
         upstream: The httpx.Response from the upstream provider.
         extra_headers: Optional headers to include in the Starlette response.
         provider: Human-readable provider name for log messages.
+        classify: Optional callable that maps (status_code, parsed_body) to an
+            internal-only classification label, logged alongside the upstream
+            error for observability. Never included in the caller-facing
+            response — the returned envelope stays opaque regardless.
 
     Returns:
         A Starlette ``Response`` with ``Content-Type: application/json`` containing
@@ -89,12 +95,28 @@ def sanitize_upstream_error(
     raw_body = upstream.content
 
     # Log full upstream details server-side — never returned to the client.
-    logger.error(
-        "upstream_error provider=%s status=%d body=%r",
-        provider,
-        status_code,
-        raw_body[:2000],  # cap log size for very large bodies
-    )
+    if classify is not None:
+        try:
+            parsed_body = json.loads(raw_body)
+        except (json.JSONDecodeError, ValueError):
+            parsed_body = {}
+        if not isinstance(parsed_body, dict):
+            parsed_body = {}
+        classification = classify(status_code, parsed_body)
+        logger.error(
+            "upstream_error provider=%s status=%d classification=%s body=%r",
+            provider,
+            status_code,
+            classification,
+            raw_body[:2000],  # cap log size for very large bodies
+        )
+    else:
+        logger.error(
+            "upstream_error provider=%s status=%d body=%r",
+            provider,
+            status_code,
+            raw_body[:2000],  # cap log size for very large bodies
+        )
 
     error_type = _error_type_for_status(status_code)
     # For auth and server errors, always use the generic message to prevent

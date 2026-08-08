@@ -16,6 +16,7 @@ from proxy.app.providers.gemini_vertex import (
     VertexCredentialManager,
     VertexGeminiClient,
     VertexUpstreamError,
+    _classify_vertex_error,
     _vertex_base_url,
     _vertex_model_path,
 )
@@ -146,6 +147,74 @@ def test_vertex_model_path():
 
 
 # ---------------------------------------------------------------------------
+# _classify_vertex_error
+# ---------------------------------------------------------------------------
+
+# Confirmed real 403 body (deep-research.md §5.3a): the service account
+# cannot mint an impersonated token — failure happens at
+# iamcredentials.googleapis.com's generateAccessToken, before Vertex AI is
+# ever reached. Notably contains neither "iamcredentials" nor "impersonat"
+# as a substring, which is why the classifier keys off "iam.googleapis.com"
+# / "getaccesstoken" instead.
+_IMPERSONATION_DENIAL_BODY = {
+    "error": {
+        "code": 403,
+        "message": "Permission 'iam.serviceAccounts.getAccessToken' denied on resource (or it may not exist).",
+        "status": "PERMISSION_DENIED",
+        "details": [
+            {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "IAM_PERMISSION_DENIED",
+                "domain": "iam.googleapis.com",
+                "metadata": {"permission": "iam.serviceAccounts.getAccessToken"},
+            }
+        ],
+    }
+}
+
+
+def test_classify_401_as_token_expired():
+    assert _classify_vertex_error(401, {"error": {"message": "invalid_grant"}}) == (
+        "vertex_token_expired"
+    )
+
+
+def test_classify_403_impersonation_denial_from_confirmed_body():
+    assert _classify_vertex_error(403, _IMPERSONATION_DENIAL_BODY) == "vertex_impersonation_denied"
+
+
+def test_classify_403_without_impersonation_signal_as_iam_permission_denied():
+    body = {
+        "error": {
+            "code": 403,
+            "message": "Permission 'aiplatform.endpoints.predict' denied on resource.",
+            "status": "PERMISSION_DENIED",
+        }
+    }
+    assert _classify_vertex_error(403, body) == "vertex_iam_permission_denied"
+
+
+def test_classify_404_as_model_or_region_unavailable():
+    body = {"error": {"message": "Publisher Model was not found or your project does not have access to it."}}
+    assert _classify_vertex_error(404, body) == "vertex_model_or_region_unavailable"
+
+
+def test_classify_429_as_quota_exceeded():
+    body = {
+        "error": {
+            "code": 429,
+            "message": "Quota exceeded for aiplatform.googleapis.com/generate_content_requests_per_minute.",
+            "status": "RESOURCE_EXHAUSTED",
+        }
+    }
+    assert _classify_vertex_error(429, body) == "vertex_quota_exceeded"
+
+
+def test_classify_unmapped_status_as_unknown():
+    assert _classify_vertex_error(418, {}) == "vertex_unknown_error"
+
+
+# ---------------------------------------------------------------------------
 # VertexGeminiClient.chat_completions
 # ---------------------------------------------------------------------------
 
@@ -237,6 +306,32 @@ async def test_chat_completions_wraps_non_2xx_response_without_leaking_body():
     assert err.response.status_code == 403
     assert b"super-secret-detail" not in err.response.body
     assert "super-secret-detail" not in str(err)
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_classifies_impersonation_denial_without_leaking_label(caplog):
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json=_IMPERSONATION_DENIAL_BODY)
+
+    client = _vertex_client_with_transport(handler)
+
+    with (
+        caplog.at_level("ERROR"),
+        pytest.raises(VertexUpstreamError) as exc_info,
+    ):
+        await client.chat_completions(
+            {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    err = exc_info.value
+    body = json.loads(err.response.body)
+    # Caller-facing response stays the generic opaque 403 envelope — the
+    # classification label must never appear in it.
+    assert set(body["error"].keys()) == {"message", "type", "code"}
+    assert "vertex_impersonation_denied" not in err.response.body.decode()
+    assert "getAccessToken" not in err.response.body.decode()
+    # The classification is captured server-side for internal observability.
+    assert "classification=vertex_impersonation_denied" in caplog.text
 
 
 @pytest.mark.asyncio
