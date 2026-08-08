@@ -276,7 +276,12 @@ Important environment variables:
 | `MOCK_PROVIDERS` | Use local mock provider responses instead of external provider calls |
 | `OPENAI_API_KEY` | OpenAI provider key |
 | `ANTHROPIC_API_KEY` | Anthropic provider key |
-| `GEMINI_API_KEY` | Google Gemini provider key |
+| `GEMINI_API_KEY` | Google Gemini Developer API provider key (API-key path; see `GEMINI_VERTEX_*` below for the SA-authenticated Vertex AI path) |
+| `GEMINI_VERTEX_PROJECT_ID` | GCP project id for the Vertex AI Gemini path; the Vertex client is only constructed at startup if this is set |
+| `GEMINI_VERTEX_LOCATION` | Vertex AI region, e.g. `us-central1`, or `global`; no built-in default — required whenever `GEMINI_VERTEX_PROJECT_ID` is set |
+| `GEMINI_VERTEX_CREDENTIALS_PATH` | Optional path to an impersonated-ADC credentials file; falls back to standard ADC discovery if unset |
+| `GEMINI_VERTEX_EXPECTED_SERVICE_ACCOUNT` | Expected impersonated service-account identity for the Vertex AI path |
+| `GEMINI_VERTEX_TIMEOUT_SECONDS` | Per-request HTTP timeout for Vertex AI calls; default `60` |
 | `OLLAMA_BASE_URL` | Ollama/OpenAI-compatible local base URL |
 | `MCPPROXY_URL` | MCP Reverse Proxy base URL used by the proxy to forward `/v1/mcp/{server}/call` |
 | `GATEWAY_MCPPROXY_PORT` | Host port the MCP Reverse Proxy binds to (default `18766`) |
@@ -296,6 +301,10 @@ See [Google Sensitive Data Protection PII backend](docs/google-sensitive-data-pr
 for IAM, ADC/workload identity, regional processing, cost/quota, live smoke, and
 rollback instructions, including the full optional `google-credential-sentinel`
 overlay (`docker-compose.google-dlp.yml`) variable list.
+
+See [Vertex AI Gemini adapter](docs/google-vertex-ai-gemini.md) for the SA-authenticated
+Vertex AI Gemini path: architecture, impersonated-ADC setup (never a raw service-account
+key file), environment variables, and flagged risks still open before production use.
 
 ## Governance controls
 

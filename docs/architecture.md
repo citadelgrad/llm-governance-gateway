@@ -13,7 +13,7 @@ LLM Governance Gateway is a split-control-plane LLM proxy. The proxy owns client
 | OPA Ingress (`opa`) | Open Policy Agent | Internal only | Rego policy decisions for model tiers, PHI/provider restrictions, provider overrides, evaluated from `policies/llm/*` |
 | Postgres | Postgres 16 | Internal only | Governance's audit log, pseudonym map, and erasure log; the proxy's usage log and pricing table; bootstrap/provisioning state |
 | Redis | Redis 7 | Internal only | Sliding-window rate-limit counters |
-| Provider adapters | Python modules in `proxy/app/providers/` | Outbound only | OpenAI, Anthropic, Gemini, Ollama, generic OpenAI-compatible, mock provider |
+| Provider adapters | Python modules in `proxy/app/providers/` | Outbound only | OpenAI, Anthropic, Gemini (dual path: API-key Developer API and SA-authenticated Vertex AI), Ollama, generic OpenAI-compatible, mock provider |
 
 "OPA Ingress" and "OPA Sidecar" are two separate OPA processes with separate policy bundles — see [Policy model](#policy-model) below.
 
@@ -213,6 +213,21 @@ Each model has:
 - `alias_of` — optional canonical model ID.
 
 Tenant defaults and allowed models live in `config/tenants.yaml`. Demo users live in `config/users.yaml`. Per-model pricing rates live in `config/pricing.yaml` and seed the `pricing` table (see [Usage log, pricing, and dashboard](#usage-log-pricing-and-dashboard) below).
+
+## Gemini adapters (dual path)
+
+Two Gemini adapters live side by side in `proxy/app/providers/`: `gemini.py` (API-key, Gemini Developer API) and `gemini_vertex.py` (SA-authenticated, Vertex AI). Both call into the same shared translation core, `_gemini_common.py`, which is parameterized by a per-backend `GeminiDialect` (`DEVELOPER_API_DIALECT` / `VERTEX_DIALECT`) rather than duplicated per adapter. One wrinkle: `gemini.py`'s response-translation call site uses a stricter local `_RESPONSE_DIALECT` (`DEVELOPER_API_DIALECT` with `extra_finish_reasons` cleared) rather than `DEVELOPER_API_DIALECT` itself, to preserve pre-refactor raise-on-unrecognized-finish-reason behavior — request- and response-translation dialects for the same backend are not always the same object.
+
+`resolve_provider()` (`proxy/app/routing.py`) picks between `"gemini"` and `"gemini-vertex"` using its existing precedence chain, unchanged in order:
+
+1. Role-gated `x-gateway-provider` header override — hard-denies (`override_denied`) if the caller lacks `gateway:provider_override:gemini-vertex`, rather than silently falling back.
+2. Exact `config/models.yaml` catalog match (`gemini-3.1-flash-lite-vertex`, `provider: gemini-vertex`).
+3. Prefix inference — a bare `gemini-*` model id normally maps to `gemini`, but resolves to `gemini-vertex` instead when the tenant's `default_provider` is `gemini-vertex`.
+4. Tenant default.
+
+`config/models.yaml`'s old `provider: google` naming bug (inconsistent with the `"gemini"` key used elsewhere) is fixed, and `main.py`'s compensating shim (`capability_provider = "gemini" if provider == "google" else provider`) is removed as part of this fix.
+
+See [Vertex AI Gemini adapter](google-vertex-ai-gemini.md) for the full architecture diagram, credential/ADC setup, environment variables, and the two flagged risks (`alt=sse` streaming framing, exact 403 reason string for a missing IAM role grant) still open against a live Vertex endpoint.
 
 ## Local deployment
 
