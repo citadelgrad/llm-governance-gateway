@@ -1,0 +1,21 @@
+config/models.yaml
+  s_eb4ff7de3b155f::t_01b5ec7ee53053 26,39
+proxy/app/main.py
+  s_eb4ff7de3b155f::t_a27222d6af8fa7 486,545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "67c56adccd954d9f5ca3049fa5bfbe282d2e320a",
+  "prompts": {},
+  "sessions": {
+    "s_eb4ff7de3b155f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "179eacf3-8ae2-451e-b0b9-3f8aba5eab52",
+        "model": "unknown"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
