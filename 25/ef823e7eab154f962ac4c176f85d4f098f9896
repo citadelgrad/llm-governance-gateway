@@ -1,0 +1,19 @@
+governance/pyproject.toml
+  s_54e23e83b9ad85::t_5b192ec9f5717f 21-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "25ef823e7eab154f962ac4c176f85d4f098f9896",
+  "prompts": {},
+  "sessions": {
+    "s_54e23e83b9ad85": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8e27d9b3-1d2c-40fd-9ff9-2f54bae032c4",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
