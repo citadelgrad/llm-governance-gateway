@@ -173,6 +173,40 @@ test_phi_bedrock_no_deny if {
     count(result) == 0
 }
 
+# --- PHI + gemini-vertex: deny non-empty (neither Gemini path is PHI/BAA-approved) ---
+
+test_phi_gemini_vertex_deny if {
+    result := authz.deny with input as {
+        "phase": "pre_call",
+        "request": {
+            "model": "gemini-3.1-flash-lite-vertex",
+            "provider": "gemini-vertex",
+            "data_classification": ["PHI"],
+            "pii_findings": [],
+        },
+        "user": {"roles": []},
+    }
+    count(result) > 0
+    "PHI cannot be sent to unapproved external providers" in result
+}
+
+# --- PHI + gemini (Developer API): deny non-empty, regression check ---
+
+test_phi_gemini_deny if {
+    result := authz.deny with input as {
+        "phase": "pre_call",
+        "request": {
+            "model": "gemini-3.1-flash-lite",
+            "provider": "gemini",
+            "data_classification": ["PHI"],
+            "pii_findings": [],
+        },
+        "user": {"roles": []},
+    }
+    count(result) > 0
+    "PHI cannot be sent to unapproved external providers" in result
+}
+
 # --- Non-PHI data: deny is always empty regardless of provider ---
 
 test_non_phi_no_deny if {

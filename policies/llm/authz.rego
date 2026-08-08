@@ -18,6 +18,7 @@ model_tiers := {
     "claude-haiku-4-5-20251001": "tier1",
     "claude-opus-4-5":   "tier2",
     "gemini-3.1-flash-lite": "tier1",
+    "gemini-3.1-flash-lite-vertex": "tier1",
 }
 
 # Providers that have signed a HIPAA BAA — the only ones permitted to receive PHI.

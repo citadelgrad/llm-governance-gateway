@@ -20,12 +20,26 @@ test_allow_with_openai_permission if {
     }
 }
 
+test_allow_with_gemini_vertex_permission if {
+    provider_override.allow with input as {
+        "request": {"attempted_provider": "gemini-vertex"},
+        "user": {"permissions": ["gateway:provider_override:gemini-vertex"]},
+    }
+}
+
 # --- CRITICAL: provider permission is scoped — anthropic permission cannot pivot to gemini ---
 
 test_anthropic_permission_cannot_pivot_to_gemini if {
     not provider_override.allow with input as {
         "request": {"attempted_provider": "gemini"},
         "user": {"permissions": ["gateway:provider_override:anthropic"]},
+    }
+}
+
+test_gemini_permission_cannot_pivot_to_gemini_vertex if {
+    not provider_override.allow with input as {
+        "request": {"attempted_provider": "gemini-vertex"},
+        "user": {"permissions": ["gateway:provider_override:gemini"]},
     }
 }
 

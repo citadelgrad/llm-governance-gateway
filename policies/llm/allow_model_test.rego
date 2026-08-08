@@ -22,6 +22,14 @@ test_tier1_gemini_flash_in_allowed_models if {
     }
 }
 
+test_tier1_gemini_flash_vertex_in_allowed_models if {
+    allow_model.allow with input as {
+        "request": {"model": "gemini-3.1-flash-lite-vertex"},
+        "tenant": {"allowed_models": ["gemini-3.1-flash-lite-vertex"]},
+        "user": {"roles": []},
+    }
+}
+
 # --- Tier-1 model NOT in allowed_models: deny ---
 
 test_tier1_not_in_allowed_models if {
