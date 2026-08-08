@@ -483,7 +483,7 @@ async def _run_gateway_pipeline(
             ) from exc
 
         if not native_dispatch and not settings.mock_mode:
-            capability_provider = "gemini" if provider == "google" else provider
+            capability_provider = provider
             if capability_provider not in {"anthropic", "gemini", "openai", "ollama"}:
                 capability_provider = "generic"
             unsupported = unsupported_chat_fields(capability_provider, body)
@@ -542,7 +542,7 @@ async def _run_gateway_pipeline(
                         request.app.state.anthropic_client, body, stream, extra_headers
                     )
                 effective_provider = "anthropic"
-            case "gemini" | "google":
+            case "gemini":
                 response = await gemini_provider.chat_completions(
                     request.app.state.gemini_client, body, stream, extra_headers
                 )

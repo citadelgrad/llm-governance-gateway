@@ -23,7 +23,7 @@ models:
 
   # Google
   - id: gemini-3.1-flash-lite
-    provider: google
+    provider: gemini
     base_url: https://generativelanguage.googleapis.com/v1beta
 
   # Aliases — alias_of resolves to the canonical model id
@@ -36,5 +36,5 @@ models:
     alias_of: gpt-4o
 
   - id: flash
-    provider: google
+    provider: gemini
     alias_of: gemini-3.1-flash-lite
