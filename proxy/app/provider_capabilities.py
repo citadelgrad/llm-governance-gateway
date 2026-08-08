@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from proxy.app.protocol_types import JsonObject, WireProtocol
+from proxy.app.providers._gemini_common import DEVELOPER_API_DIALECT, VERTEX_DIALECT
 
 SupportLevel = Literal["native", "translated", "unsupported"]
 
@@ -195,6 +196,10 @@ GEMINI_CHAT_TRANSLATION_FIELDS = frozenset(
 class ProviderCapabilities:
     native_protocols: frozenset[WireProtocol]
     chat_translation_fields: frozenset[str]
+    # Backend-specific Gemini `finishReason` values (response-shape only;
+    # not consulted by unsupported_chat_fields()). Empty for non-Gemini
+    # providers.
+    extra_finish_reasons: frozenset[str] = frozenset()
 
 
 PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
@@ -205,6 +210,12 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
     "gemini": ProviderCapabilities(
         native_protocols=frozenset(),
         chat_translation_fields=GEMINI_CHAT_TRANSLATION_FIELDS,
+        extra_finish_reasons=DEVELOPER_API_DIALECT.extra_finish_reasons,
+    ),
+    "gemini-vertex": ProviderCapabilities(
+        native_protocols=frozenset(),
+        chat_translation_fields=GEMINI_CHAT_TRANSLATION_FIELDS,
+        extra_finish_reasons=VERTEX_DIALECT.extra_finish_reasons,
     ),
     "openai": ProviderCapabilities(
         native_protocols=frozenset({"openai_chat", "openai_responses"}),

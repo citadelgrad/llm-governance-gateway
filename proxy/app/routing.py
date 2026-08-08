@@ -44,6 +44,8 @@ def resolve_provider(
 
     for prefix, provider in _PREFIX_MAP:
         if model_id.startswith(prefix):
+            if provider == "gemini" and tenant_default_provider == "gemini-vertex":
+                return (tenant_default_provider, "prefix_inference")
             return (provider, "prefix_inference")
 
     if tenant_default_provider:
