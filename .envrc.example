@@ -55,6 +55,16 @@ export GOOGLE_APPLICATION_CREDENTIALS_HOST=""
 # export GOOGLE_ADC_STATUS_MAX_AGE_SECONDS="90"
 # export GOOGLE_ADC_RETRY_AFTER_SECONDS="60"
 
+# --- Vertex AI Gemini adapter (SA-authenticated path) ---
+# Distinct prefix from GOOGLE_DLP_* on purpose: this configures the
+# proxy service's Vertex AI access, independently of governance's DLP
+# credential-sentinel setup, even when pointed at the same GCP project.
+export GEMINI_VERTEX_PROJECT_ID=""
+export GEMINI_VERTEX_LOCATION="us-central1"   # or "global"
+export GEMINI_VERTEX_CREDENTIALS_PATH=""       # optional; ADC auto-discovery if unset
+export GEMINI_VERTEX_EXPECTED_SERVICE_ACCOUNT=""
+export GEMINI_VERTEX_TIMEOUT_SECONDS="60"
+
 # Mock providers let demos/tests run without real upstream LLM API keys.
 export MOCK_PROVIDERS="true"
 

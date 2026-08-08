@@ -1,0 +1,29 @@
+{
+  "feature_slug": "gemini-vertex-adapter",
+  "feature_title": "Vertex AI Gemini Adapter (SA-authenticated, dual-path with API key adapter)",
+  "current_stage": "complete",
+  "completed_stages": [1, 2, 3, 4, 5, 6, 7],
+  "epic_id": "ai-gateway-76iq",
+  "prd_path": "docs/prd-gemini-vertex-adapter.md",
+  "spec_path": "docs/spec-gemini-vertex-adapter.md",
+  "research_complete": true,
+  "docs_approved": true,
+  "tasks_created": [
+    "ai-gateway-76iq.1",
+    "ai-gateway-76iq.2",
+    "ai-gateway-76iq.3",
+    "ai-gateway-76iq.4",
+    "ai-gateway-76iq.5",
+    "ai-gateway-76iq.6",
+    "ai-gateway-76iq.7",
+    "ai-gateway-76iq.8",
+    "ai-gateway-76iq.9",
+    "ai-gateway-76iq.10",
+    "ai-gateway-76iq.11",
+    "ai-gateway-76iq.12",
+    "ai-gateway-76iq.13",
+    "ai-gateway-76iq.14"
+  ],
+  "notes": "Planning complete. Epic and 14 child tasks created in beads with dependencies wired. Ready tasks: .1, .2, .3.",
+  "completed_at": "2026-08-08"
+}

@@ -12,6 +12,19 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
+    # New: Vertex AI (SA-authenticated) path. Prefixed distinctly from
+    # governance's GOOGLE_DLP_* settings even though the underlying GCP
+    # project id may coincide (both services configure Google Cloud
+    # access independently).
+    gemini_vertex_project_id: str = ""
+    gemini_vertex_location: str = ""  # e.g. "us-central1", or "global"
+    gemini_vertex_credentials_path: str = ""  # optional; falls back to
+    # standard ADC discovery (GOOGLE_APPLICATION_CREDENTIALS or
+    # gcloud ADC file) if unset
+    gemini_vertex_expected_service_account: str = ""  # for startup
+    # validation, mirroring scripts/google_adc_keychain.py's
+    # --expected-service-account pattern
+    gemini_vertex_timeout_seconds: float = 60.0
     ollama_base_url: str = "http://localhost:11434/v1"
     mock_providers: bool = False
     mock_mode: bool = False
