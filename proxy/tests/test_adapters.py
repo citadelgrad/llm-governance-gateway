@@ -871,6 +871,19 @@ def test_gemini_to_openai_envelope_safety_maps_to_content_filter():
     assert envelope["choices"][0]["finish_reason"] == "content_filter"
 
 
+def test_gemini_to_openai_envelope_rejects_dialect_specific_finish_reason():
+    """gemini.py must keep raising on finishReason values outside the core
+    map, even though _gemini_common.DEVELOPER_API_DIALECT declares them as
+    dialect-legitimate — that acceptance is scoped to future callers, not
+    this adapter's existing response path."""
+    gemini_json = {
+        "candidates": [{"content": {"parts": []}, "finishReason": "LANGUAGE"}],
+        "usageMetadata": {},
+    }
+    with pytest.raises(gemini_provider.GeminiTranslationError, match="LANGUAGE"):
+        gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+
+
 # ---------------------------------------------------------------------------
 # Gemini — end-to-end via httpx mock
 # ---------------------------------------------------------------------------
