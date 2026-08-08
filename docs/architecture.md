@@ -6,26 +6,81 @@ LLM Governance Gateway is a split-control-plane LLM proxy. The proxy owns client
 
 | Component | Tech | Exposure | Responsibility |
 |---|---|---|---|
-| Proxy | FastAPI, asyncpg, httpx, Redis client | Public HTTP in local/dev; public HTTPS in deployment | OpenAI-compatible API, authentication, tenant lookup, routing, rate limiting, provider dispatch |
-| Governance | FastAPI, Presidio, spaCy, transformers (HF pipelines), asyncpg | Internal only | PII detection, pseudonymization, harm scoring, OPA policy calls, audit writes |
-| OPA | Open Policy Agent | Internal only | Rego policy decisions for model tiers, PHI/provider restrictions, provider overrides |
-| Postgres | Postgres 16 | Internal only | Audit log, pseudonym map, erasure log, bootstrap/provisioning state |
+| Proxy | FastAPI, asyncpg, httpx, Redis client | Public HTTP in local/dev; public HTTPS in deployment | OpenAI-compatible, Responses, and Messages APIs, authentication, tenant lookup, routing, rate limiting, provider dispatch, usage dashboard |
+| MCP Reverse Proxy (`mcpproxy`) | FastAPI, httpx | Public port, but gated by a shared internal token only the proxy holds | Public ingress for `POST /v1/mcp/call`, calls the OPA Sidecar for authorization, buffers and DLP-scans tool responses, writes audit events, runs the break-glass circuit breaker |
+| OPA Sidecar (`opa-sidecar`) | Open Policy Agent | Loopback only (`127.0.0.1:8181`), one process per `mcpproxy` replica | Evaluates `policies/mcp/authz.rego` fresh on every call, no decision caching; polls governance for its entitlements bundle |
+| Governance | FastAPI, Presidio, spaCy, transformers (HF pipelines), asyncpg | Internal only | PII detection, pseudonymization, harm scoring, OPA policy calls, audit writes, MCP entitlements bundle, MCP PII scan endpoint |
+| OPA Ingress (`opa`) | Open Policy Agent | Internal only | Rego policy decisions for model tiers, PHI/provider restrictions, provider overrides, evaluated from `policies/llm/*` |
+| Postgres | Postgres 16 | Internal only | Governance's audit log, pseudonym map, and erasure log; the proxy's usage log and pricing table; bootstrap/provisioning state |
 | Redis | Redis 7 | Internal only | Sliding-window rate-limit counters |
 | Provider adapters | Python modules in `proxy/app/providers/` | Outbound only | OpenAI, Anthropic, Gemini, Ollama, generic OpenAI-compatible, mock provider |
 
+"OPA Ingress" and "OPA Sidecar" are two separate OPA processes with separate policy bundles — see [Policy model](#policy-model) below.
+
 ## Request lifecycle
 
-1. Client sends `POST /v1/chat/completions` to the proxy.
+### LLM request path
+
+1. Client sends `POST /v1/chat/completions` (or `/v1/responses`, or `/v1/messages`) to the proxy.
 2. Proxy authenticates the caller with JWT/API-key logic.
 3. Proxy loads tenant config and resolves the requested model/provider.
 4. Proxy checks Redis rate limits before governance work.
 5. Proxy sends request text plus caller/model metadata to governance.
 6. Governance runs PII detection and redaction/pseudonymization.
 7. Governance runs harm checks.
-8. Governance sends policy input to OPA.
+8. Governance sends policy input to the OPA Ingress instance.
 9. Governance writes an audit row with decision metadata.
 10. Proxy blocks or forwards the possibly-redacted provider request.
-11. Proxy returns the provider response plus audit/rate-limit/PII headers.
+11. Proxy resolves the active pricing-table rate, writes a usage-log row, and returns the provider response plus audit/rate-limit/usage headers.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Proxy
+    participant G as Governance
+    participant O as OPA Ingress
+    participant M as Provider
+
+    C->>P: POST /v1/chat/completions
+    P->>G: inspect(text, metadata)
+    G->>O: policy input
+    O-->>G: allow/deny
+    G-->>P: decision + redacted text
+    P->>M: provider request
+    M-->>P: provider response
+    P-->>C: response + usage headers
+```
+
+### MCP tool-call path
+
+1. Client sends `POST /v1/mcp/{server}/call` to the proxy; the proxy authenticates the caller.
+2. Proxy forwards the call to the MCP Reverse Proxy with the shared `X-Internal-Token`.
+3. If the circuit breaker is closed, the MCP Reverse Proxy asks the OPA Sidecar for a fresh authorization decision. If the breaker is open (5 consecutive sidecar transport failures), it instead checks a static break-glass allow-list.
+4. On deny, the MCP Reverse Proxy writes a `policy_denied`/`breakglass_denied` audit event and returns `403`, without calling the downstream tool.
+5. On allow, the MCP Reverse Proxy calls the single configured downstream MCP tool server and buffers the full response (1 MiB / 10s caps; a breach fails closed).
+6. The MCP Reverse Proxy sends the buffered text to governance's PII-scan endpoint. Any finding, cap breach, or scan error fails closed: audit `dlp_blocked`/`block`, return `502`.
+7. On a clean scan, the MCP Reverse Proxy writes an `allow`-decision audit event and returns the buffered tool response to the caller.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Proxy
+    participant MP as MCP Reverse Proxy
+    participant OS as OPA Sidecar
+    participant T as Downstream tool
+    participant G as Governance
+
+    C->>P: POST /v1/mcp/{server}/call
+    P->>MP: forward + internal token
+    MP->>OS: authz check
+    OS-->>MP: allow/deny
+    MP->>T: tool call
+    T-->>MP: buffered response
+    MP->>G: PII scan
+    G-->>MP: clean/finding
+    MP-->>P: tool result or 502/403
+    P-->>C: response
+```
 
 ## Fail-closed model
 
@@ -58,14 +113,16 @@ Presidio. See [Google Sensitive Data Protection PII backend](google-sensitive-da
 
 ## Policy model
 
-Policy files live in `policies/llm/`.
+The gateway runs two separate OPA processes with disjoint policy bundles.
 
-Important policy themes:
+**OPA Ingress** loads `policies/llm/` and decides the LLM request path:
 
 - `authz.rego` handles core allow/deny behavior.
 - `allow_model.rego` handles model-tier access.
 - `provider_override.rego` controls whether callers can force provider routing.
 - Parity tests keep duplicated model-tier maps aligned.
+
+**OPA Sidecar** loads only `policies/mcp/authz.rego`, an entitlement matrix keyed by role, tool, resource pattern, and `tenant_id`, evaluated fresh on every MCP tool call with no decision caching. See [Opa-sidecar Dockerfile hardening](#opa-sidecar-dockerfile-hardening-distinct-from-tenant-isolation-policy-fix) below for its build and tenant-isolation history.
 
 Run policy tests with:
 
@@ -155,7 +212,7 @@ Each model has:
 - `base_url` — upstream base URL when applicable.
 - `alias_of` — optional canonical model ID.
 
-Tenant defaults and allowed models live in `config/tenants.yaml`. Demo users live in `config/users.yaml`.
+Tenant defaults and allowed models live in `config/tenants.yaml`. Demo users live in `config/users.yaml`. Per-model pricing rates live in `config/pricing.yaml` and seed the `pricing` table (see [Usage log, pricing, and dashboard](#usage-log-pricing-and-dashboard) below).
 
 ## Local deployment
 
@@ -163,10 +220,12 @@ Docker Compose starts:
 
 - Postgres on host port `15433`.
 - Proxy on host port `18765`.
+- MCP Reverse Proxy on host port `18766`, gated behind the shared internal token.
+- OPA Sidecar, reachable only over loopback from its paired `mcpproxy` replica (`network_mode: "service:mcpproxy"`), never as an independently addressable service.
 - Internal governance service.
-- Internal OPA service.
+- Internal OPA Ingress service.
 - Internal Redis service.
-- Migration job.
+- Migration jobs for both governance and proxy (see [Independent Alembic instances](#usage-log-pricing-and-dashboard)).
 
 Use:
 
@@ -186,3 +245,25 @@ The optional Fly.io examples in `infra/example/fly.io/` are intended for a split
 - Rotation/maintenance work runs through cron/one-off jobs.
 
 Do not deploy governance or OPA as public services. That would be missing the point with confidence.
+
+`infra/example/fly.io/` currently has no `mcpproxy` or `opa-sidecar` Fly configs. Today those two services run only through `docker-compose.yml`; treat the MCP tool-call path as local/dev-only until Fly configs for it exist.
+
+## Usage log, pricing, and dashboard
+
+The proxy tracks its own cost/observability data, separate from governance's compliance audit log. Term definitions (Usage Event, Usage Log, Pricing Table, Usage Visibility) live in [CONTEXT.md](../CONTEXT.md).
+
+- `usage_log` (proxy-owned table): one row per authenticated request, with the real API key, token counts, cost, latency, and status (allowed/blocked/errored). Written by `proxy/app/usage_log.py` and `proxy/app/stream_usage.py`.
+- `pricing` (proxy-owned table): versioned $/token rates per model with `effective_from`, seeded from `config/pricing.yaml`. The proxy resolves and locks the rate at request time, so historical cost does not shift when rates change later.
+- `GET /dashboard` and `GET /dashboard/data` (`proxy/app/dashboard.py`) serve the usage dashboard. They live on the public proxy, not on internal governance — access is controlled by the existing `admin` role and tenant scoping, not by network placement.
+- Proxy and governance each run their own independent Alembic migration history (`proxy/migrations/`, `governance/migrations/`), run by separate `proxy-migrate` and `migrate` compose jobs, since the two services own disjoint tables in the same database.
+
+Design rationale is recorded in four ADRs:
+
+- [0001: usage_log kept separate from audit_log](adr/0001-usage-log-separate-from-audit-log.md)
+- [0002: pricing rate resolved and locked at request time](adr/0002-pricing-table-rate-at-request-time.md)
+- [0003: Alembic added to the proxy service](adr/0003-alembic-added-to-proxy.md)
+- [0004: dashboard mounted on the public proxy](adr/0004-dashboard-mounted-on-public-proxy.md)
+
+## Further reading
+
+[auth-architecture.md](auth-architecture.md) documents the MCP authorization design in more depth. Some of it describes what is running today — `mcpproxy`, the OPA Sidecar, `POST /v1/dlp/pii-scan`, the `policies/mcp/authz.rego` entitlement matrix, `GET /v1/mcp/entitlements-bundle` — and some of it describes a planned, not-yet-built design — a standalone Authorization Server/Zitadel, a GitHub Token Broker, a Cloud Credential Broker, RS256/JWKS auth, and a six-dimension audit schema. Read it as a design document, not a status report; this file (`architecture.md`) reflects what is actually running.
