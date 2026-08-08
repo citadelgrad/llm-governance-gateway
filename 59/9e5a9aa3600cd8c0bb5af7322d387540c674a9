@@ -1,0 +1,16 @@
+proxy/tests/test_main_gemini_vertex_dispatch.py
+  h_12ee2b2686c122 5,7,121-200
+proxy/tests/test_routing.py
+  h_12ee2b2686c122 53-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "599e5a9aa3600cd8c0bb5af7322d387540c674a9",
+  "prompts": {},
+  "humans": {
+    "h_12ee2b2686c122": {
+      "author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
