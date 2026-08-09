@@ -1,0 +1,28 @@
+proxy/tests/test_responses.py
+  s_522daaa72e7bf9::t_255741771cb109 6,10-15,18-20,25
+  s_522daaa72e7bf9::t_de954b2edbfe4b 437-494
+  s_522daaa72e7bf9::t_4373988f67c180 495-496
+proxy/app/responses_compat.py
+  s_522daaa72e7bf9::t_9678f6f7681d68 156-157,159-163,165-167,169,172-184,187
+  s_522daaa72e7bf9::t_e7edce0c0eddad 334,336-338,343,348,354
+  s_522daaa72e7bf9::t_1e058ca2387fd4 82
+  s_522daaa72e7bf9::t_da12fd91fdbc45 123,127,129,132-134
+  s_522daaa72e7bf9::t_6c4be8cfa79a42 11-14,43-58
+  s_522daaa72e7bf9::t_0492880fe669b5 59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "48f4961499980e5c12844ac76db77bbe540756b9",
+  "prompts": {},
+  "sessions": {
+    "s_522daaa72e7bf9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db9c12e6-1845-4699-bc2e-f9e5adb03167",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
