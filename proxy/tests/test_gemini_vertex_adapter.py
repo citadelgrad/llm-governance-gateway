@@ -14,11 +14,13 @@ import httpx
 import pytest
 from proxy.app.config import Settings
 from proxy.app.providers import gemini_vertex
+from proxy.app.providers._gemini_common import GeminiTranslationError
 from proxy.app.providers.gemini_vertex import (
     VertexCredentialManager,
     VertexGeminiClient,
     VertexUpstreamError,
     _classify_vertex_error,
+    _to_openai_envelope,
     _vertex_base_url,
     _vertex_model_path,
 )
@@ -218,6 +220,34 @@ def test_classify_unmapped_status_as_unknown():
 
 
 # ---------------------------------------------------------------------------
+# _to_openai_envelope — promptFeedback.blockReason
+# ---------------------------------------------------------------------------
+
+
+def test_to_openai_envelope_raises_on_blocked_prompt():
+    """An empty candidates list with a genuine promptFeedback.blockReason
+    must surface as an error, not a silent empty 'stop' completion."""
+    data = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": "SAFETY"},
+        "usageMetadata": {},
+    }
+    with pytest.raises(GeminiTranslationError, match="Vertex generation blocked: SAFETY"):
+        _to_openai_envelope(data, "gemini-1.5-pro")
+
+
+def test_to_openai_envelope_default_stop_when_block_reason_unset():
+    data = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": "BLOCKED_REASON_UNSPECIFIED"},
+        "usageMetadata": {},
+    }
+    envelope = _to_openai_envelope(data, "gemini-1.5-pro")
+    assert envelope["choices"][0]["finish_reason"] == "stop"
+    assert envelope["choices"][0]["message"]["content"] == ""
+
+
+# ---------------------------------------------------------------------------
 # VertexGeminiClient.chat_completions
 # ---------------------------------------------------------------------------
 
@@ -351,6 +381,55 @@ async def test_chat_completions_attaches_bearer_token_header():
     )
 
     assert captured["authorization"] == "Bearer secret-token-xyz"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_rejects_unsupported_field_before_dispatch():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP call should be made for a request-shape error")
+
+    client = _vertex_client_with_transport(handler)
+
+    with pytest.raises(GeminiTranslationError, match="frequency_penalty"):
+        await client.chat_completions(
+            {
+                "model": "gemini-1.5-pro",
+                "messages": [{"role": "user", "content": "hi"}],
+                "frequency_penalty": 0.5,
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_translates_tool_choice_to_tool_config():
+    """Previously gemini_vertex.py silently dropped tool_choice entirely —
+    it must now translate it identically to gemini.py rather than losing
+    the caller's tool-selection intent."""
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return httpx.Response(200, json=_HAPPY_PATH_JSON)
+
+    client = _vertex_client_with_transport(handler)
+    await client.chat_completions(
+        {
+            "model": "gemini-1.5-pro",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {"name": "lookup", "description": "d"},
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": "lookup"}},
+        }
+    )
+
+    sent_body = json.loads(captured["request"].content)
+    assert sent_body["toolConfig"] == {
+        "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["lookup"]}
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +627,80 @@ async def test_chat_completions_stream_mid_stream_request_error_yields_sse_error
 
     assert frames[0]["choices"][0]["delta"]["content"] == "partial"
     assert frames[-1]["error"]["type"] == "upstream_connection_error"
+    assert "[DONE]" not in frames
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_rejects_unsupported_field_before_dispatch():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP call should be made for a request-shape error")
+
+    client = _vertex_client_with_transport(handler)
+
+    with pytest.raises(GeminiTranslationError, match="frequency_penalty"):
+        await _collect_stream(
+            client,
+            {
+                "model": "gemini-1.5-pro",
+                "messages": [{"role": "user", "content": "hi"}],
+                "frequency_penalty": 0.5,
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_translates_tool_choice_to_tool_config():
+    captured: dict = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["request"] = request
+        return _sse_response(
+            ['data: {"candidates": [{"content": {"parts": [{"text": "hi"}]}, "finishReason": "STOP"}]}', "data: [DONE]"]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    await _collect_stream(
+        client,
+        {
+            "model": "gemini-1.5-pro",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {"name": "lookup", "description": "d"},
+                }
+            ],
+            "tool_choice": {"type": "function", "function": {"name": "lookup"}},
+        },
+    )
+
+    sent_body = json.loads(captured["request"].content)
+    assert sent_body["toolConfig"] == {
+        "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["lookup"]}
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_stream_blocked_prompt_yields_sse_error_without_done():
+    """A candidates-less chunk that carries a genuine promptFeedback.block
+    Reason must terminate the stream with an SSE error frame, not silently
+    complete as a normal empty 'stop' response."""
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return _sse_response(
+            [
+                'data: {"promptFeedback": {"blockReason": "SAFETY"}}',
+                "data: [DONE]",
+            ]
+        )
+
+    client = _vertex_client_with_transport(handler)
+    frames = await _collect_stream(
+        client, {"model": "gemini-1.5-pro", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert len(frames) == 1
+    assert "Vertex generation blocked: SAFETY" in frames[0]["error"]["message"]
     assert "[DONE]" not in frames
 
 

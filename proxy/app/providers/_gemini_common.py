@@ -228,6 +228,38 @@ def translate_tools(openai_tools: object) -> list[JsonObject] | None:
     return [{"functionDeclarations": declarations}]
 
 
+def translate_tool_choice(tool_choice: object) -> JsonObject | None:
+    """OpenAI `tool_choice` -> Gemini `toolConfig`.
+
+    Identical semantics on both backends (only named-function forcing,
+    "auto", "none", and "required" have a proven Gemini equivalent via
+    functionCallingConfig.mode). Returns None when tool_choice is unset;
+    callers decide whether to attach the `toolConfig` key. Raises
+    GeminiTranslationError rather than silently dropping the caller's
+    tool-selection intent for any shape without a proven equivalent.
+    """
+    if tool_choice is None:
+        return None
+    config: JsonObject
+    if tool_choice == "auto":
+        config = {"mode": "AUTO"}
+    elif tool_choice == "none":
+        config = {"mode": "NONE"}
+    elif tool_choice == "required":
+        config = {"mode": "ANY"}
+    elif isinstance(tool_choice, dict):
+        function = tool_choice.get("function")
+        if tool_choice.get("type") != "function" or not isinstance(function, dict):
+            raise GeminiTranslationError("Gemini adapter only supports named function tool_choice")
+        name = function.get("name")
+        if not isinstance(name, str):
+            raise GeminiTranslationError("named function tool_choice requires a name")
+        config = {"mode": "ANY", "allowedFunctionNames": [name]}
+    else:
+        raise GeminiTranslationError("unsupported Gemini tool_choice")
+    return {"functionCallingConfig": config}
+
+
 def translate_candidate_to_openai_choice(
     candidate: JsonObject, dialect: GeminiDialect, index: int
 ) -> JsonObject:

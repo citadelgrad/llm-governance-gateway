@@ -915,6 +915,20 @@ def test_gemini_translate_rejects_fields_it_cannot_preserve():
         )
 
 
+def test_gemini_translate_rejects_parallel_tool_calls():
+    """parallel_tool_calls has no Gemini equivalent and was never translated
+    anywhere in _gemini_common.py — it must be rejected up front rather than
+    silently accepted and ignored."""
+    with pytest.raises(gemini_provider.GeminiTranslationError, match="parallel_tool_calls"):
+        gemini_provider._translate_request(
+            {
+                "model": "gemini-3.1-flash-lite",
+                "messages": [{"role": "user", "content": "hi"}],
+                "parallel_tool_calls": False,
+            }
+        )
+
+
 # ---------------------------------------------------------------------------
 # Gemini — response translation
 # ---------------------------------------------------------------------------
@@ -978,6 +992,39 @@ def test_gemini_to_openai_envelope_rejects_dialect_specific_finish_reason():
     }
     with pytest.raises(gemini_provider.GeminiTranslationError, match="LANGUAGE"):
         gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+
+
+def test_gemini_to_openai_envelope_raises_on_blocked_prompt():
+    """An empty candidates list with a genuine promptFeedback.blockReason
+    must surface as an error, not a silent empty 'stop' completion."""
+    gemini_json = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": "SAFETY"},
+        "usageMetadata": {},
+    }
+    with pytest.raises(gemini_provider.GeminiTranslationError, match="blocked: SAFETY"):
+        gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+
+
+def test_gemini_to_openai_envelope_default_stop_when_block_reason_unset():
+    """An empty candidates list with no real block reason still degrades to
+    a default empty 'stop' completion (unchanged behavior)."""
+    gemini_json = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": "BLOCK_REASON_UNSPECIFIED"},
+        "usageMetadata": {},
+    }
+    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+    assert envelope["choices"][0]["finish_reason"] == "stop"
+    assert envelope["choices"][0]["message"]["content"] == ""
+
+
+def test_gemini_to_openai_envelope_default_stop_when_prompt_feedback_missing():
+    """No promptFeedback at all (e.g. an empty-but-successful response)
+    must not be mistaken for a block."""
+    gemini_json = {"candidates": [], "usageMetadata": {}}
+    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
+    assert envelope["choices"][0]["finish_reason"] == "stop"
 
 
 # ---------------------------------------------------------------------------
@@ -1069,6 +1116,48 @@ async def test_gemini_stream_final_chunk_includes_usage(httpx_mock):
         "completion_tokens": 2,
         "total_tokens": 4,
     }
+
+
+async def test_gemini_stream_blocked_prompt_emits_sse_error_frame(httpx_mock):
+    """A candidates-less chunk that carries a genuine promptFeedback.block
+    Reason must terminate the stream with an SSE error frame, not silently
+    complete as a normal empty 'stop' response."""
+    sse_lines = [
+        'data: {"promptFeedback": {"blockReason": "SAFETY"}}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse",
+        match_headers={"x-goog-api-key": "gemini-test-key"},
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = gemini_provider.make_client("gemini-test-key")
+    try:
+        response = await gemini_provider.chat_completions(
+            client,
+            {
+                "model": "gemini-3.1-flash-lite",
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        frames = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:"):
+                    frames.append(line[len("data:") :].strip())
+    finally:
+        await client.aclose()
+
+    assert len(frames) == 1
+    error_frame = json.loads(frames[0])
+    assert "blocked: SAFETY" in error_frame["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
