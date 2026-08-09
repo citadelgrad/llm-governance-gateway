@@ -8,6 +8,10 @@ from uuid import uuid4
 
 from proxy.app.anthropic_compat import _iter_openai_chat_events
 from proxy.app.protocol_types import (
+    ExecutionFunctionCallItem,
+    ExecutionFunctionCallOutputItem,
+    ExecutionItemReference,
+    ExecutionReasoningItem,
     JsonObject,
     OpenAIChatResponse,
     ProtocolTranslationError,
@@ -36,6 +40,24 @@ class ResponsesInputMessage(BaseModel):
     type: str | None = None
 
 
+# `ResponsesInputMessage.content` parts deliberately keep `type` as a plain `str`
+# (not a Literal-discriminated part union) rather than reusing
+# `protocol_types.ExecutionInputContent`: test_responses_rejects_unsupported_shape
+# pins an ingress-accepts / translation-rejects contract (an unsupported part type
+# like "input_image" must pass model_validate() and only fail once
+# translate_responses_request() inspects it, so the caller gets HTTP 422
+# unsupported_response_shape rather than HTTP 400 invalid_request). The
+# agent-lifecycle item types below have no such constraint, so they reuse the
+# canonical Execution*Item models directly.
+ResponsesInputItem = (
+    ResponsesInputMessage
+    | ExecutionFunctionCallItem
+    | ExecutionFunctionCallOutputItem
+    | ExecutionReasoningItem
+    | ExecutionItemReference
+)
+
+
 class ResponsesReasoning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -57,7 +79,7 @@ class ResponsesCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str
-    input: str | list[JsonObject]
+    input: str | list[ResponsesInputItem]
     instructions: str | list[ResponsesTextPart] | None = None
     background: bool = False
     client_metadata: dict[str, str] | None = None
@@ -98,21 +120,18 @@ class ResponsesCreateRequest(BaseModel):
         return self
 
 
-def _responses_input_text(input_value: str | list[JsonObject]) -> str:
+def _responses_input_text(input_value: str | list[ResponsesInputItem]) -> str:
     if isinstance(input_value, str):
         return input_value
     for item in reversed(input_value):
-        if item.get("type", "message") != "message" or item.get("role") != "user":
+        if not isinstance(item, ResponsesInputMessage) or item.role != "user":
             continue
-        content = item.get("content")
+        content = item.content
         if isinstance(content, str):
             return content
-        if isinstance(content, list):
-            return "".join(
-                str(part.get("text", ""))
-                for part in content
-                if isinstance(part, dict) and part.get("type") in {"input_text", "text"}
-            )
+        return "".join(
+            part.text or "" for part in content if part.type in {"input_text", "text"}
+        )
     return ""
 
 
@@ -134,30 +153,38 @@ class ResponsesGatewayPayload:
         return _responses_input_text(self.request.input)
 
     def with_redacted_text(self, redacted_text: str) -> ResponsesGatewayPayload:
-        request = self.request.model_copy(deep=True)
-        if isinstance(request.input, str):
-            request.input = redacted_text
+        if isinstance(self.request.input, str):
+            request = self.request.model_copy(update={"input": redacted_text})
             return ResponsesGatewayPayload(request=request)
-        for item in reversed(request.input):
-            if item.get("type", "message") != "message" or item.get("role") != "user":
+
+        new_input = list(self.request.input)
+        for position in range(len(new_input) - 1, -1, -1):
+            item = new_input[position]
+            if not isinstance(item, ResponsesInputMessage) or item.role != "user":
                 continue
-            content = item.get("content")
-            if isinstance(content, str):
-                item["content"] = redacted_text
-            elif isinstance(content, list):
+            if isinstance(item.content, str):
+                new_input[position] = item.model_copy(update={"content": redacted_text})
+            else:
                 text_parts = [
-                    part
-                    for part in content
-                    if isinstance(part, dict)
-                    and part.get("type") in {"input_text", "text"}
-                    and isinstance(part.get("text"), str)
+                    part for part in item.content if part.type in {"input_text", "text"}
                 ]
                 replacements = redistribute_redacted_text(
-                    [str(part["text"]) for part in text_parts], redacted_text
+                    [part.text or "" for part in text_parts], redacted_text
                 )
-                for part, replacement in zip(text_parts, replacements, strict=True):
-                    part["text"] = replacement
+                replaced = iter(
+                    part.model_copy(update={"text": replacement})
+                    for part, replacement in zip(text_parts, replacements, strict=True)
+                )
+                new_input[position] = item.model_copy(
+                    update={
+                        "content": [
+                            next(replaced) if part.type in {"input_text", "text"} else part
+                            for part in item.content
+                        ]
+                    }
+                )
             break
+        request = self.request.model_copy(update={"input": new_input})
         return ResponsesGatewayPayload(request=request)
 
     def native_body(self) -> JsonObject:
@@ -304,30 +331,27 @@ def translate_responses_request(payload: JsonObject) -> JsonObject:
         messages.append({"role": "user", "content": req.input})
     else:
         for index, item in enumerate(req.input):
-            try:
-                message = ResponsesInputMessage.model_validate(item)
-            except ValidationError as exc:
-                item_type = item.get("type", "unknown")
+            if not isinstance(item, ResponsesInputMessage):
                 raise ResponsesCompatError(
-                    f"Unsupported input item type at index {index}: {item_type}"
-                ) from exc
-            item_type = (message.type or "message").lower()
+                    f"Unsupported input item type at index {index}: {item.type}"
+                )
+            item_type = (item.type or "message").lower()
             if item_type != "message":
                 raise ResponsesCompatError(
                     f"Unsupported input item type at index {index}: {item_type}"
                 )
-            role = message.role.lower()
+            role = item.role.lower()
             if role == "developer":
                 role = "system"
             if role not in {"system", "user", "assistant"}:
                 raise ResponsesCompatError(
-                    f"Unsupported input role at index {index}: {message.role}"
+                    f"Unsupported input role at index {index}: {item.role}"
                 )
             messages.append(
                 {
                     "role": role,
                     "content": _content_to_text(
-                        message.content, field_name=f"input[{index}].content"
+                        item.content, field_name=f"input[{index}].content"
                     ),
                 }
             )

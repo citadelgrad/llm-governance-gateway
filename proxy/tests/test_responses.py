@@ -3,15 +3,26 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+import pytest
 from proxy.app.config import settings
 from proxy.app.governance_client import InspectResponse
 from proxy.app.main import app
+from proxy.app.protocol_types import (
+    ExecutionFunctionCallItem,
+    ExecutionFunctionCallOutputItem,
+    ExecutionItemReference,
+    ExecutionReasoningItem,
+)
 from proxy.app.providers import openai as openai_provider
 from proxy.app.responses_compat import (
+    ResponsesCompatError,
+    ResponsesCreateRequest,
+    ResponsesInputMessage,
     openai_sse_to_responses_sse,
     translate_chat_response,
     translate_responses_request,
 )
+from pydantic import ValidationError
 from starlette.responses import Response
 
 _RESPONSES_BODY = {
@@ -421,6 +432,66 @@ def test_responses_translation_forwards_generation_options():
     assert body["max_tokens"] == 123
     assert body["temperature"] == 0.2
     assert body["top_p"] == 0.9
+
+
+# ---------------------------------------------------------------------------
+# ResponsesInputItem typed union (ai-gateway-b7k.2)
+# ---------------------------------------------------------------------------
+
+
+def test_responses_input_item_union_dispatches_each_agent_lifecycle_shape():
+    request = ResponsesCreateRequest.model_validate(
+        {
+            "model": "gpt-5.6-luna",
+            "input": [
+                {"type": "message", "role": "user", "content": "hi"},
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "read_file",
+                    "arguments": "{}",
+                },
+                {"type": "function_call_output", "call_id": "call_1", "output": "contents"},
+                {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque"},
+                {"type": "item_reference", "id": "msg_previous"},
+            ],
+        }
+    )
+
+    assert isinstance(request.input, list)
+    message, call, output, reasoning, reference = request.input
+    assert isinstance(message, ResponsesInputMessage)
+    assert isinstance(call, ExecutionFunctionCallItem)
+    assert isinstance(output, ExecutionFunctionCallOutputItem)
+    assert isinstance(reasoning, ExecutionReasoningItem)
+    assert isinstance(reference, ExecutionItemReference)
+
+
+def test_responses_input_item_union_rejects_unknown_shape():
+    with pytest.raises(ValidationError):
+        ResponsesCreateRequest.model_validate(
+            {
+                "model": "gpt-5.6-luna",
+                "input": [{"type": "totally_unknown_item", "foo": "bar"}],
+            }
+        )
+
+
+def test_responses_translation_rejects_agent_lifecycle_items_not_yet_supported():
+    with pytest.raises(ResponsesCompatError, match="function_call"):
+        translate_responses_request(
+            {
+                "model": "gpt-5.6-luna",
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "read_file",
+                        "arguments": "{}",
+                    }
+                ],
+            }
+        )
 
 
 async def test_responses_rejects_conflicting_lifecycle_state(async_client):
