@@ -1,0 +1,45 @@
+# Client request contract fixture — OpenAI Codex CLI
+#
+# This fixture backs test_official_sdk_contracts.py::
+#   test_codex_responses_contract_preserves_agent_lifecycle_items
+#
+# It is loaded verbatim by the test (never edited inline) so the contract
+# only changes when this file changes, and any change is reviewable as a
+# diff against the documented source below.
+provenance:
+  client: "OpenAI Codex CLI"
+  source_url: "https://github.com/openai/codex/blob/5d89ab65dc9d4d0c55796c11df112b54157922b4/codex-rs/core/src/responses_metadata.rs"
+  source_commit: "5d89ab65dc9d4d0c55796c11df112b54157922b4"
+  captured: "2026-08-08"
+  description: >
+    Shape reconstructed from the pinned Codex CLI (codex-rs) commit.
+    Codex CLI drives the Responses API agent loop with function_call /
+    function_call_output input items and previous_response_id
+    continuation. reasoning.effort/summary mirrors the CLI's reasoning
+    config surface. client_metadata is a Codex-CLI-owned Responses API
+    wire extension confirmed in responses_metadata.rs (the
+    responsesapi_client_metadata concept and RESERVED_METADATA_KEYS such
+    as originator/client_version); it is not part of the public
+    openai-python Responses request type, which is why it is tracked
+    separately as CODEX_RESPONSES_EXTENSION_FIELDS in
+    proxy/app/provider_capabilities.py rather than folded into
+    OPENAI_RESPONSES_FIELDS.
+
+request:
+  model: "gpt-5.6-codex"
+  input:
+    - type: "function_call"
+      call_id: "call_1"
+      name: "read_file"
+      arguments: '{"path":"README.md"}'
+    - type: "function_call_output"
+      call_id: "call_1"
+      output: "contents"
+  previous_response_id: "resp_previous"
+  reasoning:
+    effort: "high"
+    summary: "concise"
+  client_metadata:
+    originator: "codex_cli_rs"
+    client_version: "0.145.0"
+  stream: true

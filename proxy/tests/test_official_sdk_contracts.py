@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import get_args
+from pathlib import Path
+from typing import Any, get_args
 
+import yaml
 from anthropic.types.content_block_param import ContentBlockParam
 from anthropic.types.message_create_params import MessageCreateParamsBase
 from anthropic.types.raw_message_stream_event import RawMessageStreamEvent
@@ -74,14 +76,15 @@ from proxy.app.provider_capabilities import (
 )
 from proxy.app.providers._gemini_common import SHARED_HARM_CATEGORIES
 from proxy.app.responses_compat import ResponsesCreateRequest
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "client_requests"
+
+_REQUIRED_PROVENANCE_FIELDS = ("client", "source_url", "source_commit", "captured", "description")
 
 
 def _wire_field_names(model_type: type[BaseModel]) -> set[str]:
-    return {
-        field.alias or name
-        for name, field in model_type.model_fields.items()
-    }
+    return {field.alias or name for name, field in model_type.model_fields.items()}
 
 
 def _union_type_names(annotation: object) -> set[str]:
@@ -95,6 +98,32 @@ def _union_type_names(annotation: object) -> set[str]:
             continue
         names.update(_union_type_names(argument))
     return names
+
+
+def _load_client_fixture(name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load an immutable, provenance-labeled client request fixture.
+
+    Fixtures live under FIXTURES_DIR as YAML files with a `provenance` map
+    (source_url/source_commit/captured/description of the real client
+    behavior represented) and a `request` map (the wire payload the local
+    protocol DTO must round-trip). Returns (provenance, request).
+    """
+    path = FIXTURES_DIR / name
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    provenance = document["provenance"]
+    for field in _REQUIRED_PROVENANCE_FIELDS:
+        value = provenance.get(field)
+        assert isinstance(value, str) and value.strip(), (
+            f"{name}: provenance.{field} must be a non-empty string"
+        )
+    return provenance, document["request"]
+
+
+def test_client_request_fixtures_document_their_provenance():
+    fixture_files = sorted(FIXTURES_DIR.glob("*.yaml"))
+    assert fixture_files, f"no client request fixtures found under {FIXTURES_DIR}"
+    for path in fixture_files:
+        _load_client_fixture(path.name)
 
 
 def test_openai_chat_official_top_level_drift_snapshot():
@@ -132,111 +161,26 @@ def test_provider_field_classifications_only_reference_official_chat_fields():
 
 
 def test_continue_chat_contract_preserves_tools_and_stream_options():
-    fixture = {
-        "model": "gpt-5.6-luna",
-        "messages": [
-            {"role": "system", "content": "You are a coding assistant."},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Inspect this screenshot"},
-                    {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}},
-                ],
-            },
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_file",
-                    "description": "Read a file",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {"path": {"type": "string"}},
-                        "required": ["path"],
-                    },
-                },
-            }
-        ],
-        "tool_choice": "auto",
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
+    _, fixture = _load_client_fixture("continue_chat.yaml")
+
+    assert OpenAIChatRequest.model_validate(fixture).to_json() == fixture
+
+
+def test_hermes_chat_contract_preserves_generic_provider_tool_loop():
+    _, fixture = _load_client_fixture("hermes_chat.yaml")
 
     assert OpenAIChatRequest.model_validate(fixture).to_json() == fixture
 
 
 def test_codex_responses_contract_preserves_agent_lifecycle_items():
-    fixture = {
-        "model": "gpt-5.6-codex",
-        "input": [
-            {
-                "type": "function_call",
-                "call_id": "call_1",
-                "name": "read_file",
-                "arguments": "{\"path\":\"README.md\"}",
-            },
-            {
-                "type": "function_call_output",
-                "call_id": "call_1",
-                "output": "contents",
-            },
-        ],
-        "previous_response_id": "resp_previous",
-        "reasoning": {"effort": "high", "summary": "concise"},
-        "client_metadata": {"originator": "codex_cli_rs", "client_version": "0.145.0"},
-        "stream": True,
-    }
+    _, fixture = _load_client_fixture("codex_responses.yaml")
 
     request = ResponsesCreateRequest.model_validate(fixture)
     assert request.model_dump(mode="json", exclude_none=True, exclude_unset=True) == fixture
 
 
 def test_claude_code_messages_contract_preserves_thinking_and_tool_blocks():
-    fixture = {
-        "model": "claude-opus-4-1",
-        "max_tokens": 4096,
-        "messages": [
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "thinking",
-                        "thinking": "inspect repository",
-                        "signature": "opaque-signature",
-                    },
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_1",
-                        "name": "read_file",
-                        "input": {"path": "README.md"},
-                    },
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": "toolu_1",
-                        "content": "contents",
-                    }
-                ],
-            },
-        ],
-        "thinking": {"type": "enabled", "budget_tokens": 2048},
-        "context_management": {
-            "edits": [{"type": "clear_thinking_20251015", "keep": "all"}]
-        },
-        "tools": [
-            {
-                "name": "read_file",
-                "description": "Read a file",
-                "input_schema": {"type": "object"},
-            }
-        ],
-        "stream": True,
-    }
+    _, fixture = _load_client_fixture("claude_code_messages.yaml")
 
     request = AnthropicMessagesRequest.model_validate(fixture)
     assert request.model_dump(mode="json", by_alias=True, exclude_none=True) == fixture
@@ -462,3 +406,309 @@ def test_google_genai_part_and_finish_reason_drift_snapshot():
 
 def test_shared_harm_categories_are_valid_official_values():
     assert {category.value for category in HarmCategory} >= SHARED_HARM_CATEGORIES
+
+
+# --- Streaming lifecycle contracts -----------------------------------------
+#
+# The tests above validate single, static requests. Real clients also depend
+# on the *ordering* of streamed chunks/events, not just their per-event
+# shape (already covered by the drift-snapshot tests above). These tests
+# build a realistic, ordered event sequence for each streaming protocol,
+# grounded in the same client behaviors documented in the fixtures above,
+# and assert both (a) every event round-trips through the relevant type
+# unchanged and (b) the ordering/lifecycle invariants a real streaming
+# consumer relies on. No network calls are made; every event is a static,
+# hand-built dict.
+
+
+def test_openai_chat_stream_defers_usage_chunk_to_final_frame():
+    """Continue's chatCompletionStream() (OpenAI.ts) buffers the
+    usage-carrying chunk and always emits it last, after the
+    finish_reason chunk and with an empty choices list — mirroring the
+    stream_options.include_usage contract asserted statically in
+    continue_chat.yaml. This test builds a full tool-call turn (role
+    delta -> content delta -> tool_call open -> tool_call argument delta
+    -> finish_reason -> usage) and checks that ordering holds when each
+    chunk round-trips through the local OpenAIChatCompletionChunk DTO.
+    """
+    chunks: list[dict[str, Any]] = [
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+        },
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [{"index": 0, "delta": {"content": "Reading "}, "finish_reason": None}],
+        },
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "read_file", "arguments": ""},
+                            }
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        },
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {"index": 0, "function": {"arguments": '{"path":"README.md"}'}}
+                        ]
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        },
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+        },
+        {
+            "id": "chatcmpl-1",
+            "object": "chat.completion.chunk",
+            "created": 1700000000,
+            "model": "gpt-5.6-luna",
+            "choices": [],
+            "usage": {"completion_tokens": 12, "prompt_tokens": 40, "total_tokens": 52},
+        },
+    ]
+
+    for chunk in chunks:
+        dumped = OpenAIChatCompletionChunk.model_validate(chunk).model_dump(
+            mode="json", exclude_unset=True
+        )
+        assert dumped == chunk
+
+    # Lifecycle invariants a real streaming consumer relies on.
+    assert chunks[0]["choices"][0]["delta"]["role"] == "assistant", "first chunk opens the role"
+    finish_reason_chunks = [
+        c for c in chunks if c["choices"] and c["choices"][0].get("finish_reason") is not None
+    ]
+    assert len(finish_reason_chunks) == 1, "finish_reason must appear exactly once"
+    assert chunks.index(finish_reason_chunks[0]) == len(chunks) - 2, (
+        "finish_reason chunk precedes the trailing usage chunk"
+    )
+    usage_chunks = [c for c in chunks if c.get("usage") is not None]
+    assert len(usage_chunks) == 1, "usage must appear exactly once"
+    assert chunks[-1] is usage_chunks[0], "usage chunk is deferred to the final frame"
+    assert chunks[-1]["choices"] == [], "the deferred usage chunk carries no choices"
+
+
+def test_openai_responses_stream_lifecycle_orders_function_call_events():
+    """Codex CLI's Responses agent loop (mirroring codex_responses.yaml's
+    read_file tool call) drives a strict event order: the response opens
+    (created -> in_progress), a function_call output item is added, its
+    arguments stream via delta events and close with a done event, the
+    item itself completes, and the response closes. Each event is
+    validated against the official openai-python ResponseStreamEvent
+    discriminated union via TypeAdapter (it is not a BaseModel subclass,
+    so model_validate is not applicable) and round-tripped unchanged.
+    """
+    adapter: TypeAdapter[Any] = TypeAdapter(ResponseStreamEvent)
+    base_response = {
+        "id": "resp_1",
+        "created_at": 1700000000.0,
+        "model": "gpt-5.6-codex",
+        "object": "response",
+        "output": [],
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "status": "in_progress",
+    }
+    in_progress_call = {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_1",
+        "name": "read_file",
+        "arguments": "",
+        "status": "in_progress",
+    }
+    completed_call = {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_1",
+        "name": "read_file",
+        "arguments": '{"path":"README.md"}',
+        "status": "completed",
+    }
+    events: list[dict[str, Any]] = [
+        {"type": "response.created", "response": base_response, "sequence_number": 0},
+        {"type": "response.in_progress", "response": base_response, "sequence_number": 1},
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": in_progress_call,
+            "sequence_number": 2,
+        },
+        {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "delta": '{"path":"README.md"}',
+            "sequence_number": 3,
+        },
+        {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_1",
+            "output_index": 0,
+            "name": "read_file",
+            "arguments": '{"path":"README.md"}',
+            "sequence_number": 4,
+        },
+        {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": completed_call,
+            "sequence_number": 5,
+        },
+        {
+            "type": "response.completed",
+            "response": {**base_response, "output": [completed_call], "status": "completed"},
+            "sequence_number": 6,
+        },
+    ]
+
+    for event in events:
+        validated = adapter.validate_python(event)
+        dumped = adapter.dump_python(validated, mode="json", exclude_unset=True)
+        assert dumped == event
+
+    # Lifecycle invariants a real streaming consumer relies on.
+    assert [e["type"] for e in events] == [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+        "response.completed",
+    ]
+    assert events[0]["type"] == "response.created", "response.created opens the stream"
+    assert events[-1]["type"] == "response.completed", "response.completed closes the stream"
+    assert [e["sequence_number"] for e in events] == sorted(e["sequence_number"] for e in events), (
+        "sequence_number is strictly increasing"
+    )
+    completed_events = [e for e in events if e["type"] == "response.completed"]
+    assert len(completed_events) == 1, "response.completed must appear exactly once"
+    assert completed_events[0]["response"]["output"][0]["arguments"] == '{"path":"README.md"}', (
+        "the final response snapshot carries the fully-streamed arguments"
+    )
+
+
+def test_anthropic_messages_stream_lifecycle_orders_thinking_and_tool_use():
+    """Claude Code's thinking + tool_use turn (mirroring
+    claude_code_messages.yaml) opens the message, streams a thinking
+    block (thinking_delta then signature_delta), closes it, opens a
+    tool_use block, streams its input as input_json_delta, closes it,
+    then emits a single message_delta carrying stop_reason/usage
+    followed by message_stop. Each event is validated against the
+    official anthropic-python RawMessageStreamEvent discriminated union
+    via TypeAdapter and round-tripped unchanged.
+    """
+    adapter: TypeAdapter[Any] = TypeAdapter(RawMessageStreamEvent)
+    events: list[dict[str, Any]] = [
+        {
+            "type": "message_start",
+            "message": {
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-4-1",
+                "content": [],
+                "usage": {"input_tokens": 24, "output_tokens": 0},
+            },
+        },
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": "inspect repository"},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "opaque-signature"},
+        },
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read_file",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": '{"path":"README.md"}'},
+        },
+        {"type": "content_block_stop", "index": 1},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+            "usage": {"output_tokens": 42},
+        },
+        {"type": "message_stop"},
+    ]
+
+    for event in events:
+        validated = adapter.validate_python(event)
+        dumped = adapter.dump_python(validated, mode="json", exclude_unset=True)
+        assert dumped == event
+
+    # Lifecycle invariants a real streaming consumer relies on.
+    assert events[0]["type"] == "message_start", "message_start opens the stream"
+    assert events[-1]["type"] == "message_stop", "message_stop closes the stream"
+    assert [e["type"] for e in events].count("message_start") == 1
+    assert [e["type"] for e in events].count("message_stop") == 1
+    message_delta_events = [e for e in events if e["type"] == "message_delta"]
+    assert len(message_delta_events) == 1, "message_delta (stop_reason/usage) appears exactly once"
+    assert events.index(message_delta_events[0]) == len(events) - 2, (
+        "message_delta immediately precedes message_stop"
+    )
+    assert message_delta_events[0]["delta"]["stop_reason"] == "tool_use", (
+        "stop_reason reflects the tool_use turn"
+    )
+    block_starts = [e for e in events if e["type"] == "content_block_start"]
+    block_stops = [e for e in events if e["type"] == "content_block_stop"]
+    assert len(block_starts) == len(block_stops) == 2, "each content block opens and closes once"
+    assert [e["index"] for e in block_starts] == [0, 1], (
+        "thinking block (0) precedes tool_use block (1)"
+    )

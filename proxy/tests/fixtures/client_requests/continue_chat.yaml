@@ -1,0 +1,53 @@
+# Client request contract fixture — Continue (continue.dev)
+#
+# This fixture backs test_official_sdk_contracts.py::
+#   test_continue_chat_contract_preserves_tools_and_stream_options
+#
+# It is loaded verbatim by the test (never edited inline) so the contract
+# only changes when this file changes, and any change is reviewable as a
+# diff against the documented source below.
+provenance:
+  client: "Continue (continue.dev)"
+  source_url: "https://github.com/continuedev/continue/blob/5522c6f44ca0ac3528b37244818fbfa39b5af470/packages/openai-adapters/src/apis/OpenAI.ts"
+  source_commit: "5522c6f44ca0ac3528b37244818fbfa39b5af470"
+  captured: "2026-08-08"
+  description: >
+    Shape reconstructed from Continue's OpenAIApi adapter (OpenAI.ts,
+    modifyChatBody). Continue always injects stream_options.include_usage
+    when body.stream is true. Because the gateway is reached through a
+    custom apiBase (not "https://api.openai.com/v1/"), the o-series/gpt-5
+    branch in modifyChatBody does not fire: the system message keeps its
+    "system" role (no "developer" rewrite) and no
+    max_completion_tokens/parallel_tool_calls overrides are applied.
+    Function tools and tool_choice pass through chat.completions.create()
+    unmodified (OpenAI Chat Completions wire format, native to the
+    gateway's /v1/chat/completions endpoint).
+
+request:
+  model: "gpt-5.6-luna"
+  messages:
+    - role: "system"
+      content: "You are a coding assistant."
+    - role: "user"
+      content:
+        - type: "text"
+          text: "Inspect this screenshot"
+        - type: "image_url"
+          image_url:
+            url: "https://example.test/a.png"
+  tools:
+    - type: "function"
+      function:
+        name: "read_file"
+        description: "Read a file"
+        parameters:
+          type: "object"
+          properties:
+            path:
+              type: "string"
+          required:
+            - "path"
+  tool_choice: "auto"
+  stream: true
+  stream_options:
+    include_usage: true

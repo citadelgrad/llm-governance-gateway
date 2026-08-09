@@ -1,0 +1,55 @@
+# Client request contract fixture — Hermes Agent
+#
+# This fixture backs test_official_sdk_contracts.py::
+#   test_hermes_chat_contract_preserves_generic_provider_tool_loop
+#
+# It is loaded verbatim by the test (never edited inline) so the contract
+# only changes when this file changes, and any change is reviewable as a
+# diff against the documented source below. No fixture for Hermes existed
+# prior to this file — the shape below was newly authored from the pinned
+# Hermes Agent commit rather than ported from an existing test.
+provenance:
+  client: "Hermes Agent"
+  source_url: "https://github.com/NousResearch/hermes-agent/blob/aec331899e4748739927fddf02a54327e64419a0/agent/transports/chat_completions.py"
+  source_commit: "aec331899e4748739927fddf02a54327e64419a0"
+  captured: "2026-08-08"
+  description: >
+    docs/onboarding.md documents Hermes as an OpenAI-compatible client
+    configured against the gateway's /v1/chat/completions endpoint via a
+    generic/custom provider profile. The pinned ChatCompletionsTransport
+    (chat_completions.py) confirms this: convert_tools() is an identity
+    passthrough ("Tools are already in OpenAI format"), and build_kwargs()
+    assembles {model, messages, tools, max_tokens} directly for the
+    "is_custom_provider" / unregistered-provider path (no provider_profile
+    registered for a generic gateway target), with max_tokens resolved via
+    a caller-supplied max_tokens_param_fn (agent._max_tokens_param) that
+    returns either {"max_tokens": N} or {"max_completion_tokens": N}
+    depending on the model; the plain "max_tokens" form applies here since
+    the model below is not in the o-series/gpt-5 max_completion_tokens
+    branch. Unlike Continue, Hermes's generic build_kwargs never sets
+    tool_choice or stream_options — neither identifier appears anywhere in
+    chat_completions.py — so both are intentionally absent from this
+    fixture. stream itself is set by the transport's call site
+    (chat.completions.create(stream=...)), outside build_kwargs.
+
+request:
+  model: "hermes-4-405b"
+  messages:
+    - role: "system"
+      content: "You are Hermes, a helpful agent."
+    - role: "user"
+      content: "List the files in the repository root."
+  tools:
+    - type: "function"
+      function:
+        name: "list_files"
+        description: "List files in a directory"
+        parameters:
+          type: "object"
+          properties:
+            path:
+              type: "string"
+          required:
+            - "path"
+  max_tokens: 8192
+  stream: true
