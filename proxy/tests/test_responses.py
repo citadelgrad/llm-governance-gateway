@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+import pytest
 from proxy.app.config import settings
 from proxy.app.governance_client import InspectResponse
 from proxy.app.main import app
 from proxy.app.providers import openai as openai_provider
 from proxy.app.responses_compat import (
+    ResponsesCompatError,
     openai_sse_to_responses_sse,
     translate_chat_response,
     translate_responses_request,
@@ -481,6 +483,67 @@ async def test_responses_rejects_tools_instead_of_silently_dropping(async_client
     )
     assert response.status_code == 422
     assert response.json()["detail"]["error"]["type"] == "unsupported_response_shape"
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        {"type": "web_search"},
+        {"type": "code_interpreter", "container": {"type": "auto"}},
+        {"type": "file_search", "vector_store_ids": ["vs_1"]},
+        {"type": "computer_use", "display_width": 1024, "display_height": 768},
+    ],
+    ids=["web_search", "code_interpreter", "file_search", "computer_use"],
+)
+def test_responses_translation_rejects_builtin_tools_instead_of_silently_dropping(tool):
+    """Responses built-in tools have no chat-completions equivalent and must
+    fail before dispatch rather than be silently stripped from the request."""
+    with pytest.raises(ResponsesCompatError, match="Responses tools are not supported yet"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "tools": [tool]}
+        )
+
+
+def test_responses_translation_rejects_tool_choice_instead_of_silently_dropping():
+    with pytest.raises(ResponsesCompatError, match="Responses tool_choice is not supported yet"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "tool_choice": "auto"}
+        )
+
+
+def test_responses_translation_rejects_previous_response_id():
+    with pytest.raises(ResponsesCompatError, match="previous_response_id is not supported yet"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "previous_response_id": "resp_1"}
+        )
+
+
+def test_responses_translation_rejects_conversation_state():
+    with pytest.raises(ResponsesCompatError, match="conversation"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "conversation": "conv_123"}
+        )
+
+
+def test_responses_translation_rejects_background_mode():
+    with pytest.raises(ResponsesCompatError, match="background"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "background": True}
+        )
+
+
+def test_responses_translation_rejects_store():
+    with pytest.raises(ResponsesCompatError, match="store"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "store": True}
+        )
+
+
+def test_responses_translation_rejects_reasoning():
+    with pytest.raises(ResponsesCompatError, match="reasoning"):
+        translate_responses_request(
+            {"model": "gpt-5.6-luna", "input": "hello", "reasoning": {"effort": "high"}}
+        )
 
 
 async def test_responses_uses_lossless_native_openai_dispatch(async_client, monkeypatch):

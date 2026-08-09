@@ -11,6 +11,7 @@ from proxy.app.providers._gemini_common import (
     translate_candidate_to_openai_choice,
     translate_generation_config,
     translate_openai_messages_to_contents,
+    translate_tool_choice,
     translate_tools,
     translate_usage_metadata,
 )
@@ -121,6 +122,49 @@ def test_translate_tools_builds_function_declarations():
 def test_translate_tools_rejects_non_list():
     with pytest.raises(GeminiTranslationError, match="tools must be a list"):
         translate_tools("not-a-list")
+
+
+# ---------------------------------------------------------------------------
+# translate_tool_choice
+# ---------------------------------------------------------------------------
+
+
+def test_translate_tool_choice_none_passthrough():
+    assert translate_tool_choice(None) is None
+
+
+def test_translate_tool_choice_auto():
+    assert translate_tool_choice("auto") == {"functionCallingConfig": {"mode": "AUTO"}}
+
+
+def test_translate_tool_choice_none_string_maps_to_none_mode():
+    assert translate_tool_choice("none") == {"functionCallingConfig": {"mode": "NONE"}}
+
+
+def test_translate_tool_choice_required_maps_to_any_mode():
+    assert translate_tool_choice("required") == {"functionCallingConfig": {"mode": "ANY"}}
+
+
+def test_translate_tool_choice_named_function():
+    tool_choice = {"type": "function", "function": {"name": "lookup"}}
+    assert translate_tool_choice(tool_choice) == {
+        "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["lookup"]}
+    }
+
+
+def test_translate_tool_choice_rejects_non_function_type():
+    with pytest.raises(GeminiTranslationError, match="named function tool_choice"):
+        translate_tool_choice({"type": "bogus", "function": {"name": "lookup"}})
+
+
+def test_translate_tool_choice_rejects_missing_name():
+    with pytest.raises(GeminiTranslationError, match="requires a name"):
+        translate_tool_choice({"type": "function", "function": {}})
+
+
+def test_translate_tool_choice_rejects_unsupported_shape():
+    with pytest.raises(GeminiTranslationError, match="unsupported Gemini tool_choice"):
+        translate_tool_choice(42)
 
 
 # ---------------------------------------------------------------------------

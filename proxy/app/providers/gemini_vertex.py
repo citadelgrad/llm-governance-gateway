@@ -17,6 +17,7 @@ import google.auth.transport.requests
 import httpx
 from proxy.app.config import Settings
 from proxy.app.protocol_types import JsonObject
+from proxy.app.provider_capabilities import GEMINI_CHAT_TRANSLATION_FIELDS
 from proxy.app.providers._gemini_common import (
     VERTEX_DIALECT,
     GeminiTranslationError,
@@ -25,6 +26,7 @@ from proxy.app.providers._gemini_common import (
     translate_candidate_to_openai_choice,
     translate_generation_config,
     translate_openai_messages_to_contents,
+    translate_tool_choice,
     translate_tools,
     translate_usage_metadata,
 )
@@ -167,6 +169,54 @@ def _to_openai_envelope(data: JsonObject, model: str) -> JsonObject:
     }
 
 
+def _translate_chat_body(openai_request: JsonObject) -> tuple[str, JsonObject]:
+    """Translate an OpenAI Chat body to a Vertex AI generateContent body, or
+    fail before losing request semantics.
+
+    Mirrors proxy/app/providers/gemini.py's _translate_request so both
+    Gemini adapters reject the same unsupported Chat fields and translate
+    tool_choice identically rather than silently dropping it.
+    """
+    unsupported = sorted(key for key in openai_request if key not in GEMINI_CHAT_TRANSLATION_FIELDS)
+    if unsupported:
+        raise GeminiTranslationError(
+            "Gemini adapter does not support Chat fields: " + ", ".join(unsupported)
+        )
+
+    model_value = openai_request.get("model")
+    if not isinstance(model_value, str) or not model_value:
+        raise GeminiTranslationError("model must be a string")
+    messages = openai_request.get("messages", [])
+    if not isinstance(messages, list):
+        raise GeminiTranslationError("messages must be a list")
+
+    contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
+
+    system_parts = [
+        extract_message_text(message.get("content"), location=f"message {message_index}")
+        for message_index, message in enumerate(messages)
+        if isinstance(message, dict) and message.get("role") in {"system", "developer"}
+    ]
+
+    body: JsonObject = {"contents": contents}
+    if system_parts:
+        body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
+
+    generation_config = translate_generation_config(openai_request)
+    if generation_config:
+        body["generationConfig"] = generation_config
+
+    tools = translate_tools(openai_request.get("tools"))
+    if tools is not None:
+        body["tools"] = tools
+
+    tool_config = translate_tool_choice(openai_request.get("tool_choice"))
+    if tool_config is not None:
+        body["toolConfig"] = tool_config
+
+    return model_value, body
+
+
 class VertexGeminiClient:
     """Vertex AI-backed Gemini client. Authenticates via an impersonated GCP
     service account bearer token rather than an API key; the model is
@@ -178,32 +228,7 @@ class VertexGeminiClient:
         self._http = httpx.AsyncClient(timeout=settings.gemini_vertex_timeout_seconds)
 
     async def chat_completions(self, openai_request: JsonObject) -> JsonObject:
-        model_value = openai_request.get("model")
-        if not isinstance(model_value, str) or not model_value:
-            raise GeminiTranslationError("model must be a string")
-        messages = openai_request.get("messages", [])
-        if not isinstance(messages, list):
-            raise GeminiTranslationError("messages must be a list")
-
-        contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
-
-        system_parts = [
-            extract_message_text(message.get("content"), location=f"message {message_index}")
-            for message_index, message in enumerate(messages)
-            if isinstance(message, dict) and message.get("role") in {"system", "developer"}
-        ]
-
-        body: JsonObject = {"contents": contents}
-        if system_parts:
-            body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
-
-        generation_config = translate_generation_config(openai_request)
-        if generation_config:
-            body["generationConfig"] = generation_config
-
-        tools = translate_tools(openai_request.get("tools"))
-        if tools is not None:
-            body["tools"] = tools
+        model_value, body = _translate_chat_body(openai_request)
 
         token = await self._creds.get_bearer_token()
         url = (
@@ -246,32 +271,7 @@ class VertexGeminiClient:
         frame and returns without [DONE] — no exception escapes the generator
         after its first yield.
         """
-        model_value = openai_request.get("model")
-        if not isinstance(model_value, str) or not model_value:
-            raise GeminiTranslationError("model must be a string")
-        messages = openai_request.get("messages", [])
-        if not isinstance(messages, list):
-            raise GeminiTranslationError("messages must be a list")
-
-        contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
-
-        system_parts = [
-            extract_message_text(message.get("content"), location=f"message {message_index}")
-            for message_index, message in enumerate(messages)
-            if isinstance(message, dict) and message.get("role") in {"system", "developer"}
-        ]
-
-        body: JsonObject = {"contents": contents}
-        if system_parts:
-            body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
-
-        generation_config = translate_generation_config(openai_request)
-        if generation_config:
-            body["generationConfig"] = generation_config
-
-        tools = translate_tools(openai_request.get("tools"))
-        if tools is not None:
-            body["tools"] = tools
+        model_value, body = _translate_chat_body(openai_request)
 
         token = await self._creds.get_bearer_token()
         url = (
@@ -318,6 +318,21 @@ class VertexGeminiClient:
 
                 raw_candidates = chunk_json.get("candidates", [])
                 if not isinstance(raw_candidates, list) or not raw_candidates:
+                    raw_prompt_feedback = chunk_json.get("promptFeedback")
+                    block_reason = (
+                        raw_prompt_feedback.get("blockReason")
+                        if isinstance(raw_prompt_feedback, dict)
+                        else None
+                    )
+                    if not is_block_reason_unset(block_reason, VERTEX_DIALECT):
+                        error_chunk = {
+                            "error": {
+                                "type": "provider_response_error",
+                                "message": f"Vertex generation blocked: {block_reason}",
+                            }
+                        }
+                        yield f"data: {json.dumps(error_chunk)}\n\n"
+                        return
                     continue
                 raw_candidate = raw_candidates[0]
                 has_finish = isinstance(raw_candidate, dict) and bool(raw_candidate.get("finishReason"))

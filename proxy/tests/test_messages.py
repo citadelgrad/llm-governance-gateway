@@ -322,6 +322,84 @@ async def test_messages_rejects_context_management_for_translated_provider(messa
     provider_chat.assert_not_awaited()
 
 
+async def test_messages_rejects_cache_control_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "cache_control": {"type": "ephemeral"}},
+    )
+
+    assert response.status_code == 422
+    assert "cache_control" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_container_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "container": "container_123"},
+    )
+
+    assert response.status_code == 422
+    assert "container" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_output_config_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "output_config": {"effort": "high"}},
+    )
+
+    assert response.status_code == 422
+    assert "output_config" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_service_tier_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "service_tier": "standard_only"},
+    )
+
+    assert response.status_code == 422
+    assert "service_tier" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_user_profile_id_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "user_profile_id": "profile_123"},
+    )
+
+    assert response.status_code == 422
+    assert "user_profile_id" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
+async def test_messages_rejects_inference_geo_for_translated_provider(messages_client):
+    client, provider_chat = messages_client
+
+    response = await client.post(
+        "/v1/messages",
+        json={**_BASE_BODY, "inference_geo": "us"},
+    )
+
+    assert response.status_code == 422
+    assert "inference_geo" in response.json()["detail"]["error"]["message"]
+    provider_chat.assert_not_awaited()
+
+
 async def test_messages_accepts_tool_result_content_blocks(messages_client):
     client, _ = messages_client
     body = {

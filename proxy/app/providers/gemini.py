@@ -13,9 +13,11 @@ from proxy.app.providers._gemini_common import (
     FINISH_REASON_MAP,
     GeminiTranslationError,
     extract_message_text,
+    is_block_reason_unset,
     translate_candidate_to_openai_choice,
     translate_generation_config,
     translate_openai_messages_to_contents,
+    translate_tool_choice,
     translate_tools,
     translate_usage_metadata,
 )
@@ -87,26 +89,9 @@ def _translate_request(body: JsonObject) -> tuple[str, JsonObject]:
     if tools is not None:
         gemini_body["tools"] = tools
 
-    tool_choice = body.get("tool_choice")
-    if tool_choice is not None:
-        config: JsonObject
-        if tool_choice == "auto":
-            config = {"mode": "AUTO"}
-        elif tool_choice == "none":
-            config = {"mode": "NONE"}
-        elif tool_choice == "required":
-            config = {"mode": "ANY"}
-        elif isinstance(tool_choice, dict):
-            function = tool_choice.get("function")
-            if tool_choice.get("type") != "function" or not isinstance(function, dict):
-                raise GeminiTranslationError("Gemini adapter only supports named function tool_choice")
-            name = function.get("name")
-            if not isinstance(name, str):
-                raise GeminiTranslationError("named function tool_choice requires a name")
-            config = {"mode": "ANY", "allowedFunctionNames": [name]}
-        else:
-            raise GeminiTranslationError("unsupported Gemini tool_choice")
-        gemini_body["toolConfig"] = {"functionCallingConfig": config}
+    tool_config = translate_tool_choice(body.get("tool_choice"))
+    if tool_config is not None:
+        gemini_body["toolConfig"] = tool_config
 
     return model_value, gemini_body
 
@@ -129,6 +114,14 @@ def _to_openai_envelope(gemini_json: JsonObject, model: str) -> JsonObject:
             cast(JsonObject, raw_candidate), _RESPONSE_DIALECT, 0
         )
     else:
+        raw_prompt_feedback = gemini_json.get("promptFeedback")
+        block_reason = (
+            raw_prompt_feedback.get("blockReason")
+            if isinstance(raw_prompt_feedback, dict)
+            else None
+        )
+        if not is_block_reason_unset(block_reason, DEVELOPER_API_DIALECT):
+            raise GeminiTranslationError(f"Gemini generation blocked: {block_reason}")
         choice = {
             "index": 0,
             "message": {"role": "assistant", "content": ""},
@@ -201,6 +194,21 @@ async def chat_completions(
 
                         candidates = chunk_json.get("candidates", [])
                         if not candidates:
+                            raw_prompt_feedback = chunk_json.get("promptFeedback")
+                            block_reason = (
+                                raw_prompt_feedback.get("blockReason")
+                                if isinstance(raw_prompt_feedback, dict)
+                                else None
+                            )
+                            if not is_block_reason_unset(block_reason, DEVELOPER_API_DIALECT):
+                                error_chunk = {
+                                    "error": {
+                                        "type": "provider_response_error",
+                                        "message": f"Gemini generation blocked: {block_reason}",
+                                    }
+                                }
+                                yield f"data: {json.dumps(error_chunk)}\n\n"
+                                return
                             continue
                         candidate = candidates[0]
                         parts = candidate.get("content", {}).get("parts", [])

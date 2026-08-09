@@ -181,7 +181,6 @@ GEMINI_CHAT_TRANSLATION_FIELDS = frozenset(
         "max_tokens",
         "messages",
         "model",
-        "parallel_tool_calls",
         "stop",
         "stream",
         "temperature",
