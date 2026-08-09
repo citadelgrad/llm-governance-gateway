@@ -1,0 +1,45 @@
+proxy/app/providers/gemini.py
+  s_522daaa72e7bf9::t_90147a20ac1ea8 56-60
+  s_522daaa72e7bf9::t_ae07f52c826953 81
+  s_522daaa72e7bf9::t_7b7b310690bfa2 15-16,18
+  s_522daaa72e7bf9::t_79d8212382b9ad 154-155
+proxy/app/providers/gemini_vertex.py
+  s_522daaa72e7bf9::t_c03823c8b0a520 148
+  s_522daaa72e7bf9::t_df83ea9cefac65 24-25,27
+  s_522daaa72e7bf9::t_547edd7b3d945f 279-280
+  s_522daaa72e7bf9::t_755036f6675d7f 168-173,175
+proxy/tests/test_adapters.py
+  s_522daaa72e7bf9::t_db02fcbd84f8e8 1580-1583,1585-1599,1601
+  s_522daaa72e7bf9::t_4e4ff5c787b14c 997-1001
+proxy/app/responses_compat.py
+  s_522daaa72e7bf9::t_e1c475b9a11beb 194
+  s_522daaa72e7bf9::t_5b8d69e936d584 289,291-300
+proxy/app/providers/_gemini_common.py
+  s_522daaa72e7bf9::t_20fc9b5c25a08b 263-329
+  s_522daaa72e7bf9::t_f01b6c7fa67279 420-438
+proxy/tests/test_gemini_common.py
+  s_522daaa72e7bf9::t_33fb3b768ce80a 5,19
+  s_522daaa72e7bf9::t_df66b7554bf51d 228-325
+proxy/app/anthropic_compat.py
+  s_522daaa72e7bf9::t_fc216abbd14a44 369-373
+  s_522daaa72e7bf9::t_4f7129649a13e0 40-60,65
+proxy/tests/test_gemini_vertex_adapter.py
+  s_522daaa72e7bf9::t_3da0fe47c11d0a 368-376,378-386,393-394,399,404-423,426-428,433,436-437,448
+  s_522daaa72e7bf9::t_715c6413e83f26 224-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "e728716eb0ecbedfc35647c4d2327bf11eb2b389",
+  "prompts": {},
+  "sessions": {
+    "s_522daaa72e7bf9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db9c12e6-1845-4699-bc2e-f9e5adb03167",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
