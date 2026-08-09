@@ -1,0 +1,33 @@
+proxy/app/providers/_gemini_common.py
+  s_522daaa72e7bf9::t_67879ca80191f6 231-262
+proxy/app/providers/gemini.py
+  s_522daaa72e7bf9::t_67bfb9b223a65e 16,20,92-94,117-124,197-211
+proxy/app/providers/gemini_vertex.py
+  s_522daaa72e7bf9::t_0dfc7418ee2587 20,29,172-219,231,274,321-335
+proxy/tests/test_adapters.py
+  s_522daaa72e7bf9::t_10fd84e897e593 918-931,997-1029,1121-1162
+proxy/tests/test_gemini_common.py
+  s_522daaa72e7bf9::t_267db7a8b7d703 14,127-169
+proxy/tests/test_gemini_vertex_adapter.py
+  s_522daaa72e7bf9::t_90ddfc5f60046b 17,23,222-249,386-434,633-706
+proxy/tests/test_messages.py
+  s_522daaa72e7bf9::t_05b7f73e54fc79 325-402
+proxy/tests/test_responses.py
+  s_522daaa72e7bf9::t_159765f1b4f023 557-617
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "f294811ef0fa14e60bba36c899c3e48d2a9fd5f7",
+  "prompts": {},
+  "sessions": {
+    "s_522daaa72e7bf9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db9c12e6-1845-4699-bc2e-f9e5adb03167",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
