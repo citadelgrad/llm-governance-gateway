@@ -1,0 +1,34 @@
+proxy/tests/fixtures/client_requests/continue_chat.yaml
+  s_522daaa72e7bf9::t_84b44708b2a34b 1-53
+proxy/tests/test_official_sdk_contracts.py
+  s_522daaa72e7bf9::t_fe48a2c54a24a8 409-479,483-669,676-711
+  s_522daaa72e7bf9::t_d227d2759ec1b4 87,480-482,670-675,712-714
+  s_522daaa72e7bf9::t_32116b13ba71df 103-128
+  s_522daaa72e7bf9::t_63110e3de7db22 3-4,6
+  s_522daaa72e7bf9::t_ab3481b24d32b5 79-83
+  s_522daaa72e7bf9::t_550a20f5e7faed 164-170,176,183
+proxy/tests/fixtures/client_requests/codex_responses.yaml
+  s_522daaa72e7bf9::t_ce15150e6d85e1 1-45
+proxy/tests/fixtures/client_requests/hermes_chat.yaml
+  s_522daaa72e7bf9::t_2ecbc20e33bb91 12
+  s_522daaa72e7bf9::t_a28340c0b6143e 30-33
+  s_522daaa72e7bf9::t_afacb10646f31c 1-11,13-29,34-55
+proxy/tests/fixtures/client_requests/claude_code_messages.yaml
+  s_522daaa72e7bf9::t_b328dff32651b0 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "de4cde74b503dc095eefc2c7b499e342807ef8a0",
+  "prompts": {},
+  "sessions": {
+    "s_522daaa72e7bf9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db9c12e6-1845-4699-bc2e-f9e5adb03167",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
