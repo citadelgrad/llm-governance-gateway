@@ -6,7 +6,14 @@ import httpx
 import pytest
 from proxy.app.anthropic_compat import (
     AnthropicCompatError,
+    AnthropicImageBlock,
     AnthropicMessagesRequest,
+    AnthropicRedactedThinkingBlock,
+    AnthropicTextBlock,
+    AnthropicThinkingBlock,
+    AnthropicToolDefinition,
+    AnthropicToolResultBlock,
+    AnthropicToolUseBlock,
     messages_to_chat_body,
     openai_sse_to_anthropic_sse,
 )
@@ -27,6 +34,7 @@ from proxy.app.providers import (
 )
 from proxy.app.providers.native import forward_native
 from proxy.app.providers.usage import UsageMetrics, extract_usage
+from pydantic import ValidationError
 from starlette.responses import StreamingResponse
 
 # ---------------------------------------------------------------------------
@@ -387,6 +395,94 @@ def test_anthropic_translate_function_tools_and_choice():
         }
     ]
     assert out["tool_choice"] == {"type": "tool", "name": "get_weather"}
+
+
+# ---------------------------------------------------------------------------
+# Anthropic — content-block typed union (ai-gateway-b7k.2)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_content_block_union_dispatches_each_block_type():
+    request = AnthropicMessagesRequest.model_validate(
+        {
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 100,
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "inspecting"},
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": "image/png", "data": "AA=="},
+                        },
+                        {"type": "tool_use", "id": "toolu_1", "name": "read_file", "input": {}},
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_1",
+                            "content": "contents",
+                        },
+                        {"type": "thinking", "thinking": "hmm", "signature": "sig"},
+                        {"type": "redacted_thinking", "data": "opaque"},
+                    ],
+                }
+            ],
+        }
+    )
+
+    blocks = request.messages[0].content
+    assert isinstance(blocks, list)
+    text, image, tool_use, tool_result, thinking, redacted = blocks
+    assert isinstance(text, AnthropicTextBlock)
+    assert isinstance(image, AnthropicImageBlock)
+    assert isinstance(tool_use, AnthropicToolUseBlock)
+    assert isinstance(tool_result, AnthropicToolResultBlock)
+    assert isinstance(thinking, AnthropicThinkingBlock)
+    assert isinstance(redacted, AnthropicRedactedThinkingBlock)
+
+
+def test_anthropic_content_block_rejects_unknown_field():
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        AnthropicMessagesRequest.model_validate(
+            {
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 100,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "hi", "silently_lost": True}],
+                    }
+                ],
+            }
+        )
+
+
+def test_anthropic_content_block_rejects_unknown_block_type():
+    with pytest.raises(ValidationError):
+        AnthropicMessagesRequest.model_validate(
+            {
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 100,
+                "messages": [
+                    {"role": "user", "content": [{"type": "video", "source": {}}]},
+                ],
+            }
+        )
+
+
+def test_anthropic_tool_definition_preserves_typed_input_schema():
+    tool = AnthropicToolDefinition.model_validate(
+        {
+            "name": "get_weather",
+            "description": "Get weather",
+            "input_schema": {
+                "type": "object",
+                "properties": {"city": {"type": "string"}},
+                "required": ["city"],
+            },
+        }
+    )
+    assert tool.input_schema["required"] == ["city"]
 
 
 # ---------------------------------------------------------------------------

@@ -15,14 +15,82 @@ from proxy.app.protocol_types import (
     WireProtocol,
     redistribute_redacted_text,
 )
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class AnthropicCompatError(ProtocolTranslationError):
     """Raised when a request uses an unsupported Anthropic Messages shape."""
 
 
-AnthropicContent = str | list[JsonObject]
+class AnthropicCacheControl(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["ephemeral"]
+    ttl: Literal["5m", "1h"] | None = None
+
+
+class AnthropicTextBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["text"] = "text"
+    text: str
+    cache_control: AnthropicCacheControl | None = None
+
+
+class AnthropicImageBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["image"] = "image"
+    source: JsonObject
+    cache_control: AnthropicCacheControl | None = None
+
+
+class AnthropicToolUseBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_use"] = "tool_use"
+    id: str
+    name: str
+    input: JsonObject
+    cache_control: AnthropicCacheControl | None = None
+
+
+class AnthropicToolResultBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["tool_result"] = "tool_result"
+    tool_use_id: str
+    content: str | list[AnthropicTextBlock] | None = None
+    is_error: bool | None = None
+    cache_control: AnthropicCacheControl | None = None
+
+
+class AnthropicThinkingBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+    signature: str
+
+
+class AnthropicRedactedThinkingBlock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["redacted_thinking"] = "redacted_thinking"
+    data: str
+
+
+AnthropicContentBlock = Annotated[
+    AnthropicTextBlock
+    | AnthropicImageBlock
+    | AnthropicToolUseBlock
+    | AnthropicToolResultBlock
+    | AnthropicThinkingBlock
+    | AnthropicRedactedThinkingBlock,
+    Field(discriminator="type"),
+]
+
+AnthropicContent = str | list[AnthropicContentBlock]
 
 
 class AnthropicMessage(BaseModel):
@@ -57,13 +125,6 @@ AnthropicThinking = Annotated[
     AnthropicThinkingEnabled | AnthropicThinkingDisabled | AnthropicThinkingAdaptive,
     Field(discriminator="type"),
 ]
-
-
-class AnthropicCacheControl(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: Literal["ephemeral"]
-    ttl: Literal["5m", "1h"] | None = None
 
 
 class AnthropicMetadata(BaseModel):
@@ -174,6 +235,14 @@ class AnthropicToolChoice(BaseModel):
         return self
 
 
+class AnthropicToolDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str | None = None
+    input_schema: JsonSchema = Field(default_factory=dict)
+
+
 class AnthropicMessagesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -190,7 +259,7 @@ class AnthropicMessagesRequest(BaseModel):
     top_p: float | None = Field(default=None, ge=0, le=1)
     top_k: int | None = Field(default=None, ge=0)
     stop_sequences: list[str] | None = None
-    tools: list[JsonObject] | None = None
+    tools: list[AnthropicToolDefinition] | None = None
     tool_choice: AnthropicToolChoice | None = None
     metadata: AnthropicMetadata | None = None
     thinking: AnthropicThinking | None = None
@@ -209,11 +278,7 @@ class AnthropicMessagesRequest(BaseModel):
         if self.tool_choice is not None and self.tool_choice.type in {"any", "tool"} and not self.tools:
             raise ValueError(f"tool_choice type '{self.tool_choice.type}' requires tools")
         if self.tool_choice is not None and self.tool_choice.type == "tool":
-            tool_names = {
-                name
-                for tool in self.tools or []
-                if isinstance((name := tool.get("name")), str)
-            }
+            tool_names = {tool.name for tool in self.tools or []}
             if self.tool_choice.name not in tool_names:
                 raise ValueError("tool_choice name must reference a supplied tool")
         return self
@@ -230,7 +295,7 @@ class CountTokensRequest(BaseModel):
     system: AnthropicContent | None = None
     thinking: AnthropicThinking | None = None
     tool_choice: AnthropicToolChoice | None = None
-    tools: list[JsonObject] | None = None
+    tools: list[AnthropicToolDefinition] | None = None
     user_profile_id: str | None = None
 
 
@@ -239,11 +304,10 @@ def _governance_content_text(content: AnthropicContent) -> str:
         return content
     fragments: list[str] = []
     for block in content:
-        block_type = block.get("type")
-        if block_type == "text" and isinstance(block.get("text"), str):
-            fragments.append(str(block["text"]))
-        elif block_type == "tool_result":
-            fragments.append(_tool_result_content_str(block.get("content")))
+        if isinstance(block, AnthropicTextBlock):
+            fragments.append(block.text)
+        elif isinstance(block, AnthropicToolResultBlock):
+            fragments.append(_tool_result_content_str(block.content))
     return "".join(fragments)
 
 
@@ -276,15 +340,19 @@ class AnthropicGatewayPayload:
                 message.content = redacted_text
             else:
                 text_blocks = [
-                    block
-                    for block in message.content
-                    if block.get("type") == "text" and isinstance(block.get("text"), str)
+                    block for block in message.content if isinstance(block, AnthropicTextBlock)
                 ]
                 replacements = redistribute_redacted_text(
-                    [str(block["text"]) for block in text_blocks], redacted_text
+                    [block.text for block in text_blocks], redacted_text
                 )
-                for block, replacement in zip(text_blocks, replacements, strict=True):
-                    block["text"] = replacement
+                replaced = iter(
+                    block.model_copy(update={"text": replacement})
+                    for block, replacement in zip(text_blocks, replacements, strict=True)
+                )
+                message.content = [
+                    next(replaced) if isinstance(block, AnthropicTextBlock) else block
+                    for block in message.content
+                ]
             break
         return AnthropicGatewayPayload(request=request)
 
@@ -295,26 +363,13 @@ class AnthropicGatewayPayload:
         return messages_to_chat_body(self.request)
 
 
-def _tool_result_content_str(content: JsonValue) -> str:
-    """Flatten a tool_result block's `content` (str or list of content blocks) to text."""
+def _tool_result_content_str(content: str | list[AnthropicTextBlock] | None) -> str:
+    """Flatten a tool_result block's `content` (str or list of text blocks) to text."""
     if content is None:
         return ""
     if isinstance(content, str):
         return content
-    if isinstance(content, list):
-        fragments: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text")
-                if not isinstance(text, str):
-                    raise AnthropicCompatError("tool_result text blocks must include string text")
-                fragments.append(text)
-            elif isinstance(block, dict):
-                fragments.append(json.dumps(block))
-            else:
-                fragments.append(str(block))
-        return "".join(fragments)
-    return json.dumps(content)
+    return "".join(block.text for block in content)
 
 
 def _content_str(content: AnthropicContent) -> str:
@@ -329,43 +384,31 @@ def _content_str(content: AnthropicContent) -> str:
         return content
 
     fragments: list[str] = []
-    for index, block in enumerate(content):
-        if not isinstance(block, dict):
-            raise AnthropicCompatError(f"Unsupported content block at index {index}")
-        block_type = block.get("type")
-        if block_type == "text":
-            text = block.get("text")
-            if not isinstance(text, str):
-                raise AnthropicCompatError("Text content blocks must include string text")
-            fragments.append(text)
-        elif block_type == "tool_use":
-            fragments.append(json.dumps(block.get("input", {})))
-        elif block_type == "tool_result":
-            fragments.append(_tool_result_content_str(block.get("content")))
+    for block in content:
+        if isinstance(block, AnthropicTextBlock):
+            fragments.append(block.text)
+        elif isinstance(block, AnthropicToolUseBlock):
+            fragments.append(json.dumps(block.input))
+        elif isinstance(block, AnthropicToolResultBlock):
+            fragments.append(_tool_result_content_str(block.content))
         else:
-            raise AnthropicCompatError(f"Unsupported content block type: {block_type}")
+            raise AnthropicCompatError(f"Unsupported content block type: {block.type}")
     return "".join(fragments)
 
 
-def _tool_result_to_message(block: JsonObject, index: int) -> JsonObject:
+def _tool_result_to_message(block: AnthropicToolResultBlock, index: int) -> JsonObject:
     """Translate a representable Anthropic tool_result to an OpenAI tool message."""
-    unsupported = sorted(set(block) - {"type", "tool_use_id", "content", "is_error"})
-    if unsupported:
-        raise AnthropicCompatError(
-            f"tool_result block at index {index} has unsupported fields: {', '.join(unsupported)}"
-        )
-    tool_use_id = block.get("tool_use_id")
-    if not isinstance(tool_use_id, str) or not tool_use_id:
-        raise AnthropicCompatError(f"tool_result block at index {index} is missing tool_use_id")
-    if block.get("is_error"):
+    if block.is_error:
         raise AnthropicCompatError(
             f"tool_result block at index {index} has is_error=true, which Chat cannot preserve"
         )
-    text = _tool_result_content_str(block.get("content"))
-    return {"role": "tool", "tool_call_id": tool_use_id, "content": text}
+    text = _tool_result_content_str(block.content)
+    return {"role": "tool", "tool_call_id": block.tool_use_id, "content": text}
 
 
-def _expand_user_content_blocks(content: list[JsonObject], index: int) -> list[JsonObject]:
+def _expand_user_content_blocks(
+    content: list[AnthropicContentBlock], index: int
+) -> list[JsonObject]:
     """Translate a user message's content blocks into one or more OpenAI messages.
 
     Contiguous text blocks become a single user message; each tool_result block
@@ -381,24 +424,13 @@ def _expand_user_content_blocks(content: list[JsonObject], index: int) -> list[J
             text_buffer.clear()
 
     for block in content:
-        if not isinstance(block, dict):
-            raise AnthropicCompatError(f"Unsupported content block at index {index}")
-        block_type = block.get("type")
-        if block_type == "text":
-            unsupported = sorted(set(block) - {"type", "text"})
-            if unsupported:
-                raise AnthropicCompatError(
-                    f"text block at index {index} has unsupported fields: {', '.join(unsupported)}"
-                )
-            text = block.get("text")
-            if not isinstance(text, str):
-                raise AnthropicCompatError("Text content blocks must include string text")
-            text_buffer.append(text)
-        elif block_type == "tool_result":
+        if isinstance(block, AnthropicTextBlock):
+            text_buffer.append(block.text)
+        elif isinstance(block, AnthropicToolResultBlock):
             _flush_text()
             messages.append(_tool_result_to_message(block, index))
         else:
-            raise AnthropicCompatError(f"Unsupported content block type: {block_type}")
+            raise AnthropicCompatError(f"Unsupported content block type: {block.type}")
 
     _flush_text()
     if not messages:
@@ -406,46 +438,24 @@ def _expand_user_content_blocks(content: list[JsonObject], index: int) -> list[J
     return messages
 
 
-def _assistant_content_to_message(content: list[JsonObject], index: int) -> JsonObject:
+def _assistant_content_to_message(content: list[AnthropicContentBlock], index: int) -> JsonObject:
     """Translate an assistant message's content blocks (text + tool_use) to OpenAI shape."""
     text_fragments: list[str] = []
     tool_calls: list[JsonObject] = []
 
     for block in content:
-        if not isinstance(block, dict):
-            raise AnthropicCompatError(f"Unsupported content block at index {index}")
-        block_type = block.get("type")
-        if block_type == "text":
-            unsupported = sorted(set(block) - {"type", "text"})
-            if unsupported:
-                raise AnthropicCompatError(
-                    f"text block at index {index} has unsupported fields: {', '.join(unsupported)}"
-                )
-            text = block.get("text")
-            if not isinstance(text, str):
-                raise AnthropicCompatError("Text content blocks must include string text")
-            text_fragments.append(text)
-        elif block_type == "tool_use":
-            unsupported = sorted(set(block) - {"type", "id", "name", "input"})
-            if unsupported:
-                raise AnthropicCompatError(
-                    f"tool_use block at index {index} has unsupported fields: {', '.join(unsupported)}"
-                )
-            tool_id = block.get("id")
-            name = block.get("name")
-            if not isinstance(tool_id, str) or not tool_id:
-                raise AnthropicCompatError(f"tool_use block at index {index} is missing id")
-            if not isinstance(name, str) or not name:
-                raise AnthropicCompatError(f"tool_use block at index {index} is missing name")
+        if isinstance(block, AnthropicTextBlock):
+            text_fragments.append(block.text)
+        elif isinstance(block, AnthropicToolUseBlock):
             tool_calls.append(
                 {
-                    "id": tool_id,
+                    "id": block.id,
                     "type": "function",
-                    "function": {"name": name, "arguments": json.dumps(block.get("input", {}))},
+                    "function": {"name": block.name, "arguments": json.dumps(block.input)},
                 }
             )
         else:
-            raise AnthropicCompatError(f"Unsupported content block type: {block_type}")
+            raise AnthropicCompatError(f"Unsupported content block type: {block.type}")
 
     message: JsonObject = {"role": "assistant", "content": "".join(text_fragments)}
     if tool_calls:
@@ -453,31 +463,19 @@ def _assistant_content_to_message(content: list[JsonObject], index: int) -> Json
     return message
 
 
-def _tools_to_openai(tools: list[JsonObject]) -> list[JsonObject]:
+def _tools_to_openai(tools: list[AnthropicToolDefinition]) -> list[JsonObject]:
     """Translate Anthropic tool definitions to OpenAI function-tool schema."""
-    openai_tools: list[JsonObject] = []
-    for index, tool in enumerate(tools):
-        if not isinstance(tool, dict):
-            raise AnthropicCompatError(f"Unsupported tool definition at index {index}")
-        unsupported = sorted(set(tool) - {"name", "description", "input_schema"})
-        if unsupported:
-            raise AnthropicCompatError(
-                f"Tool definition at index {index} has unsupported fields: {', '.join(unsupported)}"
-            )
-        name = tool.get("name")
-        if not isinstance(name, str) or not name:
-            raise AnthropicCompatError(f"Tool definition at index {index} is missing a name")
-        openai_tools.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("input_schema", {"type": "object", "properties": {}}),
-                },
-            }
-        )
-    return openai_tools
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description or "",
+                "parameters": tool.input_schema or {"type": "object", "properties": {}},
+            },
+        }
+        for tool in tools
+    ]
 
 
 def _tool_choice_to_openai(tool_choice: AnthropicToolChoice) -> str | JsonObject:
