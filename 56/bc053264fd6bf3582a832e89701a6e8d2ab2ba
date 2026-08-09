@@ -1,0 +1,22 @@
+proxy/tests/test_protocol_types.py
+  s_522daaa72e7bf9::t_326e8a7a2077b7 11-13,15
+  s_522daaa72e7bf9::t_715a9989838ec7 366-458
+proxy/app/protocol_types.py
+  s_522daaa72e7bf9::t_69de04d6468430 988-1033
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "56bc053264fd6bf3582a832e89701a6e8d2ab2ba",
+  "prompts": {},
+  "sessions": {
+    "s_522daaa72e7bf9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db9c12e6-1845-4699-bc2e-f9e5adb03167",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
