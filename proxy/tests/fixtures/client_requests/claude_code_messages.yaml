@@ -1,0 +1,55 @@
+# Client request contract fixture — Claude Code
+#
+# This fixture backs test_official_sdk_contracts.py::
+#   test_claude_code_messages_contract_preserves_thinking_and_tool_blocks
+#
+# It is loaded verbatim by the test (never edited inline) so the contract
+# only changes when this file changes, and any change is reviewable as a
+# diff against the documented source below.
+provenance:
+  client: "Claude Code"
+  source_url: "https://docs.anthropic.com/en/docs/claude-code/llm-gateway"
+  source_commit: "n/a — hosted documentation page, no pinned commit available"
+  captured: "2026-08-08"
+  description: >
+    Shape reconstructed from Anthropic's documented LLM Gateway
+    integration for Claude Code, which sends the beta Messages surface
+    (extended thinking blocks with an opaque signature, tool_use /
+    tool_result blocks for the agent tool loop, and the beta
+    context_management field for context editing). context_management is
+    tracked separately as ANTHROPIC_BETA_MESSAGES_EXTENSION_FIELDS in
+    proxy/app/provider_capabilities.py because it is beta-only and not
+    part of the stable anthropic-python MessageCreateParamsBase type.
+
+request:
+  model: "claude-opus-4-1"
+  max_tokens: 4096
+  messages:
+    - role: "assistant"
+      content:
+        - type: "thinking"
+          thinking: "inspect repository"
+          signature: "opaque-signature"
+        - type: "tool_use"
+          id: "toolu_1"
+          name: "read_file"
+          input:
+            path: "README.md"
+    - role: "user"
+      content:
+        - type: "tool_result"
+          tool_use_id: "toolu_1"
+          content: "contents"
+  thinking:
+    type: "enabled"
+    budget_tokens: 2048
+  context_management:
+    edits:
+      - type: "clear_thinking_20251015"
+        keep: "all"
+  tools:
+    - name: "read_file"
+      description: "Read a file"
+      input_schema:
+        type: "object"
+  stream: true
