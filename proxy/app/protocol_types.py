@@ -823,20 +823,6 @@ class CanonicalExecutionRequest(StrictModel):
         return self
 
 
-class CanonicalStreamEvent(StrictModel):
-    """Transport-neutral semantic event; protocol codecs own wire formatting."""
-
-    type: str
-    sequence_number: int | None = Field(default=None, ge=0)
-    item_id: str | None = None
-    output_index: int | None = Field(default=None, ge=0)
-    content_index: int | None = Field(default=None, ge=0)
-    delta: str | None = None
-    item: JsonObject | None = None
-    response: JsonObject | None = None
-    error: JsonObject | None = None
-
-
 class CanonicalTextPart(StrictModel):
     type: Literal["text"] = "text"
     text: str
@@ -999,3 +985,49 @@ class CanonicalAssistantResponse(StrictModel):
     content: list[CanonicalContentPart]
     finish_reason: Literal["stop", "length", "tool_use", "content_filter", "error"]
     usage: CanonicalUsage = Field(default_factory=CanonicalUsage)
+
+
+CanonicalStreamItem = Annotated[
+    ExecutionMessageItem
+    | ExecutionFunctionCallItem
+    | ExecutionFunctionCallOutputItem
+    | ExecutionReasoningItem
+    | ExecutionItemReference
+    | CanonicalTextPart
+    | CanonicalImagePart
+    | CanonicalToolUsePart
+    | CanonicalToolResultPart,
+    Field(discriminator="type"),
+]
+
+
+class CanonicalStreamResponse(StrictModel):
+    """Snapshot of an in-flight or completed response carried on a stream event."""
+
+    id: str | None = None
+    model: str | None = None
+    status: Literal["in_progress", "completed", "incomplete", "failed"] | None = None
+    output: list[CanonicalStreamItem] = Field(default_factory=list)
+    usage: CanonicalUsage | None = None
+
+
+class CanonicalStreamError(StrictModel):
+    """Error payload carried on a terminal stream event."""
+
+    type: str
+    message: str
+    code: str | None = None
+
+
+class CanonicalStreamEvent(StrictModel):
+    """Transport-neutral semantic event; protocol codecs own wire formatting."""
+
+    type: str
+    sequence_number: int | None = Field(default=None, ge=0)
+    item_id: str | None = None
+    output_index: int | None = Field(default=None, ge=0)
+    content_index: int | None = Field(default=None, ge=0)
+    delta: str | None = None
+    item: CanonicalStreamItem | None = None
+    response: CanonicalStreamResponse | None = None
+    error: CanonicalStreamError | None = None
