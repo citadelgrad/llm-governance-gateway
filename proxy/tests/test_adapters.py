@@ -994,31 +994,11 @@ def test_gemini_to_openai_envelope_rejects_dialect_specific_finish_reason():
         gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
 
 
-def test_gemini_to_openai_envelope_raises_on_blocked_prompt():
-    """An empty candidates list with a genuine promptFeedback.blockReason
-    must surface as an error, not a silent empty 'stop' completion."""
-    gemini_json = {
-        "candidates": [],
-        "promptFeedback": {"blockReason": "SAFETY"},
-        "usageMetadata": {},
-    }
-    with pytest.raises(gemini_provider.GeminiTranslationError, match="blocked: SAFETY"):
-        gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
-
-
-def test_gemini_to_openai_envelope_default_stop_when_block_reason_unset():
-    """An empty candidates list with no real block reason still degrades to
-    a default empty 'stop' completion (unchanged behavior)."""
-    gemini_json = {
-        "candidates": [],
-        "promptFeedback": {"blockReason": "BLOCK_REASON_UNSPECIFIED"},
-        "usageMetadata": {},
-    }
-    envelope = gemini_provider._to_openai_envelope(gemini_json, "gemini-3.1-flash-lite")
-    assert envelope["choices"][0]["finish_reason"] == "stop"
-    assert envelope["choices"][0]["message"]["content"] == ""
-
-
+# The raises-on-blocked-prompt / defaults-to-stop-when-unset behavior is
+# covered for both this adapter and gemini_vertex.py's in a single shared
+# parametrized test — see test_gemini_common.py's
+# test_to_openai_envelope_raises_on_blocked_prompt /
+# test_to_openai_envelope_default_stop_when_block_reason_unset.
 def test_gemini_to_openai_envelope_default_stop_when_prompt_feedback_missing():
     """No promptFeedback at all (e.g. an empty-but-successful response)
     must not be mistaken for a block."""
@@ -1597,10 +1577,28 @@ def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
 
 
 def test_messages_to_chat_body_rejects_unsupported_content_block():
+    # A well-formed image block (valid per AnthropicImageBlock.source's
+    # discriminated union) is still an unsupported content *type* for Chat
+    # Completions translation — this must be rejected by messages_to_chat_body
+    # itself, not by request parsing.
     req = _messages_request(
-        messages=[{"role": "user", "content": [{"type": "image", "source": {}}]}],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "abc123",
+                        },
+                    }
+                ],
+            }
+        ],
     )
-    with pytest.raises(AnthropicCompatError):
+    with pytest.raises(AnthropicCompatError, match="Unsupported content block type"):
         messages_to_chat_body(req)
 
 

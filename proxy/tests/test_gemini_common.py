@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from proxy.app.providers import _gemini_common as gemini_common
+from proxy.app.providers import gemini as gemini_provider
 from proxy.app.providers._gemini_common import (
     DEVELOPER_API_DIALECT,
     VERTEX_DIALECT,
@@ -15,6 +16,7 @@ from proxy.app.providers._gemini_common import (
     translate_tools,
     translate_usage_metadata,
 )
+from proxy.app.providers.gemini_vertex import _to_openai_envelope as vertex_to_openai_envelope
 
 # ---------------------------------------------------------------------------
 # is_block_reason_unset
@@ -223,3 +225,101 @@ def test_finish_reason_map_covers_shared_reasons():
         "MAX_TOKENS": "length",
         "SAFETY": "content_filter",
     }
+
+
+# ---------------------------------------------------------------------------
+# extract_block_reason / raise_if_prompt_blocked
+# ---------------------------------------------------------------------------
+
+
+def test_extract_block_reason_returns_none_when_prompt_feedback_missing():
+    assert gemini_common.extract_block_reason({}, DEVELOPER_API_DIALECT) is None
+
+
+def test_extract_block_reason_returns_none_for_unset_sentinel():
+    source = {"promptFeedback": {"blockReason": "BLOCK_REASON_UNSPECIFIED"}}
+    assert gemini_common.extract_block_reason(source, DEVELOPER_API_DIALECT) is None
+
+
+def test_extract_block_reason_returns_real_reason():
+    source = {"promptFeedback": {"blockReason": "SAFETY"}}
+    assert gemini_common.extract_block_reason(source, DEVELOPER_API_DIALECT) == "SAFETY"
+
+
+def test_raise_if_prompt_blocked_raises_with_provider_label():
+    source = {"promptFeedback": {"blockReason": "SAFETY"}}
+    with pytest.raises(GeminiTranslationError, match="Widget generation blocked: SAFETY"):
+        gemini_common.raise_if_prompt_blocked(source, DEVELOPER_API_DIALECT, provider_label="Widget")
+
+
+def test_raise_if_prompt_blocked_no_op_when_unset():
+    source = {"promptFeedback": {"blockReason": "BLOCKED_REASON_UNSPECIFIED"}}
+    gemini_common.raise_if_prompt_blocked(source, VERTEX_DIALECT, provider_label="Vertex")
+
+
+# ---------------------------------------------------------------------------
+# _to_openai_envelope blockReason wiring — shared across both Gemini adapters
+# ---------------------------------------------------------------------------
+#
+# gemini.py's and gemini_vertex.py's _to_openai_envelope both delegate their
+# candidates-less-response handling to raise_if_prompt_blocked /
+# extract_block_reason above. Previously each adapter's own test file
+# re-implemented near-identical raises-or-defaults-to-stop assertions
+# separately (test_adapters.py and test_gemini_vertex_adapter.py); this
+# parametrized pair covers both dialects in one place instead.
+
+_BLOCKED_PROMPT_ADAPTER_CASES = [
+    pytest.param(
+        gemini_provider._to_openai_envelope,
+        "BLOCK_REASON_UNSPECIFIED",
+        "Gemini generation blocked",
+        id="developer-api",
+    ),
+    pytest.param(
+        vertex_to_openai_envelope,
+        "BLOCKED_REASON_UNSPECIFIED",
+        "Vertex generation blocked",
+        id="vertex",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("to_openai_envelope", "unset_sentinel", "blocked_message_prefix"),
+    _BLOCKED_PROMPT_ADAPTER_CASES,
+)
+def test_to_openai_envelope_raises_on_blocked_prompt(
+    to_openai_envelope, unset_sentinel, blocked_message_prefix
+):
+    """An empty candidates list with a genuine promptFeedback.blockReason
+    must surface as an error, not a silent empty 'stop' completion — for
+    both the Gemini Developer API and Vertex dialects."""
+    del unset_sentinel  # only used by the sibling default-stop test below
+    gemini_json = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": "SAFETY"},
+        "usageMetadata": {},
+    }
+    with pytest.raises(GeminiTranslationError, match=f"{blocked_message_prefix}: SAFETY"):
+        to_openai_envelope(gemini_json, "some-model")
+
+
+@pytest.mark.parametrize(
+    ("to_openai_envelope", "unset_sentinel", "blocked_message_prefix"),
+    _BLOCKED_PROMPT_ADAPTER_CASES,
+)
+def test_to_openai_envelope_default_stop_when_block_reason_unset(
+    to_openai_envelope, unset_sentinel, blocked_message_prefix
+):
+    """An empty candidates list with no real block reason still degrades to
+    a default empty 'stop' completion, for both dialects' own spelling of
+    the "unset" sentinel."""
+    del blocked_message_prefix  # only used by the sibling raises test above
+    gemini_json = {
+        "candidates": [],
+        "promptFeedback": {"blockReason": unset_sentinel},
+        "usageMetadata": {},
+    }
+    envelope = to_openai_envelope(gemini_json, "some-model")
+    assert envelope["choices"][0]["finish_reason"] == "stop"
+    assert envelope["choices"][0]["message"]["content"] == ""

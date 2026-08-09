@@ -260,6 +260,73 @@ def translate_tool_choice(tool_choice: object) -> JsonObject | None:
     return {"functionCallingConfig": config}
 
 
+def translate_chat_request(
+    body: JsonObject,
+    *,
+    allowed_fields: frozenset[str],
+    default_model: str | None = None,
+) -> tuple[str, JsonObject]:
+    """OpenAI Chat body -> Gemini/Vertex generateContent body, or fail before
+    losing request semantics.
+
+    Shared by gemini.py's `_translate_request` and gemini_vertex.py's
+    `_translate_chat_body` so both adapters reject the same unsupported Chat
+    fields and translate tool_choice identically rather than silently
+    dropping it. `allowed_fields` is passed in (rather than imported here)
+    to avoid a circular import with provider_capabilities.py, which itself
+    imports this module.
+
+    `default_model` controls the two adapters' differing model-resolution
+    semantics: gemini.py falls back to a default model name when the `model`
+    key is absent, while gemini_vertex.py (default_model=None) requires the
+    caller to supply a non-empty model string.
+    """
+    unsupported = sorted(key for key in body if key not in allowed_fields)
+    if unsupported:
+        raise GeminiTranslationError(
+            "Gemini adapter does not support Chat fields: " + ", ".join(unsupported)
+        )
+
+    if default_model is not None:
+        model_value = body.get("model", default_model)
+        if not isinstance(model_value, str):
+            raise GeminiTranslationError("model must be a string")
+    else:
+        model_value = body.get("model")
+        if not isinstance(model_value, str) or not model_value:
+            raise GeminiTranslationError("model must be a string")
+
+    messages = body.get("messages", [])
+    if not isinstance(messages, list):
+        raise GeminiTranslationError("messages must be a list")
+
+    contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
+
+    system_parts = [
+        extract_message_text(message.get("content"), location=f"message {message_index}")
+        for message_index, message in enumerate(messages)
+        if isinstance(message, dict) and message.get("role") in {"system", "developer"}
+    ]
+
+    gemini_body: JsonObject = {"contents": contents}
+    if system_parts:
+        gemini_body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
+
+    generation_config = translate_generation_config(body)
+    if generation_config:
+        gemini_body["generationConfig"] = generation_config
+
+    tools = translate_tools(body.get("tools"))
+    if tools is not None:
+        gemini_body["tools"] = tools
+
+    tool_config = translate_tool_choice(body.get("tool_choice"))
+    if tool_config is not None:
+        gemini_body["toolConfig"] = tool_config
+
+    return model_value, gemini_body
+
+
 def translate_candidate_to_openai_choice(
     candidate: JsonObject, dialect: GeminiDialect, index: int
 ) -> JsonObject:
@@ -350,3 +417,22 @@ def is_block_reason_unset(block_reason: str | None, dialect: GeminiDialect) -> b
     """Handles the BLOCK_REASON_UNSPECIFIED vs BLOCKED_REASON_UNSPECIFIED
     sentinel spelling difference between the two backends."""
     return block_reason is None or block_reason == dialect.block_reason_unset
+
+
+def extract_block_reason(source: JsonObject, dialect: GeminiDialect) -> str | None:
+    """Extract `promptFeedback.blockReason` from a Gemini/Vertex response or
+    stream chunk, returning None when absent or equal to the dialect's
+    "unset" sentinel value (i.e. the prompt was not actually blocked)."""
+    raw_prompt_feedback = source.get("promptFeedback")
+    block_reason = (
+        raw_prompt_feedback.get("blockReason") if isinstance(raw_prompt_feedback, dict) else None
+    )
+    return None if is_block_reason_unset(block_reason, dialect) else block_reason
+
+
+def raise_if_prompt_blocked(source: JsonObject, dialect: GeminiDialect, *, provider_label: str) -> None:
+    """Raise GeminiTranslationError if `source`'s promptFeedback.blockReason
+    indicates the generation was blocked."""
+    block_reason = extract_block_reason(source, dialect)
+    if block_reason is not None:
+        raise GeminiTranslationError(f"{provider_label} generation blocked: {block_reason}")

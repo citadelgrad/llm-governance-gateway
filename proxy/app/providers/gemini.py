@@ -12,13 +12,10 @@ from proxy.app.providers._gemini_common import (
     DEVELOPER_API_DIALECT,
     FINISH_REASON_MAP,
     GeminiTranslationError,
-    extract_message_text,
-    is_block_reason_unset,
+    extract_block_reason,
+    raise_if_prompt_blocked,
     translate_candidate_to_openai_choice,
-    translate_generation_config,
-    translate_openai_messages_to_contents,
-    translate_tool_choice,
-    translate_tools,
+    translate_chat_request,
     translate_usage_metadata,
 )
 from proxy.app.providers.errors import sanitize_upstream_error
@@ -56,44 +53,11 @@ def make_client(api_key: str) -> httpx.AsyncClient:
 
 def _translate_request(body: JsonObject) -> tuple[str, JsonObject]:
     """Translate Chat to Gemini or fail before losing request semantics."""
-    unsupported = sorted(key for key in body if key not in GEMINI_CHAT_TRANSLATION_FIELDS)
-    if unsupported:
-        raise GeminiTranslationError(
-            "Gemini adapter does not support Chat fields: " + ", ".join(unsupported)
-        )
-
-    model_value = body.get("model", "gemini-3.1-flash-lite")
-    if not isinstance(model_value, str):
-        raise GeminiTranslationError("model must be a string")
-    messages = body.get("messages", [])
-    if not isinstance(messages, list):
-        raise GeminiTranslationError("messages must be a list")
-
-    contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
-
-    system_parts = [
-        extract_message_text(message.get("content"), location=f"message {message_index}")
-        for message_index, message in enumerate(messages)
-        if isinstance(message, dict) and message.get("role") in {"system", "developer"}
-    ]
-
-    gemini_body: JsonObject = {"contents": contents}
-    if system_parts:
-        gemini_body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
-
-    generation_config = translate_generation_config(body)
-    if generation_config:
-        gemini_body["generationConfig"] = generation_config
-
-    tools = translate_tools(body.get("tools"))
-    if tools is not None:
-        gemini_body["tools"] = tools
-
-    tool_config = translate_tool_choice(body.get("tool_choice"))
-    if tool_config is not None:
-        gemini_body["toolConfig"] = tool_config
-
-    return model_value, gemini_body
+    return translate_chat_request(
+        body,
+        allowed_fields=GEMINI_CHAT_TRANSLATION_FIELDS,
+        default_model="gemini-3.1-flash-lite",
+    )
 
 
 def _to_openai_envelope(gemini_json: JsonObject, model: str) -> JsonObject:
@@ -114,14 +78,7 @@ def _to_openai_envelope(gemini_json: JsonObject, model: str) -> JsonObject:
             cast(JsonObject, raw_candidate), _RESPONSE_DIALECT, 0
         )
     else:
-        raw_prompt_feedback = gemini_json.get("promptFeedback")
-        block_reason = (
-            raw_prompt_feedback.get("blockReason")
-            if isinstance(raw_prompt_feedback, dict)
-            else None
-        )
-        if not is_block_reason_unset(block_reason, DEVELOPER_API_DIALECT):
-            raise GeminiTranslationError(f"Gemini generation blocked: {block_reason}")
+        raise_if_prompt_blocked(gemini_json, DEVELOPER_API_DIALECT, provider_label="Gemini")
         choice = {
             "index": 0,
             "message": {"role": "assistant", "content": ""},
@@ -194,13 +151,8 @@ async def chat_completions(
 
                         candidates = chunk_json.get("candidates", [])
                         if not candidates:
-                            raw_prompt_feedback = chunk_json.get("promptFeedback")
-                            block_reason = (
-                                raw_prompt_feedback.get("blockReason")
-                                if isinstance(raw_prompt_feedback, dict)
-                                else None
-                            )
-                            if not is_block_reason_unset(block_reason, DEVELOPER_API_DIALECT):
+                            block_reason = extract_block_reason(chunk_json, DEVELOPER_API_DIALECT)
+                            if block_reason is not None:
                                 error_chunk = {
                                     "error": {
                                         "type": "provider_response_error",

@@ -21,13 +21,10 @@ from proxy.app.provider_capabilities import GEMINI_CHAT_TRANSLATION_FIELDS
 from proxy.app.providers._gemini_common import (
     VERTEX_DIALECT,
     GeminiTranslationError,
-    extract_message_text,
-    is_block_reason_unset,
+    extract_block_reason,
+    raise_if_prompt_blocked,
     translate_candidate_to_openai_choice,
-    translate_generation_config,
-    translate_openai_messages_to_contents,
-    translate_tool_choice,
-    translate_tools,
+    translate_chat_request,
     translate_usage_metadata,
 )
 from proxy.app.providers.errors import sanitize_upstream_error
@@ -148,12 +145,7 @@ def _to_openai_envelope(data: JsonObject, model: str) -> JsonObject:
             cast(JsonObject, raw_candidate), VERTEX_DIALECT, 0
         )
     else:
-        raw_prompt_feedback = data.get("promptFeedback", {})
-        block_reason = (
-            raw_prompt_feedback.get("blockReason") if isinstance(raw_prompt_feedback, dict) else None
-        )
-        if not is_block_reason_unset(block_reason, VERTEX_DIALECT):
-            raise GeminiTranslationError(f"Vertex generation blocked: {block_reason}")
+        raise_if_prompt_blocked(data, VERTEX_DIALECT, provider_label="Vertex")
         choice = {
             "index": 0,
             "message": {"role": "assistant", "content": ""},
@@ -173,48 +165,14 @@ def _translate_chat_body(openai_request: JsonObject) -> tuple[str, JsonObject]:
     """Translate an OpenAI Chat body to a Vertex AI generateContent body, or
     fail before losing request semantics.
 
-    Mirrors proxy/app/providers/gemini.py's _translate_request so both
-    Gemini adapters reject the same unsupported Chat fields and translate
-    tool_choice identically rather than silently dropping it.
+    Delegates to _gemini_common.translate_chat_request, the pipeline shared
+    with proxy/app/providers/gemini.py's _translate_request, so both Gemini
+    adapters reject the same unsupported Chat fields and translate
+    tool_choice identically rather than silently dropping it. Unlike
+    gemini.py, no default_model is passed: Vertex has no implicit default
+    model, so a missing/empty `model` must fail translation.
     """
-    unsupported = sorted(key for key in openai_request if key not in GEMINI_CHAT_TRANSLATION_FIELDS)
-    if unsupported:
-        raise GeminiTranslationError(
-            "Gemini adapter does not support Chat fields: " + ", ".join(unsupported)
-        )
-
-    model_value = openai_request.get("model")
-    if not isinstance(model_value, str) or not model_value:
-        raise GeminiTranslationError("model must be a string")
-    messages = openai_request.get("messages", [])
-    if not isinstance(messages, list):
-        raise GeminiTranslationError("messages must be a list")
-
-    contents = translate_openai_messages_to_contents(cast("list[JsonObject]", messages))
-
-    system_parts = [
-        extract_message_text(message.get("content"), location=f"message {message_index}")
-        for message_index, message in enumerate(messages)
-        if isinstance(message, dict) and message.get("role") in {"system", "developer"}
-    ]
-
-    body: JsonObject = {"contents": contents}
-    if system_parts:
-        body["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
-
-    generation_config = translate_generation_config(openai_request)
-    if generation_config:
-        body["generationConfig"] = generation_config
-
-    tools = translate_tools(openai_request.get("tools"))
-    if tools is not None:
-        body["tools"] = tools
-
-    tool_config = translate_tool_choice(openai_request.get("tool_choice"))
-    if tool_config is not None:
-        body["toolConfig"] = tool_config
-
-    return model_value, body
+    return translate_chat_request(openai_request, allowed_fields=GEMINI_CHAT_TRANSLATION_FIELDS)
 
 
 class VertexGeminiClient:
@@ -318,13 +276,8 @@ class VertexGeminiClient:
 
                 raw_candidates = chunk_json.get("candidates", [])
                 if not isinstance(raw_candidates, list) or not raw_candidates:
-                    raw_prompt_feedback = chunk_json.get("promptFeedback")
-                    block_reason = (
-                        raw_prompt_feedback.get("blockReason")
-                        if isinstance(raw_prompt_feedback, dict)
-                        else None
-                    )
-                    if not is_block_reason_unset(block_reason, VERTEX_DIALECT):
+                    block_reason = extract_block_reason(chunk_json, VERTEX_DIALECT)
+                    if block_reason is not None:
                         error_chunk = {
                             "error": {
                                 "type": "provider_response_error",

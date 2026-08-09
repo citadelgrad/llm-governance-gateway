@@ -37,11 +37,32 @@ class AnthropicTextBlock(BaseModel):
     cache_control: AnthropicCacheControl | None = None
 
 
+class AnthropicImageSourceBase64(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["base64"] = "base64"
+    media_type: str
+    data: str
+
+
+class AnthropicImageSourceUrl(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["url"] = "url"
+    url: str
+
+
+AnthropicImageSource = Annotated[
+    AnthropicImageSourceBase64 | AnthropicImageSourceUrl,
+    Field(discriminator="type"),
+]
+
+
 class AnthropicImageBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["image"] = "image"
-    source: JsonObject
+    source: AnthropicImageSource
     cache_control: AnthropicCacheControl | None = None
 
 
@@ -345,14 +366,11 @@ class AnthropicGatewayPayload:
                 replacements = redistribute_redacted_text(
                     [block.text for block in text_blocks], redacted_text
                 )
-                replaced = iter(
-                    block.model_copy(update={"text": replacement})
-                    for block, replacement in zip(text_blocks, replacements, strict=True)
-                )
-                message.content = [
-                    next(replaced) if isinstance(block, AnthropicTextBlock) else block
-                    for block in message.content
-                ]
+                # `request` above is already a deep copy, so text_blocks are
+                # fresh objects owned only by this payload — mutate them in
+                # place instead of copying-and-rebinding a new content list.
+                for block, replacement in zip(text_blocks, replacements, strict=True):
+                    block.text = replacement
             break
         return AnthropicGatewayPayload(request=request)
 

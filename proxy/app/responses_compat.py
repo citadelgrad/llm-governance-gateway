@@ -191,7 +191,7 @@ class ResponsesGatewayPayload:
         return self.request.model_dump(mode="json", exclude_none=True, exclude_unset=True)
 
     def to_chat_body(self) -> JsonObject:
-        return translate_responses_request(self.native_body())
+        return _request_to_chat_body(self.request)
 
 
 class ResponsesOutputText(BaseModel):
@@ -286,7 +286,18 @@ def translate_responses_request(payload: JsonObject) -> JsonObject:
         raise ResponsesCompatError(
             "Request body does not match the supported OpenAI Responses subset"
         ) from exc
+    return _request_to_chat_body(req)
 
+
+def _request_to_chat_body(req: ResponsesCreateRequest) -> JsonObject:
+    """Translate an already-typed ResponsesCreateRequest to a chat body.
+
+    Split out of translate_responses_request() so ResponsesGatewayPayload.
+    to_chat_body() can operate on the already-typed request it holds
+    directly (mirroring anthropic_compat.py's messages_to_chat_body()
+    pattern) instead of round-tripping through model_dump() +
+    model_validate() again.
+    """
     if req.tools:
         raise ResponsesCompatError("Responses tools are not supported yet")
     if req.tool_choice is not None:
