@@ -1565,6 +1565,54 @@ def test_messages_to_chat_body_rejects_tool_result_error_semantics():
         messages_to_chat_body(req)
 
 
+def _tool_result_image_message() -> dict:
+    return {
+        "role": "user",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_use_id": "toolu_1",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "AA==",
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_messages_request_accepts_tool_result_image_content():
+    # A tool (e.g. a screenshot tool) can return an image in its tool_result,
+    # per the real Anthropic Messages API. Ingress must accept this shape so a
+    # native Anthropic-to-Anthropic request can pass through unchanged — only
+    # Chat Completions translation (which cannot represent an image in a
+    # tool-role message) may reject it.
+    req = _messages_request(messages=[_tool_result_image_message()])
+    block = req.messages[0].content[0]
+    assert isinstance(block, AnthropicToolResultBlock)
+    assert isinstance(block.content[0], AnthropicImageBlock)
+
+
+def test_messages_request_native_body_round_trips_tool_result_image_content():
+    req = _messages_request(messages=[_tool_result_image_message()])
+    native = req.model_dump(mode="json", by_alias=True, exclude_none=True)
+    tool_result = native["messages"][0]["content"][0]
+    assert tool_result["content"][0]["type"] == "image"
+    assert tool_result["content"][0]["source"]["data"] == "AA=="
+
+
+def test_messages_to_chat_body_rejects_tool_result_image_content():
+    req = _messages_request(messages=[_tool_result_image_message()])
+    with pytest.raises(AnthropicCompatError, match="image content"):
+        messages_to_chat_body(req)
+
+
 def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
     req = _messages_request(
         system=[

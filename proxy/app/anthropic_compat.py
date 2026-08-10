@@ -76,12 +76,18 @@ class AnthropicToolUseBlock(BaseModel):
     cache_control: AnthropicCacheControl | None = None
 
 
+AnthropicToolResultContentBlock = Annotated[
+    AnthropicTextBlock | AnthropicImageBlock,
+    Field(discriminator="type"),
+]
+
+
 class AnthropicToolResultBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["tool_result"] = "tool_result"
     tool_use_id: str
-    content: str | list[AnthropicTextBlock] | None = None
+    content: str | list[AnthropicToolResultContentBlock] | None = None
     is_error: bool | None = None
     cache_control: AnthropicCacheControl | None = None
 
@@ -381,13 +387,18 @@ class AnthropicGatewayPayload:
         return messages_to_chat_body(self.request)
 
 
-def _tool_result_content_str(content: str | list[AnthropicTextBlock] | None) -> str:
-    """Flatten a tool_result block's `content` (str or list of text blocks) to text."""
+def _tool_result_content_str(content: str | list[AnthropicToolResultContentBlock] | None) -> str:
+    """Flatten a tool_result block's `content` to text, best-effort.
+
+    Image blocks contribute no text here. Callers that must not silently drop
+    an image (e.g. Chat translation, which cannot represent one in a tool-role
+    message) check for it explicitly before calling this.
+    """
     if content is None:
         return ""
     if isinstance(content, str):
         return content
-    return "".join(block.text for block in content)
+    return "".join(block.text for block in content if isinstance(block, AnthropicTextBlock))
 
 
 def _content_str(content: AnthropicContent) -> str:
@@ -419,6 +430,13 @@ def _tool_result_to_message(block: AnthropicToolResultBlock, index: int) -> Json
     if block.is_error:
         raise AnthropicCompatError(
             f"tool_result block at index {index} has is_error=true, which Chat cannot preserve"
+        )
+    if isinstance(block.content, list) and any(
+        isinstance(item, AnthropicImageBlock) for item in block.content
+    ):
+        raise AnthropicCompatError(
+            f"tool_result block at index {index} contains image content, "
+            "which Chat cannot represent in a tool message"
         )
     text = _tool_result_content_str(block.content)
     return {"role": "tool", "tool_call_id": block.tool_use_id, "content": text}
