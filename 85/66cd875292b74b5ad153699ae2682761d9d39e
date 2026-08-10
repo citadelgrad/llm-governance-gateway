@@ -1,0 +1,23 @@
+proxy/tests/test_adapters.py
+  s_34e6dc9d13da76::t_4e7420cda43617 1568-1615
+proxy/app/anthropic_compat.py
+  s_34e6dc9d13da76::t_c77e493b063d57 79-84,90
+  s_34e6dc9d13da76::t_45424df123ee39 434-440
+  s_34e6dc9d13da76::t_6c51e70b406964 390-396,401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "8566cd875292b74b5ad153699ae2682761d9d39e",
+  "prompts": {},
+  "sessions": {
+    "s_34e6dc9d13da76": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "55fe7d72-3e35-4c4b-92ce-cb1434819915",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
