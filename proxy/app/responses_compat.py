@@ -161,22 +161,33 @@ def _is_governed_user_message(item: ResponsesInputItem) -> bool:
     return isinstance(item, ResponsesInputMessage) and item.role.lower() == "user"
 
 
-def _responses_input_text(input_value: str | list[ResponsesInputItem]) -> str:
+@dataclass(frozen=True)
+class _ResponsesGovernedLeaf:
+    item_index: int | None
+    part_index: int | None
+    text: str
+
+
+def _responses_governed_leaves(
+    input_value: str | list[ResponsesInputItem],
+) -> list[_ResponsesGovernedLeaf]:
     if isinstance(input_value, str):
-        return input_value
-    fragments: list[str] = []
-    for item in input_value:
+        return [_ResponsesGovernedLeaf(None, None, input_value)]
+    leaves: list[_ResponsesGovernedLeaf] = []
+    for item_index, item in enumerate(input_value):
         if not _is_governed_user_message(item):
             continue
         assert isinstance(item, ResponsesInputMessage)
         content = item.content
         if isinstance(content, str):
-            fragments.append(content)
+            leaves.append(_ResponsesGovernedLeaf(item_index, None, content))
         else:
-            fragments.append(
-                "".join(part.text or "" for part in content if part.type in {"input_text", "text"})
+            leaves.extend(
+                _ResponsesGovernedLeaf(item_index, part_index, part.text or "")
+                for part_index, part in enumerate(content)
+                if part.type in {"input_text", "text"}
             )
-    return "".join(fragments)
+    return leaves
 
 
 @dataclass(frozen=True)
@@ -194,45 +205,38 @@ class ResponsesGatewayPayload:
         return self.request.stream
 
     def governance_text(self) -> str:
-        return _responses_input_text(self.request.input)
+        return "".join(leaf.text for leaf in _responses_governed_leaves(self.request.input))
 
     def with_redacted_text(self, redacted_text: str) -> ResponsesGatewayPayload:
+        leaves = _responses_governed_leaves(self.request.input)
+        replacements = redistribute_redacted_text([leaf.text for leaf in leaves], redacted_text)
         if isinstance(self.request.input, str):
-            request = self.request.model_copy(update={"input": redacted_text})
+            request = self.request.model_copy(update={"input": replacements[0] if replacements else ""})
             return ResponsesGatewayPayload(request=request)
 
         new_input = list(self.request.input)
-        governed_positions = [
-            position
-            for position, item in enumerate(new_input)
-            if _is_governed_user_message(item)
-        ]
-
-        leaves: list[str] = []
-        for position in governed_positions:
-            item = new_input[position]
+        replacement_by_leaf = {
+            (leaf.item_index, leaf.part_index): replacement
+            for leaf, replacement in zip(leaves, replacements, strict=True)
+        }
+        governed_item_indexes = sorted(
+            {leaf.item_index for leaf in leaves if leaf.item_index is not None}
+        )
+        for item_index in governed_item_indexes:
+            item = new_input[item_index]
             assert isinstance(item, ResponsesInputMessage)
-            if isinstance(item.content, str):
-                leaves.append(item.content)
-            else:
-                leaves.extend(
-                    part.text or "" for part in item.content if part.type in {"input_text", "text"}
-                )
-
-        replacements = iter(redistribute_redacted_text(leaves, redacted_text))
-        for position in governed_positions:
-            item = new_input[position]
-            assert isinstance(item, ResponsesInputMessage)
-            if isinstance(item.content, str):
-                new_input[position] = item.model_copy(update={"content": next(replacements)})
-            else:
-                new_input[position] = item.model_copy(
+            replacement = replacement_by_leaf.get((item_index, None))
+            if replacement is not None:
+                new_input[item_index] = item.model_copy(update={"content": replacement})
+                continue
+            if isinstance(item.content, list):
+                new_input[item_index] = item.model_copy(
                     update={
                         "content": [
-                            part.model_copy(update={"text": next(replacements)})
-                            if part.type in {"input_text", "text"}
+                            part.model_copy(update={"text": replacement_by_leaf[(item_index, part_index)]})
+                            if (item_index, part_index) in replacement_by_leaf
                             else part
-                            for part in item.content
+                            for part_index, part in enumerate(item.content)
                         ]
                     }
                 )

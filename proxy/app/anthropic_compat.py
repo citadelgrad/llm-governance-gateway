@@ -326,16 +326,36 @@ class CountTokensRequest(BaseModel):
     user_profile_id: str | None = None
 
 
-def _governance_content_text(content: AnthropicContent) -> str:
+@dataclass(frozen=True)
+class _AnthropicGovernedLeaf:
+    text: str
+    replace: object
+
+
+def _anthropic_governed_leaves(
+    message: AnthropicMessage,
+) -> list[_AnthropicGovernedLeaf]:
+    content = message.content
     if isinstance(content, str):
-        return content
-    fragments: list[str] = []
+        return [_AnthropicGovernedLeaf(content, message)]
+    leaves: list[_AnthropicGovernedLeaf] = []
     for block in content:
         if isinstance(block, AnthropicTextBlock):
-            fragments.append(block.text)
+            leaves.append(_AnthropicGovernedLeaf(block.text, block))
         elif isinstance(block, AnthropicToolResultBlock):
-            fragments.append(_tool_result_content_str(block.content))
-    return "".join(fragments)
+            leaves.append(_AnthropicGovernedLeaf(_tool_result_content_str(block.content), block))
+    return leaves
+
+
+def _replace_anthropic_governed_leaf(leaf: _AnthropicGovernedLeaf, replacement: str) -> None:
+    target = leaf.replace
+    if isinstance(target, AnthropicMessage):
+        target.content = replacement
+    elif isinstance(target, AnthropicTextBlock):
+        target.text = replacement
+    else:
+        assert isinstance(target, AnthropicToolResultBlock)
+        _redact_tool_result_content(target, replacement)
 
 
 @dataclass(frozen=True)
@@ -355,7 +375,7 @@ class AnthropicGatewayPayload:
     def governance_text(self) -> str:
         for message in reversed(self.request.messages):
             if message.role == "user":
-                return _governance_content_text(message.content)
+                return "".join(leaf.text for leaf in _anthropic_governed_leaves(message))
         return ""
 
     def with_redacted_text(self, redacted_text: str) -> AnthropicGatewayPayload:
@@ -363,33 +383,12 @@ class AnthropicGatewayPayload:
         for message in reversed(request.messages):
             if message.role != "user":
                 continue
-            if isinstance(message.content, str):
-                message.content = redacted_text
-            else:
-                # Governed blocks and their leaf ordering must match
-                # _governance_content_text exactly, so the flattened
-                # redacted_text lines up with what was scanned.
-                governed_blocks = [
-                    block
-                    for block in message.content
-                    if isinstance(block, (AnthropicTextBlock, AnthropicToolResultBlock))
-                ]
-                leaves = [
-                    block.text
-                    if isinstance(block, AnthropicTextBlock)
-                    else _tool_result_content_str(block.content)
-                    for block in governed_blocks
-                ]
-                replacements = iter(redistribute_redacted_text(leaves, redacted_text))
-                # `request` above is already a deep copy, so these blocks are
-                # fresh objects owned only by this payload — mutate them in
-                # place instead of copying-and-rebinding a new content list.
-                for block in governed_blocks:
-                    share = next(replacements)
-                    if isinstance(block, AnthropicTextBlock):
-                        block.text = share
-                    else:
-                        _redact_tool_result_content(block, share)
+            leaves = _anthropic_governed_leaves(message)
+            replacements = redistribute_redacted_text([leaf.text for leaf in leaves], redacted_text)
+            # `request` above is already a deep copy, so these blocks are
+            # fresh objects owned only by this payload.
+            for leaf, replacement in zip(leaves, replacements, strict=True):
+                _replace_anthropic_governed_leaf(leaf, replacement)
             break
         return AnthropicGatewayPayload(request=request)
 

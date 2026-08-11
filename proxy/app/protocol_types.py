@@ -115,7 +115,7 @@ def format_validation_location(location: tuple[str | int, ...]) -> str:
     }
     cleaned: list[str | int] = []
     for index, part in enumerate(location):
-        if isinstance(part, str) and (part == "str" or part.startswith("list[")):
+        if index > 0 and isinstance(part, str) and (part == "str" or part.startswith("list[")):
             continue
         next_part = location[index + 1] if index + 1 < len(location) else None
         previous_part = location[index - 1] if index > 0 else None
@@ -508,6 +508,30 @@ class OpenAIChatRequest(StrictModel):
 
 
 @dataclass(frozen=True)
+class _OpenAIChatGovernedLeaf:
+    message_index: int
+    part_index: int | None
+    text: str
+
+
+def _openai_chat_governed_leaves(
+    messages: list[OpenAIChatMessage],
+) -> list[_OpenAIChatGovernedLeaf]:
+    for message_index in range(len(messages) - 1, -1, -1):
+        message = messages[message_index]
+        if not isinstance(message, OpenAIChatUserMessage):
+            continue
+        if isinstance(message.content, str):
+            return [_OpenAIChatGovernedLeaf(message_index, None, message.content)]
+        return [
+            _OpenAIChatGovernedLeaf(message_index, part_index, part.text)
+            for part_index, part in enumerate(message.content)
+            if isinstance(part, OpenAIChatTextPart)
+        ]
+    return []
+
+
+@dataclass(frozen=True)
 class OpenAIChatPayload:
     """Typed ownership wrapper for a validated OpenAI Chat request."""
 
@@ -524,40 +548,30 @@ class OpenAIChatPayload:
         return self.request.stream
 
     def governance_text(self) -> str:
-        for message in reversed(self.request.messages):
-            if not isinstance(message, OpenAIChatUserMessage):
-                continue
-            if isinstance(message.content, str):
-                return message.content
-            return "".join(
-                part.text for part in message.content if isinstance(part, OpenAIChatTextPart)
-            )
-        return ""
+        return "".join(leaf.text for leaf in _openai_chat_governed_leaves(self.request.messages))
 
     def with_redacted_text(self, redacted_text: str) -> OpenAIChatPayload:
         messages = list(self.request.messages)
-        for index in range(len(messages) - 1, -1, -1):
-            message = messages[index]
-            if not isinstance(message, OpenAIChatUserMessage):
-                continue
+        leaves = _openai_chat_governed_leaves(messages)
+        if leaves:
+            message_index = leaves[0].message_index
+            message = messages[message_index]
+            assert isinstance(message, OpenAIChatUserMessage)
+            replacements = iter(redistribute_redacted_text([leaf.text for leaf in leaves], redacted_text))
             if isinstance(message.content, str):
-                messages[index] = message.model_copy(update={"content": redacted_text})
+                messages[message_index] = message.model_copy(update={"content": next(replacements)})
             else:
-                text_parts = [
-                    part for part in message.content if isinstance(part, OpenAIChatTextPart)
-                ]
-                replacements = redistribute_redacted_text(
-                    [part.text for part in text_parts], redacted_text
-                )
-                replacement_iter = iter(replacements)
+                replacement_by_part = {
+                    leaf.part_index: replacement
+                    for leaf, replacement in zip(leaves, replacements, strict=True)
+                }
                 content = [
-                    part.model_copy(update={"text": next(replacement_iter)})
-                    if isinstance(part, OpenAIChatTextPart)
+                    part.model_copy(update={"text": replacement_by_part[part_index]})
+                    if part_index in replacement_by_part and isinstance(part, OpenAIChatTextPart)
                     else part
-                    for part in message.content
+                    for part_index, part in enumerate(message.content)
                 ]
-                messages[index] = message.model_copy(update={"content": content})
-            break
+                messages[message_index] = message.model_copy(update={"content": content})
         request = self.request.model_copy(update={"messages": messages})
         return OpenAIChatPayload(request=request)
 

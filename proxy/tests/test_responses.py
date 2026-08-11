@@ -17,6 +17,7 @@ from proxy.app.providers import openai as openai_provider
 from proxy.app.responses_compat import (
     ResponsesCompatError,
     ResponsesCreateRequest,
+    ResponsesGatewayPayload,
     ResponsesInputMessage,
     openai_sse_to_responses_sse,
     translate_chat_response,
@@ -496,6 +497,42 @@ def test_responses_input_item_defaults_missing_type_to_message():
     assert message.type == "message"
     assert message.role == "user"
     assert message.content == "hello"
+
+
+def test_responses_governed_traversal_extracts_and_replaces_all_user_leaves():
+    request = ResponsesCreateRequest.model_validate(
+        {
+            "model": "gpt-4o-mini",
+            "input": [
+                {"role": "user", "content": "earlier"},
+                {"role": "assistant", "content": "answer"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "alpha"},
+                        {"type": "text", "text": ""},
+                        {"type": "input_image", "text": "ignored native value"},
+                        {"type": "text", "text": "omega"},
+                    ],
+                },
+            ],
+        }
+    )
+    payload = ResponsesGatewayPayload(request=request)
+
+    assert payload.governance_text() == "earlieralphaomega"
+
+    redacted = payload.with_redacted_text("earlieralphaomega TAIL")
+    native = redacted.native_body()
+    first_user, assistant, final_user = native["input"]
+    assert first_user["content"] == "earlier"
+    assert assistant["content"] == "answer"
+    assert final_user["content"] == [
+        {"type": "input_text", "text": "alpha"},
+        {"type": "text", "text": ""},
+        {"type": "input_image", "text": "ignored native value"},
+        {"type": "text", "text": "omega TAIL"},
+    ]
 
 
 async def test_responses_input_item_missing_type_reaches_governance(async_client, gov_mock):

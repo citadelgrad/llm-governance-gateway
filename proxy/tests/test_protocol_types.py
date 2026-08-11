@@ -132,6 +132,45 @@ def test_chat_redaction_preserves_non_text_parts_and_order() -> None:
     assert content[2] == {"type": "text", "text": " remains unchanged"}
 
 
+def test_chat_governed_traversal_extracts_and_replaces_final_user_text_parts() -> None:
+    payload = OpenAIChatPayload(
+        request=OpenAIChatRequest.model_validate(
+            {
+                "model": "gateway-model",
+                "messages": [
+                    {"role": "user", "content": "earlier user text"},
+                    {"role": "assistant", "content": "answer"},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "alpha"},
+                            {"type": "text", "text": ""},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "https://example.test/a.png"},
+                            },
+                            {"type": "text", "text": "omega"},
+                        ],
+                    },
+                ],
+            }
+        )
+    )
+
+    assert payload.governance_text() == "alphaomega"
+
+    redacted = payload.with_redacted_text("alphaomega TAIL")
+    messages = redacted.native_body()["messages"]
+    assert messages[0]["content"] == "earlier user text"
+    content = messages[2]["content"]
+    assert content == [
+        {"type": "text", "text": "alpha"},
+        {"type": "text", "text": ""},
+        {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}},
+        {"type": "text", "text": "omega TAIL"},
+    ]
+
+
 def test_execution_domain_preserves_call_identity_and_encrypted_reasoning() -> None:
     request = CanonicalExecutionRequest(
         model="gateway-model",

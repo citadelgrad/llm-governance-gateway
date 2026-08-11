@@ -181,7 +181,12 @@ async def chat_completions(
                                 raise GeminiTranslationError(
                                     f"Gemini candidate part {index} must be an object"
                                 )
-                        text = "".join(p.get("text", "") for p in parts)
+                        text_parts: list[str] = []
+                        for part in parts:
+                            text_part = part.get("text")
+                            if isinstance(text_part, str):
+                                text_parts.append(text_part)
+                        text = "".join(text_parts)
                         tool_call_deltas: list[JsonObject] = []
                         for index, part in enumerate(parts):
                             function_call = part.get("functionCall")

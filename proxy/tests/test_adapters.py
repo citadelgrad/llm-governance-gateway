@@ -1662,6 +1662,69 @@ def test_messages_to_chat_body_rejects_tool_result_image_content():
         messages_to_chat_body(req)
 
 
+def test_anthropic_governed_traversal_extracts_and_replaces_final_user_leaves():
+    req = _messages_request(
+        messages=[
+            {"role": "user", "content": "earlier user text"},
+            {"role": "assistant", "content": "answer"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "alpha"},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "AA==",
+                        },
+                    },
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [
+                            {"type": "text", "text": "inside"},
+                            {"type": "text", "text": ""},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "BB==",
+                                },
+                            },
+                            {"type": "text", "text": "omega"},
+                        ],
+                    },
+                ],
+            },
+        ],
+    )
+    payload = AnthropicGatewayPayload(request=req)
+
+    assert payload.governance_text() == "alphainsideomega"
+
+    redacted = payload.with_redacted_text("alphainsideomega TAIL")
+    assert redacted.request.messages[0].content == "earlier user text"
+    content = redacted.request.messages[2].content
+    text_block, image_block, tool_result_block = content
+    assert isinstance(text_block, AnthropicTextBlock)
+    assert text_block.text == "alpha"
+    assert isinstance(image_block, AnthropicImageBlock)
+    assert image_block.source.data == "AA=="
+    assert isinstance(tool_result_block, AnthropicToolResultBlock)
+    nested = tool_result_block.content
+    nested_text, empty_text, nested_image, trailing_text = nested
+    assert isinstance(nested_text, AnthropicTextBlock)
+    assert nested_text.text == "inside"
+    assert isinstance(empty_text, AnthropicTextBlock)
+    assert empty_text.text == ""
+    assert isinstance(nested_image, AnthropicImageBlock)
+    assert nested_image.source.data == "BB=="
+    assert isinstance(trailing_text, AnthropicTextBlock)
+    assert trailing_text.text == "omega TAIL"
+
+
 def test_with_redacted_text_writes_trailing_share_into_none_content_tool_result():
     # redistribute_redacted_text() routes any redacted text past the end of
     # all collected leaves to the LAST leaf. When that last leaf is a
