@@ -1,0 +1,35 @@
+proxy/app/responses_compat.py
+  s_40f24b65831dfa::t_838138b374f61f 9,617
+proxy/tests/test_openai_chat_stream.py
+  s_66df23fe98614c::t_fcaaf7ea5cd844 118,128
+  s_40f24b65831dfa::t_838138b374f61f 1-117,119-127,129-142
+proxy/app/openai_chat_stream.py
+  s_66df23fe98614c::t_fcaaf7ea5cd844 11-12
+  s_40f24b65831dfa::t_838138b374f61f 1-10,13-89
+proxy/app/anthropic_compat.py
+  s_40f24b65831dfa::t_838138b374f61f 8,772
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b0b1139922dccd217a46e1381aeb5bc1b004a7ae",
+  "prompts": {},
+  "sessions": {
+    "s_40f24b65831dfa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef61-c5ef-7922-bf91-1563d8962fa3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_66df23fe98614c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef63-d86c-74a2-923e-571aab04dd14",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
