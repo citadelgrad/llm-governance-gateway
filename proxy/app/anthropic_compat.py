@@ -366,17 +366,30 @@ class AnthropicGatewayPayload:
             if isinstance(message.content, str):
                 message.content = redacted_text
             else:
-                text_blocks = [
-                    block for block in message.content if isinstance(block, AnthropicTextBlock)
+                # Governed blocks and their leaf ordering must match
+                # _governance_content_text exactly, so the flattened
+                # redacted_text lines up with what was scanned.
+                governed_blocks = [
+                    block
+                    for block in message.content
+                    if isinstance(block, (AnthropicTextBlock, AnthropicToolResultBlock))
                 ]
-                replacements = redistribute_redacted_text(
-                    [block.text for block in text_blocks], redacted_text
-                )
-                # `request` above is already a deep copy, so text_blocks are
+                leaves = [
+                    block.text
+                    if isinstance(block, AnthropicTextBlock)
+                    else _tool_result_content_str(block.content)
+                    for block in governed_blocks
+                ]
+                replacements = iter(redistribute_redacted_text(leaves, redacted_text))
+                # `request` above is already a deep copy, so these blocks are
                 # fresh objects owned only by this payload — mutate them in
                 # place instead of copying-and-rebinding a new content list.
-                for block, replacement in zip(text_blocks, replacements, strict=True):
-                    block.text = replacement
+                for block in governed_blocks:
+                    share = next(replacements)
+                    if isinstance(block, AnthropicTextBlock):
+                        block.text = share
+                    else:
+                        _redact_tool_result_content(block, share)
             break
         return AnthropicGatewayPayload(request=request)
 
@@ -399,6 +412,29 @@ def _tool_result_content_str(content: str | list[AnthropicToolResultContentBlock
     if isinstance(content, str):
         return content
     return "".join(block.text for block in content if isinstance(block, AnthropicTextBlock))
+
+
+def _redact_tool_result_content(block: AnthropicToolResultBlock, redacted_text: str) -> None:
+    """Write a tool_result block's share of the redacted text back into its
+    content, in place.
+
+    `block` is assumed to belong to an already deep-copied request tree (see
+    AnthropicGatewayPayload.with_redacted_text), so mutating it here is safe.
+    Mirrors _tool_result_content_str's flattening: image blocks contribute no
+    text and are left untouched; a further redistribution is done across any
+    nested text blocks so their individual boundaries are preserved too.
+    """
+    if block.content is None:
+        if redacted_text:
+            block.content = redacted_text
+        return
+    if isinstance(block.content, str):
+        block.content = redacted_text
+        return
+    text_blocks = [sub_block for sub_block in block.content if isinstance(sub_block, AnthropicTextBlock)]
+    replacements = redistribute_redacted_text([sub_block.text for sub_block in text_blocks], redacted_text)
+    for sub_block, replacement in zip(text_blocks, replacements, strict=True):
+        sub_block.text = replacement
 
 
 def _content_str(content: AnthropicContent) -> str:

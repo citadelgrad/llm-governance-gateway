@@ -6,6 +6,7 @@ import httpx
 import pytest
 from proxy.app.anthropic_compat import (
     AnthropicCompatError,
+    AnthropicGatewayPayload,
     AnthropicImageBlock,
     AnthropicMessagesRequest,
     AnthropicRedactedThinkingBlock,
@@ -1659,6 +1660,35 @@ def test_messages_to_chat_body_rejects_tool_result_image_content():
     req = _messages_request(messages=[_tool_result_image_message()])
     with pytest.raises(AnthropicCompatError, match="image content"):
         messages_to_chat_body(req)
+
+
+def test_with_redacted_text_writes_trailing_share_into_none_content_tool_result():
+    # redistribute_redacted_text() routes any redacted text past the end of
+    # all collected leaves to the LAST leaf. When that last leaf is a
+    # tool_result block whose `content` is None, `_redact_tool_result_content`
+    # must still write the trailing share instead of silently dropping it
+    # via an early `return`.
+    req = _messages_request(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "short"},
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": None},
+                ],
+            }
+        ],
+    )
+    payload = AnthropicGatewayPayload(request=req)
+
+    redacted = payload.with_redacted_text("short PLUS EXTRA TRAILING TEXT")
+
+    content = redacted.request.messages[0].content
+    text_block, tool_result_block = content
+    assert isinstance(text_block, AnthropicTextBlock)
+    assert isinstance(tool_result_block, AnthropicToolResultBlock)
+    assert text_block.text == "short"
+    assert tool_result_block.content == " PLUS EXTRA TRAILING TEXT"
 
 
 def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
