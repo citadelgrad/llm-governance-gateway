@@ -235,6 +235,20 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapabilities] = {
 }
 
 
+def capability_provider_for(provider: str, model_entry: JsonObject | None = None) -> str | None:
+    """Return the capability table key for a dispatch target.
+
+    Unknown configured providers with a base_url are OpenAI-compatible generic
+    providers. Unknown providers without a base_url have no safe translation
+    contract and must be rejected by dispatch.
+    """
+    if provider in PROVIDER_CAPABILITIES:
+        return provider
+    if model_entry and model_entry.get("base_url"):
+        return "generic"
+    return None
+
+
 def unsupported_chat_fields(provider: str, body: JsonObject) -> list[str]:
     """Return populated Chat fields the target adapter cannot preserve."""
     capabilities = PROVIDER_CAPABILITIES.get(provider)

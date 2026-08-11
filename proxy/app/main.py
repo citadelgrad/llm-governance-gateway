@@ -36,16 +36,14 @@ from proxy.app.protocol_types import (
     GatewayPayload,
     OpenAIChatPayload,
     OpenAIChatRequest,
-    ProtocolTranslationError,
     WireProtocol,
     format_validation_location,
 )
-from proxy.app.provider_capabilities import unsupported_chat_fields
+from proxy.app.provider_dispatch import ProviderClients, dispatch_provider
 from proxy.app.providers import anthropic as anthropic_provider
 from proxy.app.providers import gemini as gemini_provider
 from proxy.app.providers import gemini_vertex as gemini_vertex_provider
 from proxy.app.providers import generic as generic_provider
-from proxy.app.providers import mock as mock_provider
 from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
 from proxy.app.providers.usage import UsageMetrics, extract_usage
@@ -479,121 +477,25 @@ async def _run_gateway_pipeline(
             if inspect_resp.redacted_text:
                 payload = payload.with_redacted_text(inspect_resp.redacted_text)
 
-        native_dispatch = not settings.mock_mode and provider in payload.native_providers
-        try:
-            body = payload.native_body() if native_dispatch else payload.to_chat_body()
-        except ProtocolTranslationError as exc:
-            error_type = {
-                "anthropic_messages": "unsupported_message_shape",
-                "openai_responses": "unsupported_response_shape",
-            }.get(payload.protocol, "unsupported_protocol_translation")
-            raise HTTPException(
-                status_code=422,
-                detail=error_envelope(error_type, str(exc)),
-                headers=extra_headers,
-            ) from exc
-
-        if not native_dispatch and not settings.mock_mode:
-            capability_provider = provider
-            if capability_provider not in {"anthropic", "gemini", "gemini-vertex", "openai", "ollama"}:
-                capability_provider = "generic"
-            unsupported = unsupported_chat_fields(capability_provider, body)
-            if unsupported:
-                raise HTTPException(
-                    status_code=422,
-                    detail=error_envelope(
-                        "unsupported_protocol_translation",
-                        f"Provider {provider} cannot preserve Chat fields: "
-                        + ", ".join(unsupported),
-                        details={"provider": provider, "fields": unsupported},
-                    ),
-                    headers=extra_headers,
-                )
-
-        response: Response | StreamingResponse
-        effective_provider: str
-        response_protocol: WireProtocol = "openai_chat"
-        match provider:
-            case _ if settings.mock_mode:
-                response = await mock_provider.chat_completions(body, extra_headers)
-                effective_provider = "openai"  # mock uses OpenAI-shaped responses
-            case "openai":
-                if native_dispatch and payload.protocol == "openai_responses":
-                    response = await openai_provider.responses(
-                        request.app.state.openai_client,
-                        body,
-                        stream,
-                        extra_headers,
-                        upstream_headers={
-                            key: value for key, value in lower_headers.items() if key == "openai-beta"
-                        },
-                    )
-                    response_protocol = "openai_responses"
-                else:
-                    response = await openai_provider.chat_completions(
-                        request.app.state.openai_client, body, stream, extra_headers
-                    )
-                effective_provider = "openai"
-            case "anthropic":
-                if native_dispatch and payload.protocol == "anthropic_messages":
-                    response = await anthropic_provider.messages(
-                        request.app.state.anthropic_client,
-                        body,
-                        stream,
-                        extra_headers,
-                        upstream_headers={
-                            key: value
-                            for key, value in lower_headers.items()
-                            if key in {"anthropic-beta", "anthropic-version"}
-                        },
-                    )
-                    response_protocol = "anthropic_messages"
-                else:
-                    response = await anthropic_provider.chat_completions(
-                        request.app.state.anthropic_client, body, stream, extra_headers
-                    )
-                effective_provider = "anthropic"
-            case "gemini":
-                response = await gemini_provider.chat_completions(
-                    request.app.state.gemini_client, body, stream, extra_headers
-                )
-                effective_provider = "openai"  # gemini adapter translates to OpenAI envelope
-            case "gemini-vertex":
-                if request.app.state.gemini_vertex_client is None:
-                    raise HTTPException(
-                        status_code=500,
-                        detail=error_envelope(
-                            "provider_not_configured",
-                            "gemini-vertex provider is not configured on this gateway",
-                        ),
-                    )
-                response = await gemini_vertex_provider.chat_completions(
-                    request.app.state.gemini_vertex_client, body, stream, extra_headers
-                )
-                effective_provider = "openai"  # gemini-vertex adapter translates to OpenAI envelope
-            case "ollama":
-                response = await ollama_provider.chat_completions(
-                    request.app.state.ollama_client, body, stream, extra_headers
-                )
-                effective_provider = "ollama"
-            case _:
-                model_entry = request.app.state.models_by_id.get(model_id)
-                if model_entry and model_entry.get("base_url"):
-                    response = await generic_provider.chat_completions(
-                        body,
-                        stream,
-                        extra_headers,
-                        base_url=model_entry["base_url"],
-                        api_key=model_entry.get("api_key", ""),
-                    )
-                    effective_provider = "generic"
-                else:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=error_envelope(
-                            "unsupported_provider", f"Provider {provider} not supported"
-                        ),
-                    )
+        dispatch_result = await dispatch_provider(
+            provider=provider,
+            payload=payload,
+            model_id=model_id,
+            models_by_id=request.app.state.models_by_id,
+            lower_headers=lower_headers,
+            extra_headers=extra_headers,
+            clients=ProviderClients(
+                openai_client=request.app.state.openai_client,
+                anthropic_client=request.app.state.anthropic_client,
+                gemini_client=getattr(request.app.state, "gemini_client", None),
+                ollama_client=getattr(request.app.state, "ollama_client", None),
+                gemini_vertex_client=getattr(request.app.state, "gemini_vertex_client", None),
+            ),
+            mock_mode=settings.mock_mode,
+        )
+        response = dispatch_result.response
+        response_protocol = dispatch_result.response_protocol
+        usage_provider = dispatch_result.usage_provider
     except _PolicyBlockedError:
         await _log_outcome(
             request, caller, canonical_model_id, "blocked",
@@ -607,18 +509,13 @@ async def _run_gateway_pipeline(
         )
         raise
 
-    # Every compatibility adapter serializes Chat-shaped usage; only native
-    # responses retain their provider's usage schema.
-    if response_protocol == "openai_chat":
-        effective_provider = "openai"
-
     if (
         not stream
         and isinstance(response, Response)
         and not isinstance(response, StreamingResponse)
     ):
         if response.status_code < 400:
-            _attach_usage(response, effective_provider, request)
+            _attach_usage(response, usage_provider, request)
         await _log_outcome(
             request, caller, canonical_model_id, "allowed",
             request.state.usage_metrics, started_at, perf_start,
@@ -637,7 +534,7 @@ async def _run_gateway_pipeline(
                 capture_stream_usage(
                     response.body_iterator,
                     protocol=response_protocol,
-                    provider=effective_provider,
+                    provider=usage_provider,
                     on_complete=_on_stream_complete,
                 ),
                 status_code=response.status_code,
