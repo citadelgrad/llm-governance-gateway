@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
+
 import pytest
 from proxy.app.providers import _gemini_common as gemini_common
-from proxy.app.providers import gemini as gemini_provider
 from proxy.app.providers._gemini_common import (
     DEVELOPER_API_DIALECT,
     VERTEX_DIALECT,
     GeminiTranslationError,
     extract_message_text,
     is_block_reason_unset,
+    iter_openai_chat_sse_from_gemini_lines,
     translate_candidate_to_openai_choice,
+    translate_generate_content_response_to_openai_envelope,
     translate_generation_config,
     translate_openai_messages_to_contents,
     translate_tool_choice,
     translate_tools,
     translate_usage_metadata,
 )
-from proxy.app.providers.gemini_vertex import _to_openai_envelope as vertex_to_openai_envelope
 
 # ---------------------------------------------------------------------------
 # is_block_reason_unset
@@ -258,25 +261,23 @@ def test_raise_if_prompt_blocked_no_op_when_unset():
 
 
 # ---------------------------------------------------------------------------
-# _to_openai_envelope blockReason wiring — shared across both Gemini adapters
+# translate_generate_content_response_to_openai_envelope
 # ---------------------------------------------------------------------------
-#
-# gemini.py's and gemini_vertex.py's _to_openai_envelope both delegate their
-# candidates-less-response handling to raise_if_prompt_blocked /
-# extract_block_reason above. Previously each adapter's own test file
-# re-implemented near-identical raises-or-defaults-to-stop assertions
-# separately (test_adapters.py and test_gemini_vertex_adapter.py); this
-# parametrized pair covers both dialects in one place instead.
 
-_BLOCKED_PROMPT_ADAPTER_CASES = [
+
+_ENVELOPE_CASES = [
     pytest.param(
-        gemini_provider._to_openai_envelope,
+        DEVELOPER_API_DIALECT,
+        "Gemini",
+        "chatcmpl-gemini-",
         "BLOCK_REASON_UNSPECIFIED",
         "Gemini generation blocked",
         id="developer-api",
     ),
     pytest.param(
-        vertex_to_openai_envelope,
+        VERTEX_DIALECT,
+        "Vertex",
+        "chatcmpl-gemini-vertex-",
         "BLOCKED_REASON_UNSPECIFIED",
         "Vertex generation blocked",
         id="vertex",
@@ -285,15 +286,14 @@ _BLOCKED_PROMPT_ADAPTER_CASES = [
 
 
 @pytest.mark.parametrize(
-    ("to_openai_envelope", "unset_sentinel", "blocked_message_prefix"),
-    _BLOCKED_PROMPT_ADAPTER_CASES,
+    ("dialect", "provider_label", "completion_id_prefix", "unset_sentinel", "blocked_message_prefix"),
+    _ENVELOPE_CASES,
 )
-def test_to_openai_envelope_raises_on_blocked_prompt(
-    to_openai_envelope, unset_sentinel, blocked_message_prefix
+def test_translate_envelope_raises_on_blocked_prompt(
+    dialect, provider_label, completion_id_prefix, unset_sentinel, blocked_message_prefix
 ):
     """An empty candidates list with a genuine promptFeedback.blockReason
-    must surface as an error, not a silent empty 'stop' completion — for
-    both the Gemini Developer API and Vertex dialects."""
+    must surface as an error, not a silent empty 'stop' completion."""
     del unset_sentinel  # only used by the sibling default-stop test below
     gemini_json = {
         "candidates": [],
@@ -301,15 +301,21 @@ def test_to_openai_envelope_raises_on_blocked_prompt(
         "usageMetadata": {},
     }
     with pytest.raises(GeminiTranslationError, match=f"{blocked_message_prefix}: SAFETY"):
-        to_openai_envelope(gemini_json, "some-model")
+        translate_generate_content_response_to_openai_envelope(
+            gemini_json,
+            model="some-model",
+            dialect=dialect,
+            provider_label=provider_label,
+            completion_id_prefix=completion_id_prefix,
+        )
 
 
 @pytest.mark.parametrize(
-    ("to_openai_envelope", "unset_sentinel", "blocked_message_prefix"),
-    _BLOCKED_PROMPT_ADAPTER_CASES,
+    ("dialect", "provider_label", "completion_id_prefix", "unset_sentinel", "blocked_message_prefix"),
+    _ENVELOPE_CASES,
 )
-def test_to_openai_envelope_default_stop_when_block_reason_unset(
-    to_openai_envelope, unset_sentinel, blocked_message_prefix
+def test_translate_envelope_default_stop_when_block_reason_unset(
+    dialect, provider_label, completion_id_prefix, unset_sentinel, blocked_message_prefix
 ):
     """An empty candidates list with no real block reason still degrades to
     a default empty 'stop' completion, for both dialects' own spelling of
@@ -320,6 +326,149 @@ def test_to_openai_envelope_default_stop_when_block_reason_unset(
         "promptFeedback": {"blockReason": unset_sentinel},
         "usageMetadata": {},
     }
-    envelope = to_openai_envelope(gemini_json, "some-model")
+    envelope = translate_generate_content_response_to_openai_envelope(
+        gemini_json,
+        model="some-model",
+        dialect=dialect,
+        provider_label=provider_label,
+        completion_id_prefix=completion_id_prefix,
+    )
     assert envelope["choices"][0]["finish_reason"] == "stop"
     assert envelope["choices"][0]["message"]["content"] == ""
+
+
+def test_translate_envelope_builds_openai_shape():
+    envelope = translate_generate_content_response_to_openai_envelope(
+        {
+            "candidates": [
+                {"content": {"parts": [{"text": "Hi"}]}, "finishReason": "MAX_TOKENS"}
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 4,
+                "candidatesTokenCount": 6,
+                "totalTokenCount": 10,
+            },
+        },
+        model="gemini-test",
+        dialect=DEVELOPER_API_DIALECT,
+        provider_label="Gemini",
+        completion_id_prefix="chatcmpl-gemini-",
+    )
+
+    assert envelope["id"].startswith("chatcmpl-gemini-")
+    assert envelope["model"] == "gemini-test"
+    assert envelope["choices"][0]["message"]["content"] == "Hi"
+    assert envelope["choices"][0]["finish_reason"] == "length"
+    assert envelope["usage"]["total_tokens"] == 10
+
+
+def test_translate_envelope_rejects_malformed_candidates_shape():
+    with pytest.raises(GeminiTranslationError, match="Gemini candidates must be a list"):
+        translate_generate_content_response_to_openai_envelope(
+            {"candidates": {}, "usageMetadata": {}},
+            model="gemini-test",
+            dialect=DEVELOPER_API_DIALECT,
+            provider_label="Gemini",
+            completion_id_prefix="chatcmpl-gemini-",
+        )
+
+
+async def _collect_shared_sse(lines: list[str], *, dialect=DEVELOPER_API_DIALECT) -> list[object]:
+    async def source() -> AsyncIterator[str]:
+        for line in lines:
+            yield line
+
+    frames: list[object] = []
+    async for frame in iter_openai_chat_sse_from_gemini_lines(
+        source(),
+        model="gemini-test",
+        dialect=dialect,
+        provider_label="Gemini" if dialect is DEVELOPER_API_DIALECT else "Vertex",
+        completion_id_prefix="chatcmpl-gemini-",
+    ):
+        raw = frame[len("data: ") : -2]
+        frames.append(raw if raw == "[DONE]" else json.loads(raw))
+    return frames
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_yields_text_in_order_with_final_usage_and_done():
+    frames = await _collect_shared_sse(
+        [
+            'data: {"candidates": [{"content": {"parts": [{"text": "one "}]}}], "usageMetadata": {"promptTokenCount": 2}}',
+            'data: {"candidates": [{"content": {"parts": [{"text": "two"}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 2, "candidatesTokenCount": 3}}',
+            "data: [DONE]",
+        ]
+    )
+
+    assert [frame["choices"][0]["delta"]["content"] for frame in frames[:2]] == ["one ", "two"]
+    assert frames[0]["choices"][0]["finish_reason"] is None
+    assert frames[-2]["choices"][0]["finish_reason"] == "stop"
+    assert frames[-2]["usage"] == {
+        "prompt_tokens": 2,
+        "completion_tokens": 3,
+        "total_tokens": 5,
+    }
+    assert frames[-1] == "[DONE]"
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_yields_tool_call_delta_with_index():
+    frames = await _collect_shared_sse(
+        [
+            'data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "lookup", "args": {"q": "x"}}}]}}]}',
+            "data: [DONE]",
+        ]
+    )
+
+    tool_call = frames[0]["choices"][0]["delta"]["tool_calls"][0]
+    assert tool_call["index"] == 0
+    assert tool_call["function"]["name"] == "lookup"
+    assert json.loads(tool_call["function"]["arguments"]) == {"q": "x"}
+    assert frames[-2]["choices"][0]["finish_reason"] == "tool_calls"
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_blocked_prompt_yields_error_without_done():
+    frames = await _collect_shared_sse(['data: {"promptFeedback": {"blockReason": "SAFETY"}}'])
+
+    assert len(frames) == 1
+    assert frames[0]["error"]["type"] == "provider_response_error"
+    assert "Gemini generation blocked: SAFETY" in frames[0]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_malformed_shape_yields_error_without_done():
+    frames = await _collect_shared_sse(
+        ['data: {"candidates": [{"content": {"parts": ["oops"]}}]}']
+    )
+
+    assert len(frames) == 1
+    assert frames[0]["error"]["type"] == "provider_response_error"
+    assert "part 0 must be an object" in frames[0]["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_ignores_malformed_json_and_non_data_lines():
+    frames = await _collect_shared_sse(
+        [
+            "event: message",
+            "data: {",
+            'data: {"candidates": [{"content": {"parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}',
+            "data: [DONE]",
+        ]
+    )
+
+    assert frames[0]["choices"][0]["delta"]["content"] == "ok"
+    assert frames[-1] == "[DONE]"
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_rejects_unrecognized_finish_reason_without_done():
+    frames = await _collect_shared_sse(
+        ['data: {"candidates": [{"content": {"parts": []}, "finishReason": "OTHER"}]}']
+    )
+
+    assert len(frames) == 1
+    assert frames[0]["error"]["type"] == "provider_response_error"
+    assert "OTHER" in frames[0]["error"]["message"]

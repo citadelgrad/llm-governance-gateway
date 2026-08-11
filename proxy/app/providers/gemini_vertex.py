@@ -7,7 +7,6 @@ main.py's dispatch code treats both adapters uniformly.
 
 import asyncio
 import json
-import secrets
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -21,11 +20,9 @@ from proxy.app.provider_capabilities import GEMINI_CHAT_TRANSLATION_FIELDS
 from proxy.app.providers._gemini_common import (
     VERTEX_DIALECT,
     GeminiTranslationError,
-    extract_block_reason,
-    raise_if_prompt_blocked,
-    translate_candidate_to_openai_choice,
+    iter_openai_chat_sse_from_gemini_lines,
     translate_chat_request,
-    translate_usage_metadata,
+    translate_generate_content_response_to_openai_envelope,
 )
 from proxy.app.providers.errors import sanitize_upstream_error
 from starlette.responses import Response, StreamingResponse
@@ -129,36 +126,13 @@ def _classify_vertex_error(status_code: int, body: dict) -> str:
 
 def _to_openai_envelope(data: JsonObject, model: str) -> JsonObject:
     """Convert a Vertex AI generateContent response to an OpenAI chat.completion envelope."""
-    raw_candidates = data.get("candidates", [])
-    if not isinstance(raw_candidates, list):
-        raise GeminiTranslationError("Vertex candidates must be a list")
-    raw_usage_meta = data.get("usageMetadata", {})
-    if not isinstance(raw_usage_meta, dict):
-        raise GeminiTranslationError("Vertex usageMetadata must be an object")
-    usage_meta = cast(JsonObject, raw_usage_meta)
-
-    if raw_candidates:
-        raw_candidate = raw_candidates[0]
-        if not isinstance(raw_candidate, dict):
-            raise GeminiTranslationError("Vertex candidate must be an object")
-        choice = translate_candidate_to_openai_choice(
-            cast(JsonObject, raw_candidate), VERTEX_DIALECT, 0
-        )
-    else:
-        raise_if_prompt_blocked(data, VERTEX_DIALECT, provider_label="Vertex")
-        choice = {
-            "index": 0,
-            "message": {"role": "assistant", "content": ""},
-            "finish_reason": "stop",
-        }
-
-    return {
-        "id": f"chatcmpl-gemini-vertex-{secrets.token_hex(8)}",
-        "object": "chat.completion",
-        "model": model,
-        "choices": [choice],
-        "usage": translate_usage_metadata(usage_meta),
-    }
+    return translate_generate_content_response_to_openai_envelope(
+        data,
+        model=model,
+        dialect=VERTEX_DIALECT,
+        provider_label="Vertex",
+        completion_id_prefix="chatcmpl-gemini-vertex-",
+    )
 
 
 def _translate_chat_body(openai_request: JsonObject) -> tuple[str, JsonObject]:
@@ -252,72 +226,15 @@ class VertexGeminiClient:
             await upstream.aclose()
             raise VertexUpstreamError(error)
 
-        completion_id = f"chatcmpl-gemini-vertex-{secrets.token_hex(8)}"
-        final_finish_reason = "stop"
-        usage_meta: JsonObject = {}
         try:
-            async for line in upstream.aiter_lines():
-                line = line.strip()
-                if not line.startswith("data:"):
-                    continue
-                raw = line[len("data:") :].strip()
-                if raw == "[DONE]":
-                    break
-                try:
-                    chunk_json = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(chunk_json, dict):
-                    continue
-
-                raw_usage_meta = chunk_json.get("usageMetadata")
-                if isinstance(raw_usage_meta, dict):
-                    usage_meta = cast(JsonObject, raw_usage_meta)
-
-                raw_candidates = chunk_json.get("candidates", [])
-                if not isinstance(raw_candidates, list) or not raw_candidates:
-                    block_reason = extract_block_reason(chunk_json, VERTEX_DIALECT)
-                    if block_reason is not None:
-                        error_chunk = {
-                            "error": {
-                                "type": "provider_response_error",
-                                "message": f"Vertex generation blocked: {block_reason}",
-                            }
-                        }
-                        yield f"data: {json.dumps(error_chunk)}\n\n"
-                        return
-                    continue
-                raw_candidate = raw_candidates[0]
-                has_finish = isinstance(raw_candidate, dict) and bool(raw_candidate.get("finishReason"))
-
-                try:
-                    if not isinstance(raw_candidate, dict):
-                        raise GeminiTranslationError("Vertex candidate must be an object")
-                    choice = translate_candidate_to_openai_choice(
-                        cast(JsonObject, raw_candidate), VERTEX_DIALECT, 0
-                    )
-                except GeminiTranslationError as exc:
-                    error_chunk = {
-                        "error": {"type": "provider_response_error", "message": str(exc)}
-                    }
-                    yield f"data: {json.dumps(error_chunk)}\n\n"
-                    return
-
-                message = cast(JsonObject, choice["message"])
-                tool_calls = message.get("tool_calls")
-                delta: JsonObject = {"content": message["content"]}
-                if tool_calls:
-                    delta["tool_calls"] = tool_calls
-                if has_finish or tool_calls:
-                    final_finish_reason = choice["finish_reason"]
-
-                oai_chunk = {
-                    "id": completion_id,
-                    "object": "chat.completion.chunk",
-                    "model": model_value,
-                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
-                }
-                yield f"data: {json.dumps(oai_chunk)}\n\n"
+            async for frame in iter_openai_chat_sse_from_gemini_lines(
+                upstream.aiter_lines(),
+                model=model_value,
+                dialect=VERTEX_DIALECT,
+                provider_label="Vertex",
+                completion_id_prefix="chatcmpl-gemini-vertex-",
+            ):
+                yield frame
         except httpx.TimeoutException:
             yield 'data: {"error": {"type": "upstream_timeout"}}\n\n'
             return
@@ -326,16 +243,6 @@ class VertexGeminiClient:
             return
         finally:
             await upstream.aclose()
-
-        final_chunk = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "model": model_value,
-            "choices": [{"index": 0, "delta": {}, "finish_reason": final_finish_reason}],
-            "usage": translate_usage_metadata(usage_meta),
-        }
-        yield f"data: {json.dumps(final_chunk)}\n\n"
-        yield "data: [DONE]\n\n"
 
     async def aclose(self) -> None:
         await self._http.aclose()

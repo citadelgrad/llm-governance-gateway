@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from collections.abc import AsyncIterable, AsyncIterator
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -401,6 +402,216 @@ def translate_candidate_to_openai_choice(
         "message": message,
         "finish_reason": finish_reason,
     }
+
+
+def translate_generate_content_response_to_openai_envelope(
+    data: JsonObject,
+    *,
+    model: str,
+    dialect: GeminiDialect,
+    provider_label: str,
+    completion_id_prefix: str,
+) -> JsonObject:
+    """Gemini/Vertex `generateContent` response -> OpenAI chat envelope."""
+    raw_candidates = data.get("candidates", [])
+    if not isinstance(raw_candidates, list):
+        raise GeminiTranslationError(f"{provider_label} candidates must be a list")
+    raw_usage_meta = data.get("usageMetadata", {})
+    if not isinstance(raw_usage_meta, dict):
+        raise GeminiTranslationError(f"{provider_label} usageMetadata must be an object")
+    usage_meta = cast(JsonObject, raw_usage_meta)
+
+    if raw_candidates:
+        raw_candidate = raw_candidates[0]
+        if not isinstance(raw_candidate, dict):
+            raise GeminiTranslationError(f"{provider_label} candidate must be an object")
+        choice = translate_candidate_to_openai_choice(cast(JsonObject, raw_candidate), dialect, 0)
+    else:
+        raise_if_prompt_blocked(data, dialect, provider_label=provider_label)
+        choice = {
+            "index": 0,
+            "message": {"role": "assistant", "content": ""},
+            "finish_reason": "stop",
+        }
+
+    return {
+        "id": f"{completion_id_prefix}{secrets.token_hex(8)}",
+        "object": "chat.completion",
+        "model": model,
+        "choices": [choice],
+        "usage": translate_usage_metadata(usage_meta),
+    }
+
+
+def _stream_usage_metadata(usage_metadata: JsonObject) -> JsonObject:
+    prompt_tokens = usage_metadata.get("promptTokenCount", 0)
+    completion_tokens = usage_metadata.get("candidatesTokenCount", 0)
+    total_tokens = usage_metadata.get("totalTokenCount")
+    if not isinstance(prompt_tokens, int) or isinstance(prompt_tokens, bool):
+        prompt_tokens = 0
+    if not isinstance(completion_tokens, int) or isinstance(completion_tokens, bool):
+        completion_tokens = 0
+    if not isinstance(total_tokens, int) or isinstance(total_tokens, bool):
+        total_tokens = prompt_tokens + completion_tokens
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+    }
+
+
+def _candidate_stream_delta(
+    candidate: JsonObject,
+    *,
+    dialect: GeminiDialect,
+    provider_label: str,
+) -> tuple[JsonObject, str | None]:
+    raw_content = candidate.get("content")
+    if raw_content is None:
+        raw_content = {}
+    if not isinstance(raw_content, dict):
+        raise GeminiTranslationError(f"{provider_label} candidate content must be an object")
+    content = cast(JsonObject, raw_content)
+    raw_parts = content.get("parts")
+    if raw_parts is None:
+        raw_parts = []
+    if not isinstance(raw_parts, list):
+        raise GeminiTranslationError(f"{provider_label} candidate parts must be a list")
+
+    text_parts: list[str] = []
+    tool_call_deltas: list[JsonObject] = []
+    for part_index, raw_part in enumerate(raw_parts):
+        if not isinstance(raw_part, dict):
+            raise GeminiTranslationError(
+                f"{provider_label} candidate part {part_index} must be an object"
+            )
+        part = cast(JsonObject, raw_part)
+        if "text" in part:
+            text = part["text"]
+            if not isinstance(text, str):
+                raise GeminiTranslationError(
+                    f"{provider_label} candidate part {part_index} text must be a string"
+                )
+            text_parts.append(text)
+        raw_function_call = part.get("functionCall")
+        if isinstance(raw_function_call, dict):
+            function_call = cast(JsonObject, raw_function_call)
+            call_name = function_call.get("name")
+            if not isinstance(call_name, str) or not call_name:
+                raise GeminiTranslationError(
+                    f"{provider_label} functionCall in part {part_index} must include a name"
+                )
+            tool_call_deltas.append(
+                {
+                    "index": part_index,
+                    "id": function_call.get("id", f"call_gemini_{secrets.token_hex(8)}"),
+                    "type": "function",
+                    "function": {
+                        "name": call_name,
+                        "arguments": json.dumps(function_call.get("args", {})),
+                    },
+                }
+            )
+
+    finish_reason: str | None = None
+    if gemini_finish := candidate.get("finishReason"):
+        if not isinstance(gemini_finish, str):
+            raise GeminiTranslationError(f"{provider_label} finishReason must be a string")
+        if gemini_finish in FINISH_REASON_MAP:
+            finish_reason = FINISH_REASON_MAP[gemini_finish]
+        elif gemini_finish in dialect.extra_finish_reasons:
+            finish_reason = "content_filter"
+        else:
+            raise GeminiTranslationError(f"{provider_label} generation failed: {gemini_finish}")
+
+    delta: JsonObject = {"content": "".join(text_parts)}
+    if tool_call_deltas:
+        delta["tool_calls"] = tool_call_deltas
+        finish_reason = "tool_calls"
+    return delta, finish_reason
+
+
+def _sse_error(error_type: str, message: str) -> str:
+    return f"data: {json.dumps({'error': {'type': error_type, 'message': message}})}\n\n"
+
+
+async def iter_openai_chat_sse_from_gemini_lines(
+    lines: AsyncIterable[str],
+    *,
+    model: str,
+    dialect: GeminiDialect,
+    provider_label: str,
+    completion_id_prefix: str,
+) -> AsyncIterator[str]:
+    """Translate Gemini/Vertex SSE `data:` lines to OpenAI chat chunk SSE."""
+    completion_id = f"{completion_id_prefix}{secrets.token_hex(8)}"
+    final_finish_reason = "stop"
+    usage_meta: JsonObject = {}
+
+    try:
+        async for line in lines:
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            raw = line[len("data:") :].strip()
+            if raw == "[DONE]":
+                break
+            try:
+                chunk_json = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(chunk_json, dict):
+                continue
+            chunk = cast(JsonObject, chunk_json)
+
+            raw_usage_meta = chunk.get("usageMetadata")
+            if isinstance(raw_usage_meta, dict):
+                usage_meta = cast(JsonObject, raw_usage_meta)
+
+            raw_candidates = chunk.get("candidates", [])
+            if not isinstance(raw_candidates, list):
+                raise GeminiTranslationError(f"{provider_label} candidates must be a list")
+            if not raw_candidates:
+                block_reason = extract_block_reason(chunk, dialect)
+                if block_reason is not None:
+                    yield _sse_error(
+                        "provider_response_error",
+                        f"{provider_label} generation blocked: {block_reason}",
+                    )
+                    return
+                continue
+
+            raw_candidate = raw_candidates[0]
+            if not isinstance(raw_candidate, dict):
+                raise GeminiTranslationError(f"{provider_label} candidate must be an object")
+            delta, finish_reason = _candidate_stream_delta(
+                cast(JsonObject, raw_candidate),
+                dialect=dialect,
+                provider_label=provider_label,
+            )
+            if finish_reason is not None:
+                final_finish_reason = finish_reason
+
+            oai_chunk = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "model": model,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(oai_chunk)}\n\n"
+    except GeminiTranslationError as exc:
+        yield _sse_error("provider_response_error", str(exc))
+        return
+
+    final_chunk = {
+        "id": completion_id,
+        "object": "chat.completion.chunk",
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": final_finish_reason}],
+        "usage": _stream_usage_metadata(usage_meta),
+    }
+    yield f"data: {json.dumps(final_chunk)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 def translate_usage_metadata(usage_metadata: JsonObject) -> JsonObject:
