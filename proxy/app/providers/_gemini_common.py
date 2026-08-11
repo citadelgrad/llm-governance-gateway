@@ -281,7 +281,9 @@ def translate_chat_request(
     key is absent, while gemini_vertex.py (default_model=None) requires the
     caller to supply a non-empty model string.
     """
-    unsupported = sorted(key for key in body if key not in allowed_fields)
+    unsupported = sorted(
+        key for key, value in body.items() if key not in allowed_fields and value is not None
+    )
     if unsupported:
         raise GeminiTranslationError(
             "Gemini adapter does not support Chat fields: " + ", ".join(unsupported)

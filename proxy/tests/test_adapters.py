@@ -1140,6 +1140,54 @@ async def test_gemini_stream_blocked_prompt_emits_sse_error_frame(httpx_mock):
     assert "blocked: SAFETY" in error_frame["error"]["message"]
 
 
+async def test_gemini_stream_non_dict_part_emits_clean_error_frame_not_attribute_error(
+    httpx_mock,
+):
+    """A malformed `parts` entry (e.g. a bare string instead of an object)
+    must be caught by the isinstance(part, dict) guard BEFORE any `.get(...)`
+    call is made on it while building `text`. Otherwise AttributeError
+    escapes uncaught (no `except` clause in _stream_body() catches it),
+    defeating the guard's purpose of turning malformed-shape crashes into a
+    clean GeminiTranslationError SSE error frame."""
+    sse_lines = [
+        'data: {"candidates": [{"content": {"parts": [{"text": "hi"}, "oops"]}}]}',
+        "data: [DONE]",
+    ]
+    httpx_mock.add_response(
+        method="POST",
+        url="https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:streamGenerateContent?alt=sse",
+        match_headers={"x-goog-api-key": "gemini-test-key"},
+        content="\n".join(sse_lines).encode(),
+        headers={"content-type": "text/event-stream"},
+    )
+
+    client = gemini_provider.make_client("gemini-test-key")
+    try:
+        response = await gemini_provider.chat_completions(
+            client,
+            {
+                "model": "gemini-3.1-flash-lite",
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": True,
+            },
+            stream=True,
+            extra_headers={},
+        )
+        frames = []
+        async for chunk_bytes in response.body_iterator:
+            text = chunk_bytes if isinstance(chunk_bytes, str) else chunk_bytes.decode()
+            for line in text.splitlines():
+                if line.startswith("data:"):
+                    frames.append(line[len("data:") :].strip())
+    finally:
+        await client.aclose()
+
+    assert len(frames) == 1
+    error_frame = json.loads(frames[0])
+    assert error_frame["error"]["type"] == "provider_response_error"
+    assert "part 1 must be an object" in error_frame["error"]["message"]
+
+
 # ---------------------------------------------------------------------------
 # Ollama — pass-through end-to-end
 # ---------------------------------------------------------------------------

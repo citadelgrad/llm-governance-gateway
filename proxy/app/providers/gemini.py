@@ -163,13 +163,35 @@ async def chat_completions(
                                 return
                             continue
                         candidate = candidates[0]
-                        parts = candidate.get("content", {}).get("parts", [])
+                        raw_content = candidate.get("content")
+                        if raw_content is None:
+                            raw_content = {}
+                        if not isinstance(raw_content, dict):
+                            raise GeminiTranslationError(
+                                "Gemini candidate content must be an object"
+                            )
+                        raw_parts = raw_content.get("parts")
+                        if raw_parts is None:
+                            raw_parts = []
+                        if not isinstance(raw_parts, list):
+                            raise GeminiTranslationError("Gemini candidate parts must be a list")
+                        parts = cast("list[JsonObject]", raw_parts)
+                        for index, part in enumerate(parts):
+                            if not isinstance(part, dict):
+                                raise GeminiTranslationError(
+                                    f"Gemini candidate part {index} must be an object"
+                                )
                         text = "".join(p.get("text", "") for p in parts)
                         tool_call_deltas: list[JsonObject] = []
                         for index, part in enumerate(parts):
                             function_call = part.get("functionCall")
                             if not isinstance(function_call, dict):
                                 continue
+                            call_name = function_call.get("name")
+                            if not isinstance(call_name, str) or not call_name:
+                                raise GeminiTranslationError(
+                                    f"Gemini functionCall in part {index} must include a name"
+                                )
                             tool_call_deltas.append(
                                 {
                                     "index": index,
@@ -178,7 +200,7 @@ async def chat_completions(
                                     ),
                                     "type": "function",
                                     "function": {
-                                        "name": function_call.get("name", ""),
+                                        "name": call_name,
                                         "arguments": json.dumps(function_call.get("args", {})),
                                     },
                                 }
@@ -218,6 +240,15 @@ async def chat_completions(
                 return
             except httpx.RequestError:
                 yield 'data: {"error": {"type": "upstream_connection_error"}}\n\n'
+                return
+            except GeminiTranslationError as exc:
+                error_chunk = {
+                    "error": {
+                        "type": "provider_response_error",
+                        "message": str(exc),
+                    }
+                }
+                yield f"data: {json.dumps(error_chunk)}\n\n"
                 return
             finally:
                 await upstream.aclose()
