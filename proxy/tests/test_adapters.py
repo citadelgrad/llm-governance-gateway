@@ -1691,6 +1691,52 @@ def test_with_redacted_text_writes_trailing_share_into_none_content_tool_result(
     assert tool_result_block.content == " PLUS EXTRA TRAILING TEXT"
 
 
+def test_with_redacted_text_writes_trailing_share_into_image_only_tool_result():
+    # Same bug class as the None-content case above, but for the other way a
+    # tool_result block can have zero AnthropicTextBlocks: a non-empty
+    # `content` list holding only an AnthropicImageBlock. text_blocks is `[]`
+    # either way, so `_redact_tool_result_content` must not silently drop the
+    # trailing share here either — and it must preserve the existing image
+    # block rather than clobbering it.
+    req = _messages_request(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "short"},
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": "AA==",
+                                },
+                            }
+                        ],
+                    },
+                ],
+            }
+        ],
+    )
+    payload = AnthropicGatewayPayload(request=req)
+
+    redacted = payload.with_redacted_text("short PLUS EXTRA TRAILING TEXT")
+
+    content = redacted.request.messages[0].content
+    text_block, tool_result_block = content
+    assert isinstance(text_block, AnthropicTextBlock)
+    assert isinstance(tool_result_block, AnthropicToolResultBlock)
+    assert text_block.text == "short"
+    image_block, appended_text_block = tool_result_block.content
+    assert isinstance(image_block, AnthropicImageBlock)
+    assert isinstance(appended_text_block, AnthropicTextBlock)
+    assert appended_text_block.text == " PLUS EXTRA TRAILING TEXT"
+
+
 def test_messages_to_chat_body_system_content_block_array_flattened_to_text():
     req = _messages_request(
         system=[

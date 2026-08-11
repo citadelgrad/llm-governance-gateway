@@ -423,15 +423,28 @@ def _redact_tool_result_content(block: AnthropicToolResultBlock, redacted_text: 
     Mirrors _tool_result_content_str's flattening: image blocks contribute no
     text and are left untouched; a further redistribution is done across any
     nested text blocks so their individual boundaries are preserved too.
+
+    There are two cases where there is no existing text block to write a
+    non-empty share into: `content` is `None`, or `content` is a list that
+    holds only non-text blocks (e.g. an image-only tool_result). Both must
+    still preserve that share rather than silently drop it. `None` becomes a
+    plain string — the simplest equivalent representation, and what this
+    function already did before this fix. A non-text-only list instead gets
+    the share appended as a new text block, so the existing (e.g. image)
+    blocks are preserved rather than being clobbered by a string.
     """
+    if isinstance(block.content, str):
+        block.content = redacted_text
+        return
     if block.content is None:
         if redacted_text:
             block.content = redacted_text
         return
-    if isinstance(block.content, str):
-        block.content = redacted_text
-        return
     text_blocks = [sub_block for sub_block in block.content if isinstance(sub_block, AnthropicTextBlock)]
+    if not text_blocks:
+        if redacted_text:
+            block.content = [*block.content, AnthropicTextBlock(text=redacted_text)]
+        return
     replacements = redistribute_redacted_text([sub_block.text for sub_block in text_blocks], redacted_text)
     for sub_block, replacement in zip(text_blocks, replacements, strict=True):
         sub_block.text = replacement

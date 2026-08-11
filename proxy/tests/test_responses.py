@@ -498,6 +498,41 @@ def test_responses_input_item_defaults_missing_type_to_message():
     assert message.content == "hello"
 
 
+async def test_responses_input_item_missing_type_reaches_governance(async_client, gov_mock):
+    # test_responses_input_item_defaults_missing_type_to_message above only
+    # proves ResponsesCreateRequest.model_validate(...) parses a list `input`
+    # item that omits `type` -- it never touches the governance/PII path.
+    # This proves it end-to-end: the same documented-but-type-omitting shape
+    # (OpenAI's EasyInputMessageParam) must still have its text scanned by
+    # governance and redacted, exactly like the plain-string `input` case
+    # already covered by test_responses_pii_redaction_headers above.
+    client, _ = async_client
+    marker_text = "My SSN is 123-45-6789"
+    gov_mock.inspect.return_value = InspectResponse(
+        decision="allow",
+        redacted_text="My SSN is [REDACTED]",
+        pii_findings=[{"type": "SSN", "start": 10, "end": 21}],
+        harm_score=0.0,
+        violations=[],
+        audit_id="responses-list-item-pii-audit-id",
+    )
+
+    response = await client.post(
+        "/v1/responses",
+        json={
+            "model": "gpt-5.6-luna",
+            "input": [{"role": "user", "content": marker_text}],
+        },
+    )
+
+    assert response.status_code == 200
+    inspect_request = gov_mock.inspect.call_args.args[0]
+    assert inspect_request.text == marker_text
+    assert response.headers.get("x-gateway-pii-redacted") == "true"
+    assert "SSN" in response.headers.get("x-gateway-pii-types", "")
+    assert response.headers.get("x-audit-id") == "responses-list-item-pii-audit-id"
+
+
 def test_responses_translation_rejects_agent_lifecycle_items_not_yet_supported():
     with pytest.raises(ResponsesCompatError, match="function_call"):
         translate_responses_request(
