@@ -2,98 +2,15 @@ from __future__ import annotations
 
 import pytest
 from proxy.app.protocol_types import (
-    CanonicalExecutionRequest,
-    CanonicalFunction,
-    CanonicalFunctionTool,
-    CanonicalImagePart,
-    CanonicalMessage,
-    CanonicalRequest,
     CanonicalStreamMessageCompleted,
     CanonicalStreamTextDelta,
     CanonicalStreamToolCallStarted,
-    CanonicalTextPart,
-    ExecutionFunctionCallItem,
-    ExecutionFunctionCallOutputItem,
-    ExecutionReasoningItem,
     OpenAIChatCompletionChunk,
     OpenAIChatPayload,
     OpenAIChatRequest,
     format_validation_location,
 )
 from pydantic import ValidationError
-
-
-def test_canonical_request_preserves_typed_tool_schema() -> None:
-    request = CanonicalRequest(
-        model="gateway-model",
-        messages=[CanonicalMessage(role="user", content="weather?")],
-        tools=[
-            CanonicalFunctionTool(
-                function=CanonicalFunction(
-                    name="get_weather",
-                    parameters={
-                        "type": "object",
-                        "properties": {"city": {"type": "string"}},
-                        "required": ["city"],
-                    },
-                )
-            )
-        ],
-    )
-
-    assert request.tools[0].function.parameters["required"] == ["city"]
-
-
-def test_canonical_request_extracts_only_final_user_text() -> None:
-    request = CanonicalRequest(
-        model="gateway-model",
-        messages=[
-            CanonicalMessage(role="user", content="first"),
-            CanonicalMessage(role="assistant", content="answer"),
-            CanonicalMessage(
-                role="user",
-                content=[CanonicalTextPart(text="line 1\n"), CanonicalTextPart(text="line 2")],
-            ),
-        ],
-    )
-
-    assert request.governance_text() == "line 1\nline 2"
-
-
-def test_canonical_redaction_does_not_mutate_original_request() -> None:
-    request = CanonicalRequest(
-        model="gateway-model",
-        messages=[CanonicalMessage(role="user", content="My SSN is 123-45-6789")],
-    )
-
-    redacted = request.with_redacted_user_text("My SSN is [REDACTED]")
-
-    assert request.messages[0].content == "My SSN is 123-45-6789"
-    assert redacted.messages[0].content == "My SSN is [REDACTED]"
-
-
-def test_canonical_image_requires_exactly_one_source() -> None:
-    with pytest.raises(ValidationError, match="exactly one"):
-        CanonicalImagePart(media_type="image/png")
-
-    with pytest.raises(ValidationError, match="exactly one"):
-        CanonicalImagePart(media_type="image/png", data="AA==", url="https://example.test/a.png")
-
-
-def test_canonical_tool_messages_require_tool_call_id() -> None:
-    with pytest.raises(ValidationError, match="tool messages require tool_call_id"):
-        CanonicalMessage(role="tool", content="result")
-
-
-def test_canonical_models_reject_unknown_semantics() -> None:
-    with pytest.raises(ValidationError, match="extra_forbidden"):
-        CanonicalRequest.model_validate(
-            {
-                "model": "gateway-model",
-                "messages": [{"role": "user", "content": "hello"}],
-                "silently_lost_vendor_option": True,
-            }
-        )
 
 
 def test_canonical_stream_events_reject_unknown_semantics() -> None:
@@ -188,49 +105,6 @@ def test_chat_governed_traversal_extracts_and_replaces_final_user_text_parts() -
         {"type": "image_url", "image_url": {"url": "https://example.test/a.png"}},
         {"type": "text", "text": "omega TAIL"},
     ]
-
-
-def test_execution_domain_preserves_call_identity_and_encrypted_reasoning() -> None:
-    request = CanonicalExecutionRequest(
-        model="gateway-model",
-        input=[
-            ExecutionReasoningItem(
-                id="rs_1",
-                encrypted_content="opaque-provider-material",
-                status="completed",
-            ),
-            ExecutionFunctionCallItem(
-                id="fc_1",
-                call_id="call_1",
-                name="lookup",
-                arguments='{"key":"x"}',
-                status="completed",
-            ),
-            ExecutionFunctionCallOutputItem(
-                call_id="call_1",
-                output="value",
-                status="completed",
-            ),
-        ],
-    )
-
-    assert isinstance(request.input, list)
-    reasoning, call, output = request.input
-    assert isinstance(reasoning, ExecutionReasoningItem)
-    assert isinstance(call, ExecutionFunctionCallItem)
-    assert isinstance(output, ExecutionFunctionCallOutputItem)
-    assert reasoning.encrypted_content == "opaque-provider-material"
-    assert call.call_id == output.call_id == "call_1"
-
-
-def test_execution_domain_rejects_conflicting_state_references() -> None:
-    with pytest.raises(ValidationError, match="mutually exclusive"):
-        CanonicalExecutionRequest(
-            model="gateway-model",
-            input="hello",
-            previous_response_id="resp_1",
-            conversation="conv_1",
-        )
 
 
 def test_openai_chat_request_preserves_typed_message_content_and_tools() -> None:

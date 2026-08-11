@@ -4,12 +4,20 @@ Research snapshot: 2026-08-04
 
 ## Decision
 
-The gateway uses a Responses-style item/event domain for stateful and agentic execution. OpenAI Chat Completions, Anthropic Messages, and Gemini GenerateContent are wire protocols at the boundary, not interchangeable internal schemas.
+The gateway runtime request boundary is `GatewayPayload` plus strict protocol-owned DTOs. OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent remain native wire protocols at the boundary, not interchangeable internal schemas.
+
+Provider-neutral canonical modeling is retained only where it has production leverage:
+
+- `CanonicalStreamEvent` and its event variants are the stream translation boundary for Chat/Responses and Anthropic/Chat SSE adapters.
+- Responses execution item DTOs used by `ResponsesCreateRequest` are retained for typed Responses ingress.
+- The older cross-provider conversation subset (`CanonicalRequest`, `CanonicalMessage`, `CanonicalContentPart`, `CanonicalFunctionTool`, `CanonicalToolChoice`, `CanonicalReasoning`, `CanonicalResponseFormat`, `CanonicalAssistantResponse`, and `CanonicalUsage`) and the unused `CanonicalExecutionRequest` wrapper were removed rather than left as test-only architecture.
+
+Future canonical request/response work needs a dated implementation issue with lossless translation invariants for native-only fields, tools, reasoning state, usage, errors, and stream events before reintroducing a shared request or assistant-response envelope.
 
 Rules:
 
-1. Decode each ingress protocol into strict protocol DTOs.
-2. Preserve the original validated native request.
+1. Decode each ingress protocol into strict protocol-owned DTOs.
+2. Preserve the original validated native request behind `GatewayPayload`.
 3. Inspect and redact text leaves without deleting non-text blocks.
 4. Route before translating.
 5. Dispatch the original protocol when the selected provider supports it.
@@ -156,13 +164,14 @@ Native forwarding is the only lossless default. Cross-provider translation is a 
 `proxy/app/protocol_types.py` defines:
 
 - recursive JSON and JSON Schema types
-- a protocol-owned `GatewayPayload` boundary
+- the `GatewayPayload` boundary consumed by governance, routing, and provider dispatch
 - strict Chat request messages, content parts, tools, tool choices, and stream chunks
-- Responses-style execution messages, function calls/results, reasoning items, item references, and semantic stream event envelopes
-- the older explicit cross-provider conversation subset used while adapters migrate
+- Responses execution function calls/results, reasoning items, item references, and semantic stream event envelopes with production callers
 - strict models with `extra="forbid"` where the gateway claims semantic understanding
 
 Protocol DTOs may retain typed `JsonObject` extension regions where upstream unions evolve faster than the local semantic model. Those regions are forwarded only on native routes; translation adapters must reject unsupported contents.
+
+The gateway does not currently decode requests into a shared `CanonicalRequest` or wrap buffered assistant responses in a shared `CanonicalAssistantResponse`. That broader migration is deferred until an implementation can prove lossless handling of protocol-specific state rather than flattening to a least-common-denominator request shape.
 
 ## Current implementation guarantees
 
