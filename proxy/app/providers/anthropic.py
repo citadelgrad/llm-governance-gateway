@@ -8,6 +8,10 @@ import httpx
 from proxy.app.protocol_types import JsonObject
 from proxy.app.providers.errors import sanitize_upstream_error
 from proxy.app.providers.native import forward_native, open_checked_stream
+from proxy.app.stream_events import (
+    iter_anthropic_messages_canonical_events,
+    iter_openai_chat_sse_from_canonical,
+)
 from starlette.responses import Response, StreamingResponse
 
 ANTHROPIC_BASE = "https://api.anthropic.com"
@@ -415,137 +419,16 @@ async def chat_completions(
                 await upstream.aclose()
 
         async def _stream_body():
-            completion_id = ""
-            # Maps content_block index → tool_calls array index for tool_use blocks
-            tool_block_index: dict[int, int] = {}
-            tool_call_counter = 0
-            input_tokens = 0
-            output_tokens = 0
             try:
                 async with _opened_stream() as checked_upstream:
-                    async for line in checked_upstream.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data_str = line[len("data:") :].strip()
-                        if not data_str:
-                            continue
-                        try:
-                            event = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-
-                        etype = event.get("type", "")
-
-                        if etype == "message_start":
-                            msg = event.get("message", {})
-                            completion_id = msg.get("id", "")
-                            input_tokens = _int_field(msg.get("usage"), "input_tokens")
-                            continue
-
-                        if etype == "content_block_start":
-                            cb = event.get("content_block", {})
-                            if cb.get("type") == "tool_use":
-                                block_idx = event.get("index", 0)
-                                tc_idx = tool_call_counter
-                                tool_block_index[block_idx] = tc_idx
-                                tool_call_counter += 1
-                                chunk = {
-                                    "id": completion_id,
-                                    "object": "chat.completion.chunk",
-                                    "model": model,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {
-                                                "tool_calls": [
-                                                    {
-                                                        "index": tc_idx,
-                                                        "id": cb.get("id", ""),
-                                                        "type": "function",
-                                                        "function": {
-                                                            "name": cb.get("name", ""),
-                                                            "arguments": "",
-                                                        },
-                                                    }
-                                                ]
-                                            },
-                                            "finish_reason": None,
-                                        }
-                                    ],
-                                }
-                                yield f"data: {json.dumps(chunk)}\n\n"
-                            continue
-
-                        if etype == "content_block_delta":
-                            delta = event.get("delta", {})
-                            if delta.get("type") == "text_delta":
-                                chunk = {
-                                    "id": completion_id,
-                                    "object": "chat.completion.chunk",
-                                    "model": model,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {"content": delta.get("text", "")},
-                                            "finish_reason": None,
-                                        }
-                                    ],
-                                }
-                                yield f"data: {json.dumps(chunk)}\n\n"
-                            elif delta.get("type") == "input_json_delta":
-                                block_idx = event.get("index", 0)
-                                if block_idx not in tool_block_index:
-                                    continue
-                                tc_idx = tool_block_index[block_idx]
-                                chunk = {
-                                    "id": completion_id,
-                                    "object": "chat.completion.chunk",
-                                    "model": model,
-                                    "choices": [
-                                        {
-                                            "index": 0,
-                                            "delta": {
-                                                "tool_calls": [
-                                                    {
-                                                        "index": tc_idx,
-                                                        "function": {
-                                                            "arguments": delta.get("partial_json", ""),
-                                                        },
-                                                    }
-                                                ]
-                                            },
-                                            "finish_reason": None,
-                                        }
-                                    ],
-                                }
-                                yield f"data: {json.dumps(chunk)}\n\n"
-                            continue
-
-                        if etype == "message_delta":
-                            delta = event.get("delta", {})
-                            stop_reason = delta.get("stop_reason", "end_turn")
-                            finish_reason = _STOP_REASON_MAP.get(stop_reason, "stop")
-                            output_tokens = _int_field(event.get("usage"), "output_tokens")
-                            final_chunk = {
-                                "id": completion_id,
-                                "object": "chat.completion.chunk",
-                                "model": model,
-                                "choices": [
-                                    {
-                                        "index": 0,
-                                        "delta": {},
-                                        "finish_reason": finish_reason,
-                                    }
-                                ],
-                                "usage": {
-                                    "prompt_tokens": input_tokens,
-                                    "completion_tokens": output_tokens,
-                                    "total_tokens": input_tokens + output_tokens,
-                                },
-                            }
-                            yield f"data: {json.dumps(final_chunk)}\n\n"
-                            yield "data: [DONE]\n\n"
-                            continue
+                    canonical_events = iter_anthropic_messages_canonical_events(
+                        checked_upstream.aiter_lines()
+                    )
+                    async for chunk in iter_openai_chat_sse_from_canonical(
+                        canonical_events,
+                        model=str(model),
+                    ):
+                        yield chunk
             except httpx.TimeoutException:
                 yield 'data: {"error": {"type": "upstream_timeout"}}\n\n'
             except httpx.RequestError:

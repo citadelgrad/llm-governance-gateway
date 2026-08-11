@@ -6,8 +6,14 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from uuid import uuid4
 
-from proxy.app.openai_chat_stream import iter_openai_chat_events
 from proxy.app.protocol_types import (
+    CanonicalStreamFailed,
+    CanonicalStreamMessageCompleted,
+    CanonicalStreamMessageStarted,
+    CanonicalStreamTextDelta,
+    CanonicalStreamToolCallArgumentsDelta,
+    CanonicalStreamToolCallStarted,
+    CanonicalStreamUsageUpdated,
     ExecutionFunctionCallItem,
     ExecutionFunctionCallOutputItem,
     ExecutionItemReference,
@@ -18,6 +24,7 @@ from proxy.app.protocol_types import (
     WireProtocol,
     redistribute_redacted_text,
 )
+from proxy.app.stream_events import iter_openai_chat_canonical_events
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 
@@ -614,12 +621,8 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
         },
     )
 
-    async for decoded_event in iter_openai_chat_events(body_iterator):
-        if isinstance(decoded_event, dict):
-            raw_error = decoded_event.get("error")
-            error_info = raw_error if isinstance(raw_error, dict) else {}
-            error_type = error_info.get("type")
-            error_message = error_info.get("message")
+    async for event in iter_openai_chat_canonical_events(body_iterator):
+        if isinstance(event, CanonicalStreamFailed):
             yield _failed_stream_frame(
                 response_id=response_id,
                 created_at=created_at,
@@ -629,69 +632,28 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
                 text_output_index=text_output_index,
                 function_calls=function_calls,
                 usage=final_usage,
-                error_type=(
-                    error_type if isinstance(error_type, str) else "provider_stream_error"
-                ),
-                error_message=(
-                    error_message if isinstance(error_message, str) else "Provider stream failed"
-                ),
+                error_type=event.error_type,
+                error_message=event.error_message,
             )
             return
 
-        event = decoded_event.model_dump(mode="json", exclude_unset=True)
-        event_model = event.get("model")
-        if isinstance(event_model, str):
-            final_model = event_model
-
-        raw_usage = event.get("usage")
-        if isinstance(raw_usage, dict):
-            prompt_tokens = raw_usage.get("prompt_tokens", 0)
-            completion_tokens = raw_usage.get("completion_tokens", 0)
-            total_tokens = raw_usage.get("total_tokens", 0)
-            final_usage = ResponsesUsage(
-                input_tokens=prompt_tokens if isinstance(prompt_tokens, int) else 0,
-                output_tokens=completion_tokens if isinstance(completion_tokens, int) else 0,
-                total_tokens=total_tokens if isinstance(total_tokens, int) else 0,
-            )
-
-        raw_error = event.get("error")
-        if isinstance(raw_error, dict):
-            error_type = raw_error.get("type")
-            error_message = raw_error.get("message")
-            yield _failed_stream_frame(
-                response_id=response_id,
-                created_at=created_at,
-                model=final_model,
-                message_id=message_id,
-                text_fragments=text_fragments,
-                text_output_index=text_output_index,
-                function_calls=function_calls,
-                usage=final_usage,
-                error_type=(
-                    error_type if isinstance(error_type, str) else "provider_stream_error"
-                ),
-                error_message=(
-                    error_message if isinstance(error_message, str) else "Provider stream failed"
-                ),
-            )
-            return
-
-        choices = event.get("choices") or []
-        if not choices:
+        if isinstance(event, CanonicalStreamMessageStarted):
+            if event.model is not None:
+                final_model = event.model
             continue
-        if not isinstance(choices, list) or not isinstance(choices[0], dict):
-            raise ResponsesCompatError("Chat stream choices must contain objects")
-        choice = choices[0]
-        raw_delta = choice.get("delta", {})
-        if not isinstance(raw_delta, dict):
-            raise ResponsesCompatError("Chat stream delta must be an object")
-        delta = raw_delta
-        chunk_finish_reason = choice.get("finish_reason")
-        if isinstance(chunk_finish_reason, str):
-            finish_reason = chunk_finish_reason
 
-        text_delta = delta.get("content")
-        if isinstance(text_delta, str) and text_delta:
+        if isinstance(event, CanonicalStreamUsageUpdated):
+            prompt_tokens = event.usage.input_tokens
+            completion_tokens = event.usage.output_tokens
+            total_tokens = event.usage.total_tokens
+            final_usage = ResponsesUsage(
+                input_tokens=prompt_tokens if prompt_tokens is not None else 0,
+                output_tokens=completion_tokens if completion_tokens is not None else 0,
+                total_tokens=total_tokens if total_tokens is not None else 0,
+            )
+            continue
+
+        if isinstance(event, CanonicalStreamTextDelta):
             if text_output_index is None:
                 text_output_index = next_output_index
                 next_output_index += 1
@@ -713,106 +675,122 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
                     content_index=content_index,
                     part={"type": "output_text", "text": "", "annotations": []},
                 )
-            text_fragments.append(text_delta)
+            text_fragments.append(event.text)
             yield _sse_frame(
                 "response.output_text.delta",
                 item_id=message_id,
                 output_index=text_output_index,
                 content_index=content_index,
-                delta=text_delta,
+                delta=event.text,
             )
+            continue
 
-        raw_tool_calls = delta.get("tool_calls", [])
-        if raw_tool_calls is not None:
-            if not isinstance(raw_tool_calls, list):
-                raise ResponsesCompatError("Chat stream tool_calls must be a list")
-            for raw_tool_call in raw_tool_calls:
-                if not isinstance(raw_tool_call, dict):
-                    raise ResponsesCompatError("Chat stream tool_call must be an object")
-                tool_index = raw_tool_call.get("index", 0)
-                if not isinstance(tool_index, int):
-                    raise ResponsesCompatError("Chat stream tool_call index must be an integer")
-                raw_function = raw_tool_call.get("function", {})
-                if not isinstance(raw_function, dict):
-                    raise ResponsesCompatError("Chat stream tool_call function must be an object")
-                state = function_calls.get(tool_index)
-                call_id_delta = raw_tool_call.get("id")
-                name_delta = raw_function.get("name")
-                if state is None:
-                    if not isinstance(call_id_delta, str) or not call_id_delta:
-                        yield _failed_stream_frame(
-                            response_id=response_id,
-                            created_at=created_at,
-                            model=final_model,
-                            message_id=message_id,
-                            text_fragments=text_fragments,
-                            text_output_index=text_output_index,
-                            function_calls=function_calls,
-                            usage=final_usage,
-                            error_type="invalid_upstream_stream",
-                            error_message="Initial tool-call chunk is missing call id",
-                        )
-                        return
-                    if not isinstance(name_delta, str) or not name_delta:
-                        yield _failed_stream_frame(
-                            response_id=response_id,
-                            created_at=created_at,
-                            model=final_model,
-                            message_id=message_id,
-                            text_fragments=text_fragments,
-                            text_output_index=text_output_index,
-                            function_calls=function_calls,
-                            usage=final_usage,
-                            error_type="invalid_upstream_stream",
-                            error_message="Initial tool-call chunk is missing function name",
-                        )
-                        return
-                    state = _StreamingFunctionCall(
-                        item_id=f"fc_{uuid4().hex}",
-                        call_id=call_id_delta,
-                        name=name_delta,
-                        output_index=next_output_index,
+        if isinstance(event, CanonicalStreamToolCallStarted):
+            state = function_calls.get(event.tool_index)
+            if state is None:
+                if not event.call_id:
+                    yield _failed_stream_frame(
+                        response_id=response_id,
+                        created_at=created_at,
+                        model=final_model,
+                        message_id=message_id,
+                        text_fragments=text_fragments,
+                        text_output_index=text_output_index,
+                        function_calls=function_calls,
+                        usage=final_usage,
+                        error_type="invalid_upstream_stream",
+                        error_message="Initial tool-call chunk is missing call id",
                     )
-                    next_output_index += 1
-                    function_calls[tool_index] = state
-                    yield _sse_frame(
-                        "response.output_item.added",
-                        output_index=state.output_index,
-                        item={
-                            "id": state.item_id,
-                            "type": "function_call",
-                            "status": "in_progress",
-                            "call_id": state.call_id,
-                            "name": state.name,
-                            "arguments": "",
-                        },
+                    return
+                if not event.name:
+                    yield _failed_stream_frame(
+                        response_id=response_id,
+                        created_at=created_at,
+                        model=final_model,
+                        message_id=message_id,
+                        text_fragments=text_fragments,
+                        text_output_index=text_output_index,
+                        function_calls=function_calls,
+                        usage=final_usage,
+                        error_type="invalid_upstream_stream",
+                        error_message="Initial tool-call chunk is missing function name",
                     )
-                else:
-                    if isinstance(call_id_delta, str) and call_id_delta != state.call_id:
-                        yield _failed_stream_frame(
-                            response_id=response_id,
-                            created_at=created_at,
-                            model=final_model,
-                            message_id=message_id,
-                            text_fragments=text_fragments,
-                            text_output_index=text_output_index,
-                            function_calls=function_calls,
-                            usage=final_usage,
-                            error_type="invalid_upstream_stream",
-                            error_message="Tool-call identity changed during streaming",
-                        )
-                        return
-                    if isinstance(name_delta, str):
-                        state.name += name_delta
-                arguments_delta = raw_function.get("arguments")
-                if isinstance(arguments_delta, str) and arguments_delta:
-                    state.arguments += arguments_delta
-                    yield _sse_frame(
-                        "response.function_call_arguments.delta",
-                        item_id=state.item_id,
-                        output_index=state.output_index,
-                        delta=arguments_delta,
+                    return
+                state = _StreamingFunctionCall(
+                    item_id=f"fc_{uuid4().hex}",
+                    call_id=event.call_id,
+                    name=event.name,
+                    output_index=next_output_index,
+                )
+                next_output_index += 1
+                function_calls[event.tool_index] = state
+                yield _sse_frame(
+                    "response.output_item.added",
+                    output_index=state.output_index,
+                    item={
+                        "id": state.item_id,
+                        "type": "function_call",
+                        "status": "in_progress",
+                        "call_id": state.call_id,
+                        "name": state.name,
+                        "arguments": "",
+                    },
+                )
+            else:
+                if event.call_id and event.call_id != state.call_id:
+                    yield _failed_stream_frame(
+                        response_id=response_id,
+                        created_at=created_at,
+                        model=final_model,
+                        message_id=message_id,
+                        text_fragments=text_fragments,
+                        text_output_index=text_output_index,
+                        function_calls=function_calls,
+                        usage=final_usage,
+                        error_type="invalid_upstream_stream",
+                        error_message="Tool-call identity changed during streaming",
                     )
+                    return
+                if event.name:
+                    state.name += event.name
+            continue
+
+        if isinstance(event, CanonicalStreamToolCallArgumentsDelta):
+            state = function_calls.get(event.tool_index)
+            if state is None:
+                yield _failed_stream_frame(
+                    response_id=response_id,
+                    created_at=created_at,
+                    model=final_model,
+                    message_id=message_id,
+                    text_fragments=text_fragments,
+                    text_output_index=text_output_index,
+                    function_calls=function_calls,
+                    usage=final_usage,
+                    error_type="invalid_upstream_stream",
+                    error_message="Initial tool-call chunk is missing call id",
+                )
+                return
+            state.arguments += event.arguments_delta
+            yield _sse_frame(
+                "response.function_call_arguments.delta",
+                item_id=state.item_id,
+                output_index=state.output_index,
+                delta=event.arguments_delta,
+            )
+            continue
+
+        if isinstance(event, CanonicalStreamMessageCompleted):
+            finish_reason = {
+                "end_turn": "stop",
+                "max_tokens": "length",
+                "tool_use": "tool_calls",
+                "content_filtered": "content_filter",
+                "cancelled": "stop",
+                "error": "stop",
+                "unknown": "stop",
+            }[event.reason]
+            continue
 
     if finish_reason is None:
         yield _failed_stream_frame(

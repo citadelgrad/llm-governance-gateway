@@ -8,6 +8,9 @@ from proxy.app.protocol_types import (
     CanonicalImagePart,
     CanonicalMessage,
     CanonicalRequest,
+    CanonicalStreamMessageCompleted,
+    CanonicalStreamTextDelta,
+    CanonicalStreamToolCallStarted,
     CanonicalTextPart,
     ExecutionFunctionCallItem,
     ExecutionFunctionCallOutputItem,
@@ -91,6 +94,26 @@ def test_canonical_models_reject_unknown_semantics() -> None:
                 "silently_lost_vendor_option": True,
             }
         )
+
+
+def test_canonical_stream_events_reject_unknown_semantics() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        CanonicalStreamTextDelta.model_validate(
+            {"kind": "text_delta", "text": "hello", "wire_finish_reason": "stop"}
+        )
+
+
+def test_canonical_stream_tool_index_is_nonnegative() -> None:
+    with pytest.raises(ValidationError, match="greater_than_equal"):
+        CanonicalStreamToolCallStarted(tool_index=-1, call_id="call_1", name="lookup")
+
+
+def test_canonical_stream_terminal_reason_is_provider_neutral() -> None:
+    with pytest.raises(ValidationError):
+        CanonicalStreamMessageCompleted(reason="tool_calls")
+
+    event = CanonicalStreamMessageCompleted(reason="tool_use")
+    assert event.status == "completed"
 
 
 def test_chat_redaction_preserves_non_text_parts_and_order() -> None:

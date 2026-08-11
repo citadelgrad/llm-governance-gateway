@@ -96,6 +96,86 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+CanonicalStreamStatus = Literal["started", "in_progress", "completed", "incomplete", "failed"]
+CanonicalStreamTerminalReason = Literal[
+    "end_turn",
+    "max_tokens",
+    "tool_use",
+    "content_filtered",
+    "cancelled",
+    "error",
+    "unknown",
+]
+
+
+class CanonicalStreamUsageUpdate(StrictModel):
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+
+
+class CanonicalStreamMessageStarted(StrictModel):
+    kind: Literal["message_started"] = "message_started"
+    status: Literal["started"] = "started"
+    message_id: str = ""
+    model: str | None = None
+
+
+class CanonicalStreamTextDelta(StrictModel):
+    kind: Literal["text_delta"] = "text_delta"
+    status: Literal["in_progress"] = "in_progress"
+    text: str
+    output_index: int = Field(default=0, ge=0)
+    content_index: int = Field(default=0, ge=0)
+
+
+class CanonicalStreamToolCallStarted(StrictModel):
+    kind: Literal["tool_call_started"] = "tool_call_started"
+    status: Literal["in_progress"] = "in_progress"
+    tool_index: int = Field(ge=0)
+    call_id: str
+    name: str
+
+
+class CanonicalStreamToolCallArgumentsDelta(StrictModel):
+    kind: Literal["tool_call_arguments_delta"] = "tool_call_arguments_delta"
+    status: Literal["in_progress"] = "in_progress"
+    tool_index: int = Field(ge=0)
+    arguments_delta: str
+
+
+class CanonicalStreamUsageUpdated(StrictModel):
+    kind: Literal["usage_updated"] = "usage_updated"
+    status: Literal["in_progress"] = "in_progress"
+    usage: CanonicalStreamUsageUpdate
+
+
+class CanonicalStreamMessageCompleted(StrictModel):
+    kind: Literal["message_completed"] = "message_completed"
+    status: Literal["completed", "incomplete"] = "completed"
+    reason: CanonicalStreamTerminalReason = "end_turn"
+
+
+class CanonicalStreamFailed(StrictModel):
+    kind: Literal["stream_failed"] = "stream_failed"
+    status: Literal["failed"] = "failed"
+    reason: Literal["error"] = "error"
+    error_type: str
+    error_message: str
+
+
+CanonicalStreamEvent = Annotated[
+    CanonicalStreamMessageStarted
+    | CanonicalStreamTextDelta
+    | CanonicalStreamToolCallStarted
+    | CanonicalStreamToolCallArgumentsDelta
+    | CanonicalStreamUsageUpdated
+    | CanonicalStreamMessageCompleted
+    | CanonicalStreamFailed,
+    Field(discriminator="kind"),
+]
+
+
 def format_validation_location(location: tuple[str | int, ...]) -> str:
     """Remove Pydantic union implementation labels from a client-facing field path."""
     discriminator_tags = {
