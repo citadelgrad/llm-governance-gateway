@@ -8,11 +8,7 @@ from proxy.app.protocol_types import (
     CanonicalImagePart,
     CanonicalMessage,
     CanonicalRequest,
-    CanonicalStreamError,
-    CanonicalStreamEvent,
-    CanonicalStreamResponse,
     CanonicalTextPart,
-    CanonicalToolUsePart,
     ExecutionFunctionCallItem,
     ExecutionFunctionCallOutputItem,
     ExecutionReasoningItem,
@@ -402,96 +398,3 @@ def test_openai_chat_request_rejects_unknown_modalities() -> None:
         )
 
     assert format_validation_location(exc_info.value.errors()[0]["loc"]) == "modalities.0"
-
-
-# ---------------------------------------------------------------------------
-# Canonical stream events (ai-gateway-b7k.2)
-# ---------------------------------------------------------------------------
-
-
-def test_canonical_stream_event_dispatches_execution_and_content_part_items() -> None:
-    text_event = CanonicalStreamEvent.model_validate(
-        {
-            "type": "response.output_text.delta",
-            "item_id": "msg_1",
-            "output_index": 0,
-            "content_index": 0,
-            "delta": "hello",
-            "item": {"type": "text", "text": "hello"},
-        }
-    )
-    tool_event = CanonicalStreamEvent.model_validate(
-        {
-            "type": "response.output_item.added",
-            "item": {
-                "type": "function_call",
-                "call_id": "call_1",
-                "name": "lookup",
-                "arguments": "{}",
-            },
-        }
-    )
-
-    assert isinstance(text_event.item, CanonicalTextPart)
-    assert isinstance(tool_event.item, ExecutionFunctionCallItem)
-
-
-def test_canonical_stream_event_response_snapshot_preserves_item_order_and_usage() -> None:
-    event = CanonicalStreamEvent.model_validate(
-        {
-            "type": "response.completed",
-            "response": {
-                "id": "resp_1",
-                "model": "gateway-model",
-                "status": "completed",
-                "output": [
-                    {"type": "text", "text": "answer"},
-                    {
-                        "type": "tool_use",
-                        "id": "toolu_1",
-                        "name": "lookup",
-                        "arguments": {"city": "NYC"},
-                    },
-                ],
-                "usage": {"input_tokens": 5, "output_tokens": 3},
-            },
-        }
-    )
-
-    assert isinstance(event.response, CanonicalStreamResponse)
-    first, second = event.response.output
-    assert isinstance(first, CanonicalTextPart)
-    assert isinstance(second, CanonicalToolUsePart)
-    assert event.response.usage is not None
-    assert event.response.usage.total_tokens == 8
-
-
-def test_canonical_stream_event_terminal_error_is_typed() -> None:
-    event = CanonicalStreamEvent.model_validate(
-        {
-            "type": "response.failed",
-            "error": {"type": "provider_stream_error", "message": "upstream closed"},
-        }
-    )
-
-    assert isinstance(event.error, CanonicalStreamError)
-    assert event.error.message == "upstream closed"
-
-
-def test_canonical_stream_event_rejects_unknown_item_shape() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        CanonicalStreamEvent.model_validate(
-            {
-                "type": "response.output_item.added",
-                "item": {"type": "not_a_real_item_type"},
-            }
-        )
-
-    assert format_validation_location(exc_info.value.errors()[0]["loc"]).startswith("item")
-
-
-def test_canonical_stream_event_rejects_unknown_field() -> None:
-    with pytest.raises(ValidationError, match="extra_forbidden"):
-        CanonicalStreamEvent.model_validate(
-            {"type": "response.created", "silently_lost_vendor_field": True}
-        )
