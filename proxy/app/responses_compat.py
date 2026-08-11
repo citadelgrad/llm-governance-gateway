@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 from uuid import uuid4
 
 from proxy.app.anthropic_compat import _iter_openai_chat_events
@@ -37,7 +37,7 @@ class ResponsesInputMessage(BaseModel):
 
     role: str
     content: str | list[ResponsesTextPart]
-    type: str | None = None
+    type: Literal["message"] = "message"
 
 
 # `ResponsesInputMessage.content` parts deliberately keep `type` as a plain `str`
@@ -49,13 +49,14 @@ class ResponsesInputMessage(BaseModel):
 # unsupported_response_shape rather than HTTP 400 invalid_request). The
 # agent-lifecycle item types below have no such constraint, so they reuse the
 # canonical Execution*Item models directly.
-ResponsesInputItem = (
+ResponsesInputItem = Annotated[
     ResponsesInputMessage
     | ExecutionFunctionCallItem
     | ExecutionFunctionCallOutputItem
     | ExecutionReasoningItem
-    | ExecutionItemReference
-)
+    | ExecutionItemReference,
+    Field(discriminator="type"),
+]
 
 
 class ResponsesReasoning(BaseModel):
@@ -80,6 +81,36 @@ class ResponsesCreateRequest(BaseModel):
 
     model: str
     input: str | list[ResponsesInputItem]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_missing_input_item_type(cls, data: object) -> object:
+        """Inject `type: "message"` into input items that omit it.
+
+        `ResponsesInputItem` is a Pydantic discriminated union keyed on
+        `type`. A discriminated union requires the discriminator key to be
+        PRESENT in the raw input dict — `ResponsesInputMessage.type`'s
+        Python-side default of `"message"` never runs because Pydantic picks
+        the union branch before field defaults are applied. Without this,
+        the common, documented shape `{"role": "user", "content": "hello"}`
+        (OpenAI's `EasyInputMessageParam`, which omits `type` entirely) is
+        rejected with "Unable to extract tag using discriminator 'type'".
+        This runs before discriminated-union resolution so the default is
+        visible to it, restoring support for that shape while an explicit,
+        unrecognized `type` is still passed through untouched and rejected
+        by the discriminator as before.
+        """
+        if not isinstance(data, dict):
+            return data
+        raw_input = data.get("input")
+        if not isinstance(raw_input, list):
+            return data
+        data = dict(data)
+        data["input"] = [
+            {**item, "type": "message"} if isinstance(item, dict) and "type" not in item else item
+            for item in raw_input
+        ]
+        return data
     instructions: str | list[ResponsesTextPart] | None = None
     background: bool = False
     client_metadata: dict[str, str] | None = None
@@ -120,19 +151,32 @@ class ResponsesCreateRequest(BaseModel):
         return self
 
 
+def _is_governed_user_message(item: ResponsesInputItem) -> bool:
+    """True for input items whose text is scanned/redacted by governance.
+
+    Mirrors _request_to_chat_body's role normalization (case-insensitive
+    comparison) so the governance scan and the chat-translation path treat
+    the same items as user messages.
+    """
+    return isinstance(item, ResponsesInputMessage) and item.role.lower() == "user"
+
+
 def _responses_input_text(input_value: str | list[ResponsesInputItem]) -> str:
     if isinstance(input_value, str):
         return input_value
-    for item in reversed(input_value):
-        if not isinstance(item, ResponsesInputMessage) or item.role != "user":
+    fragments: list[str] = []
+    for item in input_value:
+        if not _is_governed_user_message(item):
             continue
+        assert isinstance(item, ResponsesInputMessage)
         content = item.content
         if isinstance(content, str):
-            return content
-        return "".join(
-            part.text or "" for part in content if part.type in {"input_text", "text"}
-        )
-    return ""
+            fragments.append(content)
+        else:
+            fragments.append(
+                "".join(part.text or "" for part in content if part.type in {"input_text", "text"})
+            )
+    return "".join(fragments)
 
 
 @dataclass(frozen=True)
@@ -158,32 +202,40 @@ class ResponsesGatewayPayload:
             return ResponsesGatewayPayload(request=request)
 
         new_input = list(self.request.input)
-        for position in range(len(new_input) - 1, -1, -1):
+        governed_positions = [
+            position
+            for position, item in enumerate(new_input)
+            if _is_governed_user_message(item)
+        ]
+
+        leaves: list[str] = []
+        for position in governed_positions:
             item = new_input[position]
-            if not isinstance(item, ResponsesInputMessage) or item.role != "user":
-                continue
+            assert isinstance(item, ResponsesInputMessage)
             if isinstance(item.content, str):
-                new_input[position] = item.model_copy(update={"content": redacted_text})
+                leaves.append(item.content)
             else:
-                text_parts = [
-                    part for part in item.content if part.type in {"input_text", "text"}
-                ]
-                replacements = redistribute_redacted_text(
-                    [part.text or "" for part in text_parts], redacted_text
+                leaves.extend(
+                    part.text or "" for part in item.content if part.type in {"input_text", "text"}
                 )
-                replaced = iter(
-                    part.model_copy(update={"text": replacement})
-                    for part, replacement in zip(text_parts, replacements, strict=True)
-                )
+
+        replacements = iter(redistribute_redacted_text(leaves, redacted_text))
+        for position in governed_positions:
+            item = new_input[position]
+            assert isinstance(item, ResponsesInputMessage)
+            if isinstance(item.content, str):
+                new_input[position] = item.model_copy(update={"content": next(replacements)})
+            else:
                 new_input[position] = item.model_copy(
                     update={
                         "content": [
-                            next(replaced) if part.type in {"input_text", "text"} else part
+                            part.model_copy(update={"text": next(replacements)})
+                            if part.type in {"input_text", "text"}
+                            else part
                             for part in item.content
                         ]
                     }
                 )
-            break
         request = self.request.model_copy(update={"input": new_input})
         return ResponsesGatewayPayload(request=request)
 

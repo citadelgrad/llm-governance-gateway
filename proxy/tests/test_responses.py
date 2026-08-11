@@ -477,6 +477,27 @@ def test_responses_input_item_union_rejects_unknown_shape():
         )
 
 
+def test_responses_input_item_defaults_missing_type_to_message():
+    # OpenAI's official client SDK allows EasyInputMessageParam items that
+    # omit `type` entirely. The discriminated union needs `type` present in
+    # the raw dict to pick a branch, so this must be defaulted before
+    # discriminator resolution runs rather than relying on the field's
+    # Python-side default (which never gets a chance to apply).
+    request = ResponsesCreateRequest.model_validate(
+        {
+            "model": "gpt-4o-mini",
+            "input": [{"role": "user", "content": "hello"}],
+        }
+    )
+
+    assert isinstance(request.input, list)
+    (message,) = request.input
+    assert isinstance(message, ResponsesInputMessage)
+    assert message.type == "message"
+    assert message.role == "user"
+    assert message.content == "hello"
+
+
 def test_responses_translation_rejects_agent_lifecycle_items_not_yet_supported():
     with pytest.raises(ResponsesCompatError, match="function_call"):
         translate_responses_request(
