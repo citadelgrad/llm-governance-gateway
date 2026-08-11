@@ -15,17 +15,15 @@ import httpx
 from cachetools import TTLCache
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from proxy.app.anthropic_compat import (
-    AnthropicCompatError,
-    AnthropicGatewayPayload,
-    AnthropicMessagesRequest,
-    CountTokensRequest,
-    chat_response_to_anthropic,
-    count_tokens_approximate,
-    openai_sse_to_anthropic_sse,
-)
 from proxy.app.auth import AuthError, CallerContext, authenticate, authenticate_compat
 from proxy.app.bootstrap import maybe_bootstrap
+from proxy.app.client_codecs import (
+    AnthropicMessagesCodec,
+    CountTokensCodec,
+    OpenAIChatCodec,
+    PipelineResult,
+    ResponsesCodec,
+)
 from proxy.app.config import settings
 from proxy.app.dashboard import router as dashboard_router
 from proxy.app.db import jsonb_list as _jsonb_list
@@ -34,10 +32,7 @@ from proxy.app.headers import error_envelope, pii_headers, rate_limit_headers, r
 from proxy.app.middleware import BodySizeLimitMiddleware
 from proxy.app.protocol_types import (
     GatewayPayload,
-    OpenAIChatPayload,
-    OpenAIChatRequest,
     WireProtocol,
-    format_validation_location,
 )
 from proxy.app.provider_dispatch import ProviderClients, dispatch_provider
 from proxy.app.providers import anthropic as anthropic_provider
@@ -48,16 +43,10 @@ from proxy.app.providers import ollama as ollama_provider
 from proxy.app.providers import openai as openai_provider
 from proxy.app.providers.usage import UsageMetrics, extract_usage
 from proxy.app.rate_limit import RateLimiter
-from proxy.app.responses_compat import (
-    ResponsesCreateRequest,
-    ResponsesGatewayPayload,
-    openai_sse_to_responses_sse,
-    translate_chat_response,
-)
 from proxy.app.routing import load_models_yaml, resolve_provider
 from proxy.app.stream_usage import capture_stream_usage
 from proxy.app.usage_log import resolve_cost, write_usage_log
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
@@ -565,36 +554,13 @@ async def chat_completions(
     request: Request,
     caller: CallerContext = Depends(get_caller),
 ):
+    codec = OpenAIChatCodec()
     body = await _parse_json_body(request)
-    try:
-        chat_request = OpenAIChatRequest.model_validate(body)
-    except ValidationError as exc:
-        violations = sorted(
-            [
-                {
-                    "field": format_validation_location(error["loc"]),
-                    "type": error["type"],
-                    "message": error["msg"],
-                }
-                for error in exc.errors(include_url=False, include_input=False)
-            ],
-            key=lambda violation: violation["field"].count("."),
-            reverse=True,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail=error_envelope(
-                "invalid_request",
-                "Request body is not a valid OpenAI Chat Completions request",
-                details={"violations": violations},
-            ),
-        ) from exc
-    response, _, _ = await _run_gateway_pipeline(
-        request,
-        caller,
-        OpenAIChatPayload(chat_request),
+    payload = codec.decode_payload(body)
+    response, extra_headers, response_protocol = await _run_gateway_pipeline(request, caller, payload)
+    return codec.encode_response(
+        PipelineResult(response, extra_headers, response_protocol, payload.model)
     )
-    return response
 
 
 @app.post("/v1/responses")
@@ -602,61 +568,13 @@ async def responses(
     request: Request,
     caller: CallerContext = Depends(get_responses_caller),
 ):
+    codec = ResponsesCodec()
     body = await _parse_json_body(request)
-    try:
-        req = ResponsesCreateRequest.model_validate(body)
-    except ValidationError as exc:
-        violations = [
-            {
-                "field": format_validation_location(error["loc"]),
-                "type": error["type"],
-                "message": error["msg"],
-            }
-            for error in exc.errors(include_url=False, include_input=False)
-        ]
-        raise HTTPException(
-            status_code=400,
-            detail={
-                **error_envelope(
-                    "invalid_request", "Request body is not a valid OpenAI Responses request"
-                ),
-                "violations": violations,
-            },
-        ) from exc
-
-    response, extra_headers, response_protocol = await _run_gateway_pipeline(
-        request, caller, ResponsesGatewayPayload(req)
+    payload = codec.decode_payload(body)
+    response, extra_headers, response_protocol = await _run_gateway_pipeline(request, caller, payload)
+    return codec.encode_response(
+        PipelineResult(response, extra_headers, response_protocol, payload.model)
     )
-    if response_protocol == "openai_responses":
-        return response
-    if isinstance(response, StreamingResponse):
-        translated = openai_sse_to_responses_sse(
-            response.body_iterator, req.model
-        )
-        return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
-    if response.status_code >= 400:
-        return response
-
-    try:
-        chat_body = json.loads(bytes(response.body))
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=error_envelope(
-                "invalid_upstream_response",
-                "Provider returned an unexpected response shape",
-            ),
-        ) from exc
-
-    response_headers = dict(response.headers)
-    response_headers.pop("content-length", None)
-    translated_response = Response(
-        content=json.dumps(translate_chat_response(chat_body)),
-        status_code=response.status_code,
-        media_type="application/json",
-        headers=response_headers,
-    )
-    return translated_response
 
 
 @app.post("/v1/messages")
@@ -664,65 +582,13 @@ async def messages(
     request: Request,
     caller: CallerContext = Depends(get_caller_compat),
 ):
-    try:
-        req = AnthropicMessagesRequest.model_validate(await request.json())
-    except ValidationError as exc:
-        violations = [
-            {
-                "field": ".".join(str(part) for part in error["loc"]),
-                "type": error["type"],
-                "message": error["msg"],
-            }
-            for error in exc.errors(include_input=False, include_url=False)
-        ]
-        raise HTTPException(
-            status_code=400,
-            detail={
-                **error_envelope(
-                    "invalid_request",
-                    "Request body is not a valid Anthropic Messages request",
-                ),
-                "violations": violations,
-            },
-        ) from exc
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail=error_envelope("invalid_request", "Request body is not a valid Anthropic Messages request"),
-        ) from None
-
-    response, extra_headers, response_protocol = await _run_gateway_pipeline(
-        request, caller, AnthropicGatewayPayload(req)
+    codec = AnthropicMessagesCodec()
+    body = await _parse_json_body(request)
+    payload = codec.decode_payload(body)
+    response, extra_headers, response_protocol = await _run_gateway_pipeline(request, caller, payload)
+    return codec.encode_response(
+        PipelineResult(response, extra_headers, response_protocol, payload.model)
     )
-
-    if response_protocol == "anthropic_messages":
-        return response
-
-    if req.stream and isinstance(response, StreamingResponse):
-        translated = openai_sse_to_anthropic_sse(response.body_iterator, req.model)
-        return StreamingResponse(translated, media_type="text/event-stream", headers=extra_headers)
-
-    if (
-        not req.stream
-        and isinstance(response, Response)
-        and not isinstance(response, StreamingResponse)
-        and response.status_code == 200
-    ):
-        try:
-            chat_json = json.loads(bytes(response.body))
-        except (json.JSONDecodeError, ValueError):
-            return response
-        response_headers = dict(response.headers)
-        response_headers.update(extra_headers)
-        response_headers.pop("content-length", None)
-        return Response(
-            content=json.dumps(chat_response_to_anthropic(chat_json, req.model)),
-            status_code=200,
-            media_type="application/json",
-            headers=response_headers,
-        )
-
-    return response
 
 
 @app.post("/v1/messages/count_tokens")
@@ -730,29 +596,9 @@ async def count_tokens(
     request: Request,
     caller: CallerContext = Depends(get_caller_compat),
 ):
-    try:
-        req = CountTokensRequest.model_validate(await request.json())
-    except ValidationError as exc:
-        violations = [
-            {
-                "field": ".".join(str(part) for part in error["loc"]),
-                "type": error["type"],
-                "message": error["msg"],
-            }
-            for error in exc.errors(include_input=False, include_url=False)
-        ]
-        raise HTTPException(
-            status_code=400,
-            detail={
-                **error_envelope("invalid_request", "Request body is not valid"),
-                "violations": violations,
-            },
-        ) from exc
-    except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail=error_envelope("invalid_request", "Request body is not valid"),
-        ) from None
+    codec = CountTokensCodec()
+    body = await _parse_json_body(request)
+    req = codec.decode_request(body)
 
     tenant = await get_tenant_info(caller.tenant_id, request.app.state.db_pool)
     _enforce_allowed_model(req.model, tenant["allowed_models"])
@@ -770,15 +616,7 @@ async def count_tokens(
             detail=error_envelope(routing_method, f"Cannot route model: {req.model}"),
         )
 
-    try:
-        input_tokens = count_tokens_approximate(req.messages, req.system)
-    except AnthropicCompatError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=error_envelope("unsupported_message_shape", str(exc)),
-        ) from exc
-
-    return {"input_tokens": input_tokens}
+    return codec.encode_response(req)
 
 
 @app.get("/v1/models")

@@ -171,6 +171,8 @@ Native forwarding is the only lossless default. Cross-provider translation is a 
 
 Protocol DTOs may retain typed `JsonObject` extension regions where upstream unions evolve faster than the local semantic model. Those regions are forwarded only on native routes; translation adapters must reject unsupported contents.
 
+`proxy/app/client_codecs.py` owns the client wire boundary for OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Anthropic count-tokens. Route handlers parse JSON, ask the codec to validate and construct a `GatewayPayload`, run the generic pipeline, and ask the same codec to encode the native or translated buffered/streaming response. Protocol-specific validation envelopes, response headers, stale `content-length` handling, native passthrough, stream translation, and malformed-upstream errors stay inside the codec boundary rather than in `main.py`.
+
 The gateway does not currently decode requests into a shared `CanonicalRequest` or wrap buffered assistant responses in a shared `CanonicalAssistantResponse`. That broader migration is deferred until an implementation can prove lossless handling of protocol-specific state rather than flattening to a least-common-denominator request shape.
 
 ## Current implementation guarantees
@@ -187,6 +189,7 @@ The gateway does not currently decode requests into a shared `CanonicalRequest` 
 - Flattened PII results are redistributed to their original text leaves, preserving unaffected leaves.
 - Gemini function declarations, function calls, and function responses are translated; unsupported Chat controls are rejected rather than dropped.
 - Anthropic function tools and named tool choices are converted to Anthropic wire shapes.
+- Provider dispatch returns normalized response protocol and usage-provider metadata; client codecs own final client-wire JSON/SSE encoding.
 
 ## Remaining typed migrations
 
@@ -196,10 +199,9 @@ These are required before claiming universal semantic compatibility:
 2. Model all Responses input/output item and stream-event variants needed by Codex, including shell, patch, MCP, computer, and background lifecycle.
 3. Finish strict Chat buffered-response DTOs and the remaining top-level nested request controls; request messages/content/tools and stream chunks are typed.
 4. Add Gemini protocol DTOs aligned with `google.genai.types` and exhaustive finish/error mapping.
-5. Normalize provider results before Starlette serialization: buffered result vs typed event stream, upstream provider, response protocol, usage, and terminal error.
-6. Replace flattened PII-result redistribution with direct provider finding paths/spans when the governance backend exposes them.
-7. Add captured, immutable Continue, Codex, Claude Code, and Hermes request/stream fixtures. Current client contracts are hand-authored from documented/current shapes rather than byte captures.
-8. Extend the official SDK drift suite beyond top-level create fields into every nested union tag and streaming event family.
+5. Replace flattened PII-result redistribution with direct provider finding paths/spans when the governance backend exposes them.
+6. Add captured, immutable Continue, Codex, Claude Code, and Hermes request/stream fixtures. Current client contracts are hand-authored from documented/current shapes rather than byte captures.
+7. Extend the official SDK drift suite beyond top-level create fields into every nested union tag and streaming event family.
 
 ## Authoritative sources
 
