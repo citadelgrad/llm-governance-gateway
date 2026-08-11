@@ -1,0 +1,21 @@
+proxy/tests/test_responses.py
+  s_ac329efa20149b::t_c1399f39126a40 480-500
+proxy/app/responses_compat.py
+  s_ac329efa20149b::t_c1399f39126a40 6,40,52,57-59,84-113,154-163,167-169,171,174-179,205-212,214,216,218-219,221-228,232-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "49bf35799989824dc572a32817866a1dbf1f29c0",
+  "prompts": {},
+  "sessions": {
+    "s_ac329efa20149b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f254d660-2ab6-47d5-a0d0-e179a9e88fee",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
