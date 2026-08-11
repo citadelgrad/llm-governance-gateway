@@ -1,0 +1,26 @@
+proxy/app/provider_capabilities.py
+  s_69602f31767f25::t_c77b2272509beb 238-251
+proxy/tests/test_provider_dispatch.py
+  s_69602f31767f25::t_223e3f1f107336 1-251
+proxy/app/main.py
+  s_69602f31767f25::t_dad3fe9598aaca 42,480-498,518,537
+proxy/app/provider_dispatch.py
+  s_69602f31767f25::t_0da13a5457a145 4,117,130,143,158,170,203
+  s_69602f31767f25::t_c77b2272509beb 1-3,5-116,118-129,131-142,144-157,159-169,171-202,204-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "8629a5b1a6f64605b8a15db1d87ad91702cce038",
+  "prompts": {},
+  "sessions": {
+    "s_69602f31767f25": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef55-f642-7a50-8e67-e02b5bc90da8",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
