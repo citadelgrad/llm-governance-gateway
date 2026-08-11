@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-from codecs import getincrementaldecoder
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
+from proxy.app.openai_chat_stream import iter_openai_chat_events
 from proxy.app.protocol_types import (
     JsonObject,
     JsonSchema,
-    OpenAIChatCompletionChunk,
     OpenAIChatResponse,
     ProtocolTranslationError,
     WireProtocol,
@@ -714,90 +713,6 @@ def chat_response_to_anthropic(chat_json: JsonObject, model: str) -> JsonObject:
     }
 
 
-async def _iter_sse_json(body_iterator):
-    """Parse `data:` lines out of a raw SSE byte/str iterator as JSON payloads.
-
-    Buffers text across chunk boundaries so a `data: {...}` line split across two
-    network reads (fragmented SSE) is reassembled before being parsed, instead of
-    silently failing json.loads on a half-line and dropping the event.
-    """
-    buffer = ""
-    decoder = getincrementaldecoder("utf-8")(errors="strict")
-
-    def stream_error(message: str) -> JsonObject:
-        return {"error": {"type": "invalid_upstream_stream", "message": message}}
-
-    async for raw in body_iterator:
-        try:
-            if isinstance(raw, bytes):
-                buffer += decoder.decode(raw, final=False)
-            else:
-                pending, _ = decoder.getstate()
-                if pending:
-                    yield stream_error("Provider stream changed chunk type during UTF-8 sequence")
-                    return
-                buffer += raw
-        except UnicodeDecodeError:
-            yield stream_error("Provider stream contained invalid UTF-8")
-            return
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            line = line.rstrip("\r")
-            if not line.startswith("data:"):
-                continue
-            data_str = line[len("data:"):].strip()
-            if not data_str or data_str == "[DONE]":
-                continue
-            try:
-                payload = json.loads(data_str)
-            except json.JSONDecodeError:
-                yield stream_error("Provider stream contained malformed JSON")
-                return
-            if not isinstance(payload, dict):
-                yield stream_error("Provider stream event was not a JSON object")
-                return
-            yield payload
-
-    try:
-        buffer += decoder.decode(b"", final=True)
-    except UnicodeDecodeError:
-        yield stream_error("Provider stream ended with incomplete UTF-8")
-        return
-
-    # Upstream may close without a trailing newline after the last data: line.
-    line = buffer.rstrip("\r")
-    if line.startswith("data:"):
-        data_str = line[len("data:"):].strip()
-        if data_str and data_str != "[DONE]":
-            try:
-                payload = json.loads(data_str)
-            except json.JSONDecodeError:
-                yield stream_error("Provider stream ended with malformed JSON")
-                return
-            if not isinstance(payload, dict):
-                yield stream_error("Provider stream event was not a JSON object")
-                return
-            yield payload
-
-
-async def _iter_openai_chat_events(body_iterator):
-    """Decode Chat SSE into strict chunks or one sanitized terminal error."""
-    async for event in _iter_sse_json(body_iterator):
-        if "error" in event and "choices" not in event:
-            yield event
-            return
-        try:
-            yield OpenAIChatCompletionChunk.model_validate(event)
-        except ValidationError:
-            yield {
-                "error": {
-                    "type": "invalid_upstream_stream",
-                    "message": "Provider stream chunk did not match the Chat protocol",
-                }
-            }
-            return
-
-
 def _message_start_event(message_id: str, model: str) -> str:
     _start = {
         "type": "message_start",
@@ -854,7 +769,7 @@ async def openai_sse_to_anthropic_sse(body_iterator, model: str):
     output_tokens = 0
     finish_reason: str | None = None
 
-    async for event in _iter_openai_chat_events(body_iterator):
+    async for event in iter_openai_chat_events(body_iterator):
         if isinstance(event, dict):
             raw_error = event.get("error")
             error_info = raw_error if isinstance(raw_error, dict) else {"message": str(raw_error)}

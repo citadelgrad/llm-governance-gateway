@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from uuid import uuid4
 
-from proxy.app.anthropic_compat import _iter_openai_chat_events
+from proxy.app.openai_chat_stream import iter_openai_chat_events
 from proxy.app.protocol_types import (
     ExecutionFunctionCallItem,
     ExecutionFunctionCallOutputItem,
@@ -614,7 +614,7 @@ async def openai_sse_to_responses_sse(body_iterator, model: str):
         },
     )
 
-    async for decoded_event in _iter_openai_chat_events(body_iterator):
+    async for decoded_event in iter_openai_chat_events(body_iterator):
         if isinstance(decoded_event, dict):
             raw_error = decoded_event.get("error")
             error_info = raw_error if isinstance(raw_error, dict) else {}
