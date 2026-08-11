@@ -1,0 +1,19 @@
+.pas/test-results.md
+  s_51c216d1a1aecd::t_c654c417ac6736 10,17,19-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "28772a45f439116d1552c75d50be370546fff0a3",
+  "prompts": {},
+  "sessions": {
+    "s_51c216d1a1aecd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fefa3-0419-7742-8e0f-dac6217832d6",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
