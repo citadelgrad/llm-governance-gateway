@@ -1,0 +1,56 @@
+.pas/test-results.md
+  s_9f60c93f600b02::t_1b5bc15ca86d26 2-4,6-8,13-16,24,29-30
+  s_457db9006518bf::t_ac4269c2cb4799 11,18
+  s_c6363b1746f257::t_c83ee241cfb42b 1,5,9-10,12,17,19-23,27,31
+  s_66df23fe98614c::t_03b389c6abc9ee 25-26,28
+proxy/app/client_codecs.py
+  s_c6363b1746f257::t_d5ef5a0fa743cd 1-3,7-42,44-53,56-123,125-186,188-242
+  s_c6363b1746f257::t_7014954e8353f6 4,55
+  s_c6363b1746f257::t_4383b12e836f5f 6,43,54,124,187
+  s_c6363b1746f257::t_663bfafd06d70f 5
+proxy/app/main.py
+  s_c6363b1746f257::t_fa8ef72adf9af5 20-26,49
+  s_c6363b1746f257::t_cd15dddd418a6f 557,559-562,571,573-576,585-590,599-601,619
+proxy/tests/test_client_codecs.py
+  s_c6363b1746f257::t_afbec4788d8089 1-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "59178a28d4eea992930f61c9642942556f4be88b",
+  "prompts": {},
+  "sessions": {
+    "s_457db9006518bf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef94-786f-7782-8080-32635263c243",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_66df23fe98614c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef63-d86c-74a2-923e-571aab04dd14",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_9f60c93f600b02": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef46-8be1-70a0-b0d6-8ea43f29c1b1",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    },
+    "s_c6363b1746f257": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef9b-eceb-7200-b54c-a849ba5e0f23",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
