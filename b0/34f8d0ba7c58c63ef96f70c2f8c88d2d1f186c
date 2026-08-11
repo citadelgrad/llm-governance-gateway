@@ -1,0 +1,30 @@
+proxy/tests/test_protocol_types.py
+  s_5b251480178950::t_407537ebb08378 11-13,99-116
+  s_5b251480178950::t_3299651706e705 117-118
+proxy/app/protocol_types.py
+  s_5b251480178950::t_2a558c38a27000 99-178
+proxy/tests/test_stream_events.py
+  s_5b251480178950::t_69157a1e6b4f2e 1-178
+proxy/app/providers/anthropic.py
+  s_5b251480178950::t_21e08ec96b2802 11-14,424-431
+proxy/app/stream_events.py
+  s_5b251480178950::t_2813d906f28f8e 1-345
+proxy/app/responses_compat.py
+  s_5b251480178950::t_a6eba190872343 10-16,27,624-625,635-636,640-643,645-648,650-652,655-656,678,684,686,688-702,704-716,718-751,753-793
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "b034f8d0ba7c58c63ef96f70c2f8c88d2d1f186c",
+  "prompts": {},
+  "sessions": {
+    "s_5b251480178950": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef83-08ef-7113-8833-53fb98cc1607",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
