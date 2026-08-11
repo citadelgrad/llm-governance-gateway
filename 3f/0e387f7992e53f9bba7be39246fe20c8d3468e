@@ -1,0 +1,20 @@
+docs/llm-protocol-foundation.md
+  s_851c27b539b84a::t_77999978e7a7d3 7-15,19-20,167,169,174
+  s_851c27b539b84a::t_732c41e46997ea 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3f0e387f7992e53f9bba7be39246fe20c8d3468e",
+  "prompts": {},
+  "sessions": {
+    "s_851c27b539b84a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fef8f-dfd1-7970-84a3-7434bc1ecbd8",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Scott Nixon <citadelgrad@gmail.com>"
+    }
+  }
+}
