@@ -31,7 +31,7 @@ dependencies = [
     # Pinned via ai-gateway-6bh (Dependabot consolidation, PRs #3-#7):
     # previously transitive-only; pinned exact to match the
     # Dependabot-proposed resolved versions.
-    "setuptools==83.0.0",
+    "setuptools==84.1.0",
     "aiohttp==3.14.3",
     # cryptography and starlette are also exact-pinned in
     # proxy/pyproject.toml (both intentionally kept as separate,
