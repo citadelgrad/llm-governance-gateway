@@ -28,7 +28,7 @@ dependencies = [
     # Pinned via ai-gateway-6bh (Dependabot consolidation, PRs #8-#11):
     # previously transitive-only; pinned exact to match the
     # Dependabot-proposed resolved versions.
-    "pyasn1==0.6.4",
+    "pyasn1==0.6.5",
     # starlette and cryptography are also exact-pinned in
     # governance/pyproject.toml (both intentionally kept as separate,
     # independently deployable services — no root-level uv workspace).
